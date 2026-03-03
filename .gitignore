@@ -41,3 +41,6 @@ SESSION_*.md
 verify_*.sh
 newfile.txt
 repro_*.rs
+
+# Test output binaries/files (parser test artifacts at repo root)
+/test_*
