@@ -259,6 +259,7 @@ enum FlowDocumentItem {
 struct FlowDocumentParseResult {
     items: Vec<FlowDocumentItem>,
     warnings: Vec<String>,
+    header_direction: Option<GraphDirection>,
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +591,9 @@ fn lower_flow_document_item(
 
 fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
     let document = parse_flowchart_document(input);
+    if let Some(direction) = document.header_direction {
+        builder.set_direction(direction);
+    }
     for warning in &document.warnings {
         builder.add_warning(warning.clone());
     }
@@ -606,15 +610,25 @@ fn parse_flowchart_document(input: &str) -> FlowDocumentParseResult {
         .collect();
     let mut next_index = 0;
     let mut warnings = Vec::new();
-    let (items, unclosed_subgraphs) =
-        parse_flowchart_document_items(&lines, &mut next_index, false, &mut warnings);
+    let mut header_direction = None;
+    let (items, unclosed_subgraphs) = parse_flowchart_document_items(
+        &lines,
+        &mut next_index,
+        false,
+        &mut warnings,
+        &mut header_direction,
+    );
     if unclosed_subgraphs > 0 {
         warnings.push(format!(
             "Flowchart ended with {} unclosed subgraph block(s)",
             unclosed_subgraphs
         ));
     }
-    FlowDocumentParseResult { items, warnings }
+    FlowDocumentParseResult {
+        items,
+        warnings,
+        header_direction,
+    }
 }
 
 fn parse_flowchart_document_items(
@@ -622,6 +636,7 @@ fn parse_flowchart_document_items(
     next_index: &mut usize,
     stop_on_end: bool,
     warnings: &mut Vec<String>,
+    header_direction: &mut Option<GraphDirection>,
 ) -> (Vec<FlowDocumentItem>, usize) {
     let mut items = Vec::new();
     let mut unclosed_subgraphs = 0;
@@ -635,6 +650,7 @@ fn parse_flowchart_document_items(
         }
 
         if is_flowchart_header(trimmed) {
+            *header_direction = parse_graph_direction(trimmed);
             continue;
         }
 
@@ -656,8 +672,13 @@ fn parse_flowchart_document_items(
             if let Some((cluster_key, cluster_title)) =
                 parse_subgraph_statement(normalized_statement)
             {
-                let (body, child_unclosed) =
-                    parse_flowchart_document_items(lines, next_index, true, warnings);
+                let (body, child_unclosed) = parse_flowchart_document_items(
+                    lines,
+                    next_index,
+                    true,
+                    warnings,
+                    header_direction,
+                );
                 unclosed_subgraphs += child_unclosed;
                 line_items.push(FlowDocumentItem::Subgraph {
                     id: cluster_key,
