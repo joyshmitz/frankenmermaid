@@ -66,6 +66,15 @@ struct NodeToken {
     shape: NodeShape,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockDef {
+    id: String,
+    label: Option<String>,
+    shape: NodeShape,
+    span_cols: usize,
+    is_space: bool,
+}
+
 /// Simple type detection (used by tests).
 #[must_use]
 #[allow(dead_code)] // Used by tests
@@ -167,6 +176,7 @@ pub fn parse_mermaid_with_detection(input: &str, detection: DetectedType) -> Par
         DiagramType::Pie => parse_pie(content, &mut builder),
         DiagramType::QuadrantChart => parse_quadrant(content, &mut builder),
         DiagramType::GitGraph => parse_gitgraph(content, &mut builder),
+        DiagramType::BlockBeta => parse_block_beta(content, &mut builder),
         DiagramType::Unknown => {
             builder
                 .add_warning("Unable to detect diagram type; using best-effort flowchart parsing");
@@ -2081,6 +2091,267 @@ impl GitGraphState {
     }
 }
 
+fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
+    let mut active_groups: Vec<(usize, Option<usize>)> = Vec::new();
+
+    for (index, line) in input.lines().enumerate() {
+        let line_number = index + 1;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || is_comment(trimmed) {
+            continue;
+        }
+
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("block-beta") {
+            continue;
+        }
+
+        let span = span_for(line_number, line);
+
+        if let Some(columns) = parse_block_beta_columns(trimmed) {
+            builder.add_warning(format!(
+                "Line {line_number}: block-beta columns {columns} recognized but column layout metadata is not implemented yet"
+            ));
+            continue;
+        }
+
+        if lower == "end" {
+            if active_groups.pop().is_none() {
+                builder.add_warning(format!(
+                    "Line {line_number}: block-beta end without matching block group"
+                ));
+            }
+            continue;
+        }
+
+        if let Some((group_key, span_cols)) = parse_block_beta_group_start(trimmed) {
+            let parent_subgraph = active_groups.last().and_then(|(_, subgraph)| *subgraph);
+            let cluster_index = builder.ensure_cluster(&group_key, Some(&group_key), span);
+            let subgraph_index = cluster_index.and_then(|cluster_idx| {
+                builder.ensure_subgraph(
+                    &group_key,
+                    Some(&group_key),
+                    span,
+                    parent_subgraph,
+                    Some(cluster_idx),
+                )
+            });
+
+            if let Some(span_cols) = span_cols
+                && span_cols > 1
+            {
+                builder.add_warning(format!(
+                    "Line {line_number}: block-beta group '{group_key}' span {span_cols} recognized but group span layout is not implemented yet"
+                ));
+            }
+
+            match (cluster_index, subgraph_index) {
+                (Some(cluster_idx), subgraph_idx) => {
+                    active_groups.push((cluster_idx, subgraph_idx))
+                }
+                _ => builder.add_warning(format!(
+                    "Line {line_number}: invalid block-beta group identifier: {trimmed}"
+                )),
+            }
+            continue;
+        }
+
+        if find_operator(trimmed, &FLOW_OPERATORS).is_some()
+            && parse_edge_statement(trimmed, line_number, line, &FLOW_OPERATORS, builder)
+        {
+            continue;
+        }
+
+        let blocks = parse_block_beta_blocks(trimmed, line_number);
+        if !blocks.is_empty() {
+            for block in blocks {
+                let Some(node_id) =
+                    builder.intern_node(&block.id, block.label.as_deref(), block.shape, span)
+                else {
+                    builder.add_warning(format!(
+                        "Line {line_number}: invalid block-beta block identifier: {}",
+                        block.id
+                    ));
+                    continue;
+                };
+
+                builder.add_class_to_node(&block.id, "block-beta", span);
+                if block.is_space {
+                    builder.add_class_to_node(&block.id, "block-beta-space", span);
+                }
+                if block.span_cols > 1 {
+                    builder.add_class_to_node(
+                        &block.id,
+                        &format!("block-beta-span-{}", block.span_cols),
+                        span,
+                    );
+                    builder.add_warning(format!(
+                        "Line {line_number}: block-beta block '{}' span {} recognized but span-aware layout is not implemented yet",
+                        block.id, block.span_cols
+                    ));
+                }
+
+                for (cluster_index, subgraph_index) in &active_groups {
+                    builder.add_node_to_cluster(*cluster_index, node_id);
+                    if let Some(subgraph_index) = subgraph_index {
+                        builder.add_node_to_subgraph(*subgraph_index, node_id);
+                    }
+                }
+            }
+            continue;
+        }
+
+        builder.add_warning(format!(
+            "Line {line_number}: unsupported block-beta syntax: {trimmed}"
+        ));
+    }
+
+    if !active_groups.is_empty() {
+        builder.add_warning(format!(
+            "Block-beta diagram ended with {} unclosed block group(s)",
+            active_groups.len()
+        ));
+    }
+}
+
+fn parse_block_beta_columns(line: &str) -> Option<usize> {
+    let lower = line.to_ascii_lowercase();
+    let rest = lower.strip_prefix("columns")?.trim();
+    rest.parse::<usize>().ok()
+}
+
+fn parse_block_beta_group_start(line: &str) -> Option<(String, Option<usize>)> {
+    let rest = line.strip_prefix("block:")?.trim();
+    if rest.is_empty() {
+        return None;
+    }
+
+    let (raw_key, span_cols) = match rest.rsplit_once(':') {
+        Some((candidate_key, candidate_span))
+            if candidate_span.trim().chars().all(|ch| ch.is_ascii_digit()) =>
+        {
+            (
+                candidate_key.trim(),
+                candidate_span.trim().parse::<usize>().ok(),
+            )
+        }
+        _ => (rest, None),
+    };
+
+    let key = normalize_identifier(raw_key);
+    (!key.is_empty()).then_some((key, span_cols))
+}
+
+fn parse_block_beta_blocks(line: &str, line_number: usize) -> Vec<BlockDef> {
+    let lower = line.to_ascii_lowercase();
+    if lower == "space" || lower.starts_with("space:") {
+        let span_cols = lower
+            .strip_prefix("space:")
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(1);
+        return vec![BlockDef {
+            id: format!("__space_{line_number}"),
+            label: None,
+            shape: NodeShape::Rect,
+            span_cols,
+            is_space: true,
+        }];
+    }
+
+    split_block_beta_defs(line)
+        .into_iter()
+        .filter_map(|token| try_parse_block_beta_def(token.trim()))
+        .collect()
+}
+
+fn split_block_beta_defs(line: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    let mut square_depth = 0_usize;
+
+    for ch in line.chars() {
+        if let Some(quote) = in_quote {
+            current.push(ch);
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if ch == '\\' && quote != '`' {
+                escaped = true;
+                continue;
+            }
+            if ch == quote {
+                in_quote = None;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' | '\'' | '`' => {
+                in_quote = Some(ch);
+                current.push(ch);
+            }
+            '[' => {
+                square_depth = square_depth.saturating_add(1);
+                current.push(ch);
+            }
+            ']' => {
+                square_depth = square_depth.saturating_sub(1);
+                current.push(ch);
+            }
+            _ if ch.is_whitespace() && square_depth == 0 => {
+                let token = current.trim();
+                if !token.is_empty() {
+                    tokens.push(token.to_string());
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    let token = current.trim();
+    if !token.is_empty() {
+        tokens.push(token.to_string());
+    }
+
+    tokens
+}
+
+fn try_parse_block_beta_def(token: &str) -> Option<BlockDef> {
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if find_operator(trimmed, &FLOW_OPERATORS).is_some() {
+        return None;
+    }
+
+    let (core, span_cols) = match trimmed.rsplit_once(':') {
+        Some((candidate_core, candidate_span))
+            if candidate_span.trim().chars().all(|ch| ch.is_ascii_digit()) =>
+        {
+            (
+                candidate_core.trim(),
+                candidate_span.trim().parse::<usize>().ok().unwrap_or(1),
+            )
+        }
+        _ => (trimmed, 1),
+    };
+
+    let node = parse_node_token(core)?;
+    Some(BlockDef {
+        id: node.id,
+        label: node.label,
+        shape: node.shape,
+        span_cols,
+        is_space: false,
+    })
+}
+
 fn parse_gitgraph(input: &str, builder: &mut IrBuilder) {
     let mut state = GitGraphState::new();
 
@@ -3875,6 +4146,128 @@ mod tests {
         assert_eq!(parsed.ir.diagram_type, DiagramType::PacketBeta);
         assert_eq!(parsed.ir.nodes.len(), 3);
         assert_eq!(parsed.ir.edges.len(), 2);
+    }
+
+    #[test]
+    fn block_beta_parses_basic_blocks_without_flowchart_fallback_warning() {
+        let parsed = parse_mermaid("block-beta\ncolumns 2\nalpha[Alpha]\nbeta[Beta]");
+        assert_eq!(parsed.ir.diagram_type, DiagramType::BlockBeta);
+        assert_eq!(parsed.ir.nodes.len(), 2);
+        assert_eq!(parsed.ir.edges.len(), 0);
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .all(|warning| !warning.contains("using best-effort flowchart parsing"))
+        );
+
+        let alpha = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "alpha")
+            .unwrap();
+        let beta = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "beta")
+            .unwrap();
+        assert!(
+            alpha
+                .classes
+                .iter()
+                .any(|class_name| class_name == "block-beta")
+        );
+        assert!(
+            beta.classes
+                .iter()
+                .any(|class_name| class_name == "block-beta")
+        );
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| { warning.contains("block-beta columns 2 recognized") })
+        );
+    }
+
+    #[test]
+    fn block_beta_parses_multiple_blocks_on_one_line() {
+        let parsed = parse_mermaid("block-beta\nsvc[Service] db[(Database)] cache:2");
+        assert_eq!(parsed.ir.diagram_type, DiagramType::BlockBeta);
+        assert_eq!(parsed.ir.nodes.len(), 3);
+        assert!(parsed.ir.nodes.iter().any(|node| node.id == "svc"));
+        assert!(parsed.ir.nodes.iter().any(|node| node.id == "db"));
+        assert!(parsed.ir.nodes.iter().any(|node| node.id == "cache"));
+
+        let db = parsed.ir.nodes.iter().find(|node| node.id == "db").unwrap();
+        assert_eq!(db.shape, NodeShape::Cylinder);
+        let cache = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "cache")
+            .unwrap();
+        assert!(
+            cache
+                .classes
+                .iter()
+                .any(|class_name| class_name == "block-beta-span-2")
+        );
+    }
+
+    #[test]
+    fn block_beta_nested_groups_populate_clusters_and_subgraphs() {
+        let parsed = parse_mermaid(
+            "block-beta\nblock:api\nsvc[Service]\nblock:data:2\ndb[(Database)]\nend\nend",
+        );
+        assert_eq!(parsed.ir.diagram_type, DiagramType::BlockBeta);
+        assert_eq!(parsed.ir.clusters.len(), 2);
+        assert_eq!(parsed.ir.graph.subgraphs.len(), 2);
+
+        let api = parsed.ir.graph.subgraphs_by_key("api");
+        let data = parsed.ir.graph.subgraphs_by_key("data");
+        assert_eq!(api.len(), 1);
+        assert_eq!(data.len(), 1);
+        let api = api[0];
+        let data = data[0];
+        assert_eq!(api.parent, None);
+        assert_eq!(data.parent, Some(api.id));
+
+        let svc = parsed.ir.find_node_index("svc").unwrap();
+        let db = parsed.ir.find_node_index("db").unwrap();
+        let svc_graph = &parsed.ir.graph.nodes[svc];
+        let db_graph = &parsed.ir.graph.nodes[db];
+        assert_eq!(svc_graph.subgraphs, vec![api.id]);
+        assert_eq!(db_graph.subgraphs, vec![api.id, data.id]);
+    }
+
+    #[test]
+    fn block_beta_parses_edges_between_blocks() {
+        let parsed = parse_mermaid("block-beta\nalpha[Alpha] beta[Beta]\nalpha --> beta");
+        assert_eq!(parsed.ir.diagram_type, DiagramType::BlockBeta);
+        assert_eq!(parsed.ir.nodes.len(), 2);
+        assert_eq!(parsed.ir.edges.len(), 1);
+        assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Arrow);
+    }
+
+    #[test]
+    fn block_beta_space_blocks_are_materialized_as_placeholder_nodes() {
+        let parsed = parse_mermaid("block-beta\nspace:2");
+        assert_eq!(parsed.ir.diagram_type, DiagramType::BlockBeta);
+        assert_eq!(parsed.ir.nodes.len(), 1);
+        let space = &parsed.ir.nodes[0];
+        assert!(space.id.starts_with("__space_"));
+        assert!(
+            space
+                .classes
+                .iter()
+                .any(|class_name| class_name == "block-beta-space")
+        );
+        assert!(parsed.warnings.iter().any(|warning| {
+            warning.contains("span 2 recognized but span-aware layout is not implemented yet")
+        }));
     }
 
     #[test]
