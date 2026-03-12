@@ -492,6 +492,97 @@ impl MermaidGraphIr {
             .filter(|subgraph| subgraph.parent.is_none())
             .collect()
     }
+
+    #[must_use]
+    pub fn node_clusters(&self, node_id: IrNodeId) -> Vec<&IrGraphCluster> {
+        self.node(node_id)
+            .map(|node| {
+                node.clusters
+                    .iter()
+                    .filter_map(|&cluster_id| self.cluster(cluster_id))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[must_use]
+    pub fn node_subgraphs(&self, node_id: IrNodeId) -> Vec<&IrSubgraph> {
+        self.node(node_id)
+            .map(|node| {
+                node.subgraphs
+                    .iter()
+                    .filter_map(|&subgraph_id| self.subgraph(subgraph_id))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Returns ancestors from the root-most parent down to the immediate parent.
+    #[must_use]
+    pub fn subgraph_ancestors(&self, subgraph_id: IrSubgraphId) -> Vec<&IrSubgraph> {
+        let mut ancestors = Vec::new();
+        let mut current = self
+            .subgraph(subgraph_id)
+            .and_then(|subgraph| subgraph.parent);
+
+        while let Some(parent_id) = current {
+            let Some(parent) = self.subgraph(parent_id) else {
+                break;
+            };
+            ancestors.push(parent);
+            current = parent.parent;
+        }
+
+        ancestors.reverse();
+        ancestors
+    }
+
+    /// Returns descendant subgraphs in deterministic pre-order traversal.
+    #[must_use]
+    pub fn subgraph_descendants(&self, subgraph_id: IrSubgraphId) -> Vec<&IrSubgraph> {
+        fn visit<'a>(
+            graph: &'a MermaidGraphIr,
+            subgraph_id: IrSubgraphId,
+            descendants: &mut Vec<&'a IrSubgraph>,
+        ) {
+            let Some(subgraph) = graph.subgraph(subgraph_id) else {
+                return;
+            };
+            for &child_id in &subgraph.children {
+                let Some(child) = graph.subgraph(child_id) else {
+                    continue;
+                };
+                descendants.push(child);
+                visit(graph, child_id, descendants);
+            }
+        }
+
+        let mut descendants = Vec::new();
+        visit(self, subgraph_id, &mut descendants);
+        descendants
+    }
+
+    /// Returns unique member nodes from this subgraph and all descendant subgraphs.
+    #[must_use]
+    pub fn subgraph_members_recursive(&self, subgraph_id: IrSubgraphId) -> Vec<IrNodeId> {
+        fn collect(graph: &MermaidGraphIr, subgraph_id: IrSubgraphId, members: &mut Vec<IrNodeId>) {
+            let Some(subgraph) = graph.subgraph(subgraph_id) else {
+                return;
+            };
+            for &member in &subgraph.members {
+                if !members.contains(&member) {
+                    members.push(member);
+                }
+            }
+            for &child_id in &subgraph.children {
+                collect(graph, child_id, members);
+            }
+        }
+
+        let mut members = Vec::new();
+        collect(self, subgraph_id, &mut members);
+        members
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2394,6 +2485,170 @@ mod tests {
             ir.graph_subgraph(IrSubgraphId(0))
                 .map(|subgraph| subgraph.key.as_str()),
             Some("root")
+        );
+        assert_eq!(ir.graph.node_clusters(IrNodeId(0)).len(), 1);
+        assert_eq!(ir.graph.node_subgraphs(IrNodeId(0)).len(), 1);
+    }
+
+    #[test]
+    fn graph_ir_traversal_helpers_follow_hierarchy_deterministically() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.graph.nodes.push(IrGraphNode {
+            node_id: IrNodeId(0),
+            kind: IrNodeKind::Generic,
+            clusters: vec![IrClusterId(0)],
+            subgraphs: vec![IrSubgraphId(0)],
+        });
+        ir.graph.nodes.push(IrGraphNode {
+            node_id: IrNodeId(1),
+            kind: IrNodeKind::Generic,
+            clusters: vec![IrClusterId(0), IrClusterId(1)],
+            subgraphs: vec![IrSubgraphId(0), IrSubgraphId(1)],
+        });
+        ir.graph.nodes.push(IrGraphNode {
+            node_id: IrNodeId(2),
+            kind: IrNodeKind::Generic,
+            clusters: vec![IrClusterId(0), IrClusterId(1), IrClusterId(2)],
+            subgraphs: vec![IrSubgraphId(0), IrSubgraphId(1), IrSubgraphId(2)],
+        });
+        ir.graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(0),
+            title: None,
+            members: vec![IrNodeId(0), IrNodeId(1), IrNodeId(2)],
+            subgraph: Some(IrSubgraphId(0)),
+            span: sample_span(1, 1, 1),
+        });
+        ir.graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(1),
+            title: None,
+            members: vec![IrNodeId(1), IrNodeId(2)],
+            subgraph: Some(IrSubgraphId(1)),
+            span: sample_span(2, 1, 1),
+        });
+        ir.graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(2),
+            title: None,
+            members: vec![IrNodeId(2)],
+            subgraph: Some(IrSubgraphId(2)),
+            span: sample_span(3, 1, 1),
+        });
+        ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(0),
+            key: "root".to_string(),
+            title: None,
+            parent: None,
+            children: vec![IrSubgraphId(1)],
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            cluster: Some(IrClusterId(0)),
+            span: sample_span(1, 1, 1),
+        });
+        ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(1),
+            key: "child".to_string(),
+            title: None,
+            parent: Some(IrSubgraphId(0)),
+            children: vec![IrSubgraphId(2)],
+            members: vec![IrNodeId(1), IrNodeId(2)],
+            cluster: Some(IrClusterId(1)),
+            span: sample_span(2, 1, 1),
+        });
+        ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(2),
+            key: "leaf".to_string(),
+            title: None,
+            parent: Some(IrSubgraphId(1)),
+            children: Vec::new(),
+            members: vec![IrNodeId(2)],
+            cluster: Some(IrClusterId(2)),
+            span: sample_span(3, 1, 1),
+        });
+
+        assert_eq!(
+            ir.graph
+                .subgraph_ancestors(IrSubgraphId(2))
+                .into_iter()
+                .map(|subgraph| subgraph.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["root", "child"]
+        );
+        assert_eq!(
+            ir.graph
+                .subgraph_descendants(IrSubgraphId(0))
+                .into_iter()
+                .map(|subgraph| subgraph.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["child", "leaf"]
+        );
+        assert_eq!(
+            ir.graph.subgraph_members_recursive(IrSubgraphId(0)),
+            vec![IrNodeId(0), IrNodeId(1), IrNodeId(2)]
+        );
+        assert_eq!(
+            ir.graph
+                .node_clusters(IrNodeId(2))
+                .into_iter()
+                .map(|cluster| cluster.cluster_id)
+                .collect::<Vec<_>>(),
+            vec![IrClusterId(0), IrClusterId(1), IrClusterId(2)]
+        );
+        assert_eq!(
+            ir.graph
+                .node_subgraphs(IrNodeId(2))
+                .into_iter()
+                .map(|subgraph| subgraph.id)
+                .collect::<Vec<_>>(),
+            vec![IrSubgraphId(0), IrSubgraphId(1), IrSubgraphId(2)]
+        );
+    }
+
+    #[test]
+    fn graph_ir_serializes_and_deserializes_without_losing_hierarchy() {
+        let mut graph = super::MermaidGraphIr::default();
+        graph.nodes.push(IrGraphNode {
+            node_id: IrNodeId(0),
+            kind: IrNodeKind::Generic,
+            clusters: vec![IrClusterId(0)],
+            subgraphs: vec![IrSubgraphId(0)],
+        });
+        graph.edges.push(IrGraphEdge {
+            edge_id: 0,
+            kind: IrEdgeKind::Generic,
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(0)),
+            span: sample_span(1, 1, 1),
+        });
+        graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(0),
+            title: Some(IrLabelId(0)),
+            members: vec![IrNodeId(0)],
+            subgraph: Some(IrSubgraphId(0)),
+            span: sample_span(1, 1, 1),
+        });
+        graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(0),
+            key: "root".to_string(),
+            title: Some(IrLabelId(0)),
+            parent: None,
+            children: Vec::new(),
+            members: vec![IrNodeId(0)],
+            cluster: Some(IrClusterId(0)),
+            span: sample_span(1, 1, 1),
+        });
+
+        let json = serde_json::to_string(&graph).expect("graph IR should serialize");
+        let round_trip: super::MermaidGraphIr =
+            serde_json::from_str(&json).expect("graph IR should deserialize");
+
+        assert_eq!(round_trip, graph);
+        assert_eq!(
+            round_trip
+                .find_subgraph_by_key("root")
+                .map(|subgraph| subgraph.id),
+            Some(IrSubgraphId(0))
+        );
+        assert_eq!(
+            round_trip.subgraph_members_recursive(IrSubgraphId(0)),
+            vec![IrNodeId(0)]
         );
     }
 
