@@ -229,6 +229,38 @@ struct FlowAstNode {
     shape: NodeShape,
 }
 
+impl From<NodeToken> for FlowAstNode {
+    fn from(value: NodeToken) -> Self {
+        Self {
+            id: value.id,
+            label: value.label,
+            shape: value.shape,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum FlowDocumentItem {
+    Statements {
+        asts: Vec<FlowAst>,
+        line_number: usize,
+        source_line: String,
+    },
+    Subgraph {
+        id: String,
+        title: Option<String>,
+        line_number: usize,
+        source_line: String,
+        body: Vec<FlowDocumentItem>,
+    },
+}
+
+#[derive(Debug, Default)]
+struct FlowDocumentParseResult {
+    items: Vec<FlowDocumentItem>,
+    warnings: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Chumsky flowchart statement parser (character-level on &str)
 // ---------------------------------------------------------------------------
@@ -327,6 +359,20 @@ fn flow_statement_parser<'a>() -> impl Parser<'a, &'a str, FlowAst, extra::Err<R
             (!t.is_empty()).then(|| t.to_string())
         });
 
+    // -- direction directive: direction LR ----------------------------------
+    let direction = just("direction")
+        .then(required_ws)
+        .ignore_then(choice((
+            just("LR").to(GraphDirection::LR),
+            just("RL").to(GraphDirection::RL),
+            just("TB").to(GraphDirection::TB),
+            just("TD").to(GraphDirection::TD),
+            just("BT").to(GraphDirection::BT),
+        )))
+        .then_ignore(inline_ws)
+        .then_ignore(end())
+        .map(FlowAst::Direction);
+
     // -- Edge: node arrow [|label|] node ------------------------------------
     let edge = node
         .then_ignore(inline_ws)
@@ -399,6 +445,7 @@ fn flow_statement_parser<'a>() -> impl Parser<'a, &'a str, FlowAst, extra::Err<R
         skip_directive,
         class_assign,
         click_directive,
+        direction,
         edge,
         node.then_ignore(inline_ws)
             .then_ignore(end())
@@ -480,25 +527,114 @@ fn lower_flow_ast(
     }
 }
 
+fn lower_flow_document_item(
+    item: &FlowDocumentItem,
+    builder: &mut IrBuilder,
+    active_clusters: &[usize],
+    active_subgraphs: &[usize],
+) {
+    match item {
+        FlowDocumentItem::Statements {
+            asts,
+            line_number,
+            source_line,
+        } => {
+            for ast in asts {
+                lower_flow_ast(
+                    ast,
+                    *line_number,
+                    source_line,
+                    builder,
+                    active_clusters,
+                    active_subgraphs,
+                );
+            }
+        }
+        FlowDocumentItem::Subgraph {
+            id,
+            title,
+            line_number,
+            source_line,
+            body,
+        } => {
+            let span = span_for(*line_number, source_line);
+            let Some(cluster_index) = builder.ensure_cluster(id, title.as_deref(), span) else {
+                return;
+            };
+            let parent_subgraph = active_subgraphs.last().copied();
+            let Some(subgraph_index) = builder.ensure_subgraph(
+                id,
+                title.as_deref(),
+                span,
+                parent_subgraph,
+                Some(cluster_index),
+            ) else {
+                return;
+            };
+
+            let mut child_clusters = active_clusters.to_vec();
+            child_clusters.push(cluster_index);
+            let mut child_subgraphs = active_subgraphs.to_vec();
+            child_subgraphs.push(subgraph_index);
+
+            for child in body {
+                lower_flow_document_item(child, builder, &child_clusters, &child_subgraphs);
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Top-level parse_flowchart — line-by-line with chumsky statement parser
 // ---------------------------------------------------------------------------
 
 fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
-    let mut active_clusters: Vec<usize> = Vec::new();
-    let mut active_subgraphs: Vec<usize> = Vec::new();
+    let document = parse_flowchart_document(input);
+    for warning in &document.warnings {
+        builder.add_warning(warning.clone());
+    }
+    for item in &document.items {
+        lower_flow_document_item(item, builder, &[], &[]);
+    }
+}
 
-    for (index, line) in input.lines().enumerate() {
-        let line_number = index + 1;
+fn parse_flowchart_document(input: &str) -> FlowDocumentParseResult {
+    let lines: Vec<(usize, &str)> = input
+        .lines()
+        .enumerate()
+        .map(|(i, line)| (i + 1, line))
+        .collect();
+    let mut next_index = 0;
+    let mut warnings = Vec::new();
+    let (items, unclosed_subgraphs) =
+        parse_flowchart_document_items(&lines, &mut next_index, false, &mut warnings);
+    if unclosed_subgraphs > 0 {
+        warnings.push(format!(
+            "Flowchart ended with {} unclosed subgraph block(s)",
+            unclosed_subgraphs
+        ));
+    }
+    FlowDocumentParseResult { items, warnings }
+}
+
+fn parse_flowchart_document_items(
+    lines: &[(usize, &str)],
+    next_index: &mut usize,
+    stop_on_end: bool,
+    warnings: &mut Vec<String>,
+) -> (Vec<FlowDocumentItem>, usize) {
+    let mut items = Vec::new();
+    let mut unclosed_subgraphs = 0;
+
+    while let Some((line_number, line)) = lines.get(*next_index).copied() {
+        *next_index += 1;
+
         let trimmed = line.trim();
         if trimmed.is_empty() || is_comment(trimmed) {
             continue;
         }
 
         if is_flowchart_header(trimmed) {
-            if let Some(direction) = parse_graph_direction(trimmed) {
-                builder.set_direction(direction);
-            }
             continue;
         }
 
@@ -507,7 +643,9 @@ fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
             continue;
         }
 
+        let mut line_items = Vec::new();
         let mut parsed_line = false;
+
         for statement in split_statements(uncommented_line) {
             let normalized_statement = statement.trim();
             if normalized_statement.is_empty() {
@@ -518,120 +656,97 @@ fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
             if let Some((cluster_key, cluster_title)) =
                 parse_subgraph_statement(normalized_statement)
             {
-                let span = span_for(line_number, line);
-                if let Some(cluster_index) =
-                    builder.ensure_cluster(&cluster_key, cluster_title.as_deref(), span)
-                {
-                    let parent_subgraph = active_subgraphs.last().copied();
-                    if let Some(subgraph_index) = builder.ensure_subgraph(
-                        &cluster_key,
-                        cluster_title.as_deref(),
-                        span,
-                        parent_subgraph,
-                        Some(cluster_index),
-                    ) {
-                        active_subgraphs.push(subgraph_index);
-                    }
-                    active_clusters.push(cluster_index);
-                }
+                let (body, child_unclosed) =
+                    parse_flowchart_document_items(lines, next_index, true, warnings);
+                unclosed_subgraphs += child_unclosed;
+                line_items.push(FlowDocumentItem::Subgraph {
+                    id: cluster_key,
+                    title: cluster_title,
+                    line_number,
+                    source_line: line.to_string(),
+                    body,
+                });
                 parsed_line = true;
                 continue;
             }
 
             if normalized_statement == "end" {
-                if active_clusters.pop().is_none() {
-                    builder.add_warning(format!(
-                        "Line {line_number}: encountered 'end' without matching 'subgraph'"
-                    ));
+                if stop_on_end {
+                    items.extend(line_items);
+                    return (items, unclosed_subgraphs);
                 }
-                let _ = active_subgraphs.pop();
+                warnings.push(format!(
+                    "Line {line_number}: encountered 'end' without matching 'subgraph'"
+                ));
                 parsed_line = true;
                 continue;
             }
 
-            // Try the chumsky statement parser first
-            let (ast, errors) = flow_statement_parser()
-                .parse(normalized_statement)
-                .into_output_errors();
-            if errors.is_empty()
-                && let Some(ref ast_node) = ast
+            if let Some(asts) =
+                parse_flowchart_statement_asts(normalized_statement, line_number, line, warnings)
             {
-                lower_flow_ast(
-                    ast_node,
+                line_items.push(FlowDocumentItem::Statements {
+                    asts,
                     line_number,
-                    line,
-                    builder,
-                    &active_clusters,
-                    &active_subgraphs,
-                );
-                parsed_line = true;
-                continue;
-            }
-
-            // Fallback: use the hand-written helpers for statements chumsky
-            // couldn't parse (e.g. class/click with complex quoting)
-            if parse_flowchart_directive(normalized_statement, line_number, line, builder) {
-                parsed_line = true;
-                continue;
-            }
-            if let Some(node_ids) = parse_edge_statement_with_nodes(
-                normalized_statement,
-                line_number,
-                line,
-                &FLOW_OPERATORS,
-                builder,
-            ) {
-                for node_id in node_ids {
-                    add_node_to_active_groups(
-                        builder,
-                        &active_clusters,
-                        &active_subgraphs,
-                        node_id,
-                    );
-                }
-                parsed_line = true;
-                continue;
-            }
-            if let Some(node) = parse_node_token(normalized_statement) {
-                let span = span_for(line_number, line);
-                if let Some(node_id) =
-                    builder.intern_node(&node.id, node.label.as_deref(), node.shape, span)
-                {
-                    add_node_to_active_groups(
-                        builder,
-                        &active_clusters,
-                        &active_subgraphs,
-                        node_id,
-                    );
-                }
+                    source_line: line.to_string(),
+                });
                 parsed_line = true;
             }
         }
 
         if !parsed_line {
-            builder.add_warning(format!(
+            warnings.push(format!(
                 "Line {line_number}: unsupported flowchart syntax: {trimmed}"
             ));
         }
+
+        items.extend(line_items);
     }
 
-    if !active_clusters.is_empty() {
-        builder.add_warning(format!(
-            "Flowchart ended with {} unclosed subgraph block(s)",
-            active_clusters.len()
-        ));
+    if stop_on_end {
+        unclosed_subgraphs += 1;
     }
+
+    (items, unclosed_subgraphs)
 }
 
-fn parse_flowchart_directive(
+fn parse_flowchart_statement_asts(
     statement: &str,
     line_number: usize,
     source_line: &str,
-    builder: &mut IrBuilder,
-) -> bool {
-    parse_class_assignment(statement, line_number, source_line, builder)
-        || parse_click_directive(statement, line_number, source_line, builder)
-        || is_non_graph_statement(statement)
+    warnings: &mut Vec<String>,
+) -> Option<Vec<FlowAst>> {
+    let (ast, errors) = flow_statement_parser()
+        .parse(statement)
+        .into_output_errors();
+    if errors.is_empty()
+        && let Some(ast_node) = ast
+    {
+        return Some(vec![ast_node]);
+    }
+
+    if let Some(ast) = parse_class_assignment_ast(statement) {
+        return Some(vec![ast]);
+    }
+    if let Some(ast) = parse_click_directive_ast(statement, line_number, warnings) {
+        return Some(vec![ast]);
+    }
+    if is_non_graph_statement(statement) {
+        return Some(vec![FlowAst::StyleOrLinkStyle]);
+    }
+    if let Some(asts) = parse_edge_statement_asts(statement, &FLOW_OPERATORS) {
+        return Some(asts);
+    }
+    if let Some(node) = parse_node_token(statement) {
+        return Some(vec![FlowAst::Node(FlowAstNode {
+            id: node.id,
+            label: node.label,
+            shape: node.shape,
+        })]);
+    }
+
+    let _ = source_line;
+    None
 }
 
 fn add_node_to_active_clusters(
@@ -1314,127 +1429,85 @@ fn parse_requirement_relation(
     }
 }
 
-fn parse_class_assignment(
-    statement: &str,
-    line_number: usize,
-    source_line: &str,
-    builder: &mut IrBuilder,
-) -> bool {
-    let Some(rest) = statement.strip_prefix("class ") else {
-        return false;
-    };
+fn parse_class_assignment_ast(statement: &str) -> Option<FlowAst> {
+    let rest = statement.strip_prefix("class ")?;
     let rest = rest.trim();
     if rest.is_empty() {
-        return false;
+        return None;
     }
 
     let mut parts = rest.split_whitespace();
-    let Some(node_list_raw) = parts.next() else {
-        return false;
-    };
+    let node_list_raw = parts.next()?;
     let class_list_raw = parts.collect::<Vec<_>>().join(" ");
     if class_list_raw.is_empty() {
-        return false;
+        return None;
     }
 
-    let classes: Vec<&str> = class_list_raw
+    let nodes: Vec<String> = node_list_raw
         .split(',')
-        .map(str::trim)
-        .filter(|class_name| !class_name.is_empty())
+        .map(normalize_identifier)
+        .filter(|node_id| !node_id.is_empty())
         .collect();
-    if classes.is_empty() {
-        return false;
+    if nodes.is_empty() {
+        return None;
     }
 
-    let span = span_for(line_number, source_line);
-    let mut assigned_any = false;
-    for raw_node in node_list_raw.split(',') {
-        let node_id = normalize_identifier(raw_node);
-        if node_id.is_empty() {
-            continue;
-        }
-        for class_name in &classes {
-            builder.add_class_to_node(&node_id, class_name, span);
-            assigned_any = true;
-        }
+    let class = class_list_raw.trim().to_string();
+    if class.is_empty() {
+        return None;
     }
-    assigned_any
+
+    Some(FlowAst::ClassAssign { nodes, class })
 }
 
-fn parse_click_directive(
+fn parse_click_directive_ast(
     statement: &str,
     line_number: usize,
-    source_line: &str,
-    builder: &mut IrBuilder,
-) -> bool {
-    let Some(rest) = statement.strip_prefix("click ") else {
-        return false;
-    };
-    let span = span_for(line_number, source_line);
+    warnings: &mut Vec<String>,
+) -> Option<FlowAst> {
+    let rest = statement.strip_prefix("click ")?;
 
     let Some((node_token, after_node)) = take_token(rest) else {
-        builder.add_warning(format!(
+        warnings.push(format!(
             "Line {line_number}: malformed click directive (missing node id): {statement}"
         ));
-        return true;
+        return Some(FlowAst::StyleOrLinkStyle);
     };
-    let node_id = normalize_identifier(node_token);
-    if node_id.is_empty() {
-        builder.add_warning(format!(
+    let node = normalize_identifier(node_token);
+    if node.is_empty() {
+        warnings.push(format!(
             "Line {line_number}: malformed click directive (invalid node id): {statement}"
         ));
-        return true;
+        return Some(FlowAst::StyleOrLinkStyle);
     }
 
     let Some((target_token, after_target)) = take_token(after_node) else {
-        builder.add_warning(format!(
+        warnings.push(format!(
             "Line {line_number}: malformed click directive (missing target): {statement}"
         ));
-        return true;
+        return Some(FlowAst::StyleOrLinkStyle);
     };
 
-    let resolved_target = if target_token.eq_ignore_ascii_case("href") {
+    let target = if target_token.eq_ignore_ascii_case("href") {
         let Some((href_target, _)) = take_token(after_target) else {
-            builder.add_warning(format!(
+            warnings.push(format!(
                 "Line {line_number}: malformed click directive (missing href target): {statement}"
             ));
-            return true;
+            return Some(FlowAst::StyleOrLinkStyle);
         };
-        href_target
+        href_target.to_string()
     } else if target_token.eq_ignore_ascii_case("call")
         || target_token.eq_ignore_ascii_case("callback")
     {
-        builder.add_warning(format!(
+        warnings.push(format!(
             "Line {line_number}: click callbacks are not supported yet; keeping node without link metadata"
         ));
-        return true;
+        return Some(FlowAst::StyleOrLinkStyle);
     } else {
-        target_token
+        target_token.to_string()
     };
 
-    let cleaned_target = resolved_target
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim_matches('`')
-        .trim();
-    if cleaned_target.is_empty() {
-        builder.add_warning(format!(
-            "Line {line_number}: click directive target is empty after normalization"
-        ));
-        return true;
-    }
-
-    if !is_safe_click_target(cleaned_target) {
-        builder.add_warning(format!(
-            "Line {line_number}: unsafe click link target blocked: {cleaned_target}"
-        ));
-        return true;
-    }
-
-    builder.add_class_to_node(&node_id, "has-link", span);
-    builder.set_node_link(&node_id, cleaned_target, span);
-    true
+    Some(FlowAst::ClickDirective { node, target })
 }
 
 fn take_token(input: &str) -> Option<(&str, &str)> {
@@ -2445,6 +2518,62 @@ fn parse_edge_statement(
 ) -> bool {
     parse_edge_statement_with_nodes(statement, line_number, source_line, operators, builder)
         .is_some()
+}
+
+fn parse_edge_statement_asts(
+    statement: &str,
+    operators: &[(&str, ArrowType)],
+) -> Option<Vec<FlowAst>> {
+    let (first_operator_idx, first_operator, first_arrow) = find_operator(statement, operators)?;
+    let left_raw = statement[..first_operator_idx].trim();
+    if left_raw.is_empty() {
+        return None;
+    }
+
+    let mut from_node = parse_node_token(left_raw)?;
+    let mut asts = Vec::new();
+    let mut operator_idx = first_operator_idx;
+    let mut operator = first_operator;
+    let mut arrow = first_arrow;
+
+    loop {
+        let rhs_start = operator_idx + operator.len();
+        let next_operator = find_operator_from_index(statement, rhs_start, operators);
+        let right_segment = match next_operator {
+            Some((next_idx, _, _)) => &statement[rhs_start..next_idx],
+            None => &statement[rhs_start..],
+        }
+        .trim();
+
+        if right_segment.is_empty() {
+            return (!asts.is_empty()).then_some(asts);
+        }
+
+        let (edge_label, right_without_label) = extract_pipe_label(right_segment);
+        let to_node = match parse_node_token(right_without_label) {
+            Some(node) => node,
+            None => return (!asts.is_empty()).then_some(asts),
+        };
+
+        asts.push(FlowAst::Edge {
+            from: from_node.clone().into(),
+            arrow,
+            label: edge_label,
+            to: to_node.clone().into(),
+        });
+
+        if let Some((next_idx, next_operator_token, next_arrow)) = next_operator {
+            from_node = to_node;
+            operator_idx = next_idx;
+            operator = next_operator_token;
+            arrow = next_arrow;
+            continue;
+        }
+
+        break;
+    }
+
+    Some(asts)
 }
 
 fn parse_edge_statement_with_nodes(
@@ -3486,6 +3615,15 @@ mod tests {
         assert!(parsed.ir.nodes.iter().any(|node| node.id == "B"));
         assert!(!parsed.ir.nodes.iter().any(|node| node.id == "C"));
         assert!(!parsed.ir.nodes.iter().any(|node| node.id == "D"));
+    }
+
+    #[test]
+    fn flowchart_direction_statement_updates_graph_direction() {
+        let parsed = parse_mermaid("flowchart\n direction LR\n A-->B");
+        assert_eq!(parsed.ir.direction, GraphDirection::LR);
+        assert_eq!(parsed.ir.meta.direction, GraphDirection::LR);
+        assert_eq!(parsed.ir.nodes.len(), 2);
+        assert_eq!(parsed.ir.edges.len(), 1);
     }
 
     #[test]
