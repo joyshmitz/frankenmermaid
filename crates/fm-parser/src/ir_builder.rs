@@ -2,8 +2,10 @@ use std::collections::BTreeMap;
 
 use fm_core::{
     ArrowType, Diagnostic, DiagnosticCategory, DiagramType, GraphDirection, IrAttributeKey,
-    IrCluster, IrClusterId, IrEdge, IrEndpoint, IrEntityAttribute, IrLabel, IrLabelId, IrNode,
-    IrNodeId, MermaidDiagramIr, MermaidError, MermaidWarning, MermaidWarningCode, NodeShape, Span,
+    IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute, IrGraphCluster,
+    IrGraphEdge, IrGraphNode, IrLabel, IrLabelId, IrNode, IrNodeId, IrNodeKind, IrSubgraph,
+    IrSubgraphId, MermaidDiagramIr, MermaidError, MermaidWarning, MermaidWarningCode, NodeShape,
+    Span,
 };
 
 use crate::ParseResult;
@@ -12,6 +14,7 @@ pub(crate) struct IrBuilder {
     ir: MermaidDiagramIr,
     node_index_by_id: BTreeMap<String, IrNodeId>,
     cluster_index_by_key: BTreeMap<String, usize>,
+    subgraph_index_by_key: BTreeMap<String, usize>,
     warnings: Vec<String>,
     /// Track nodes that were auto-created (for dangling edge recovery)
     auto_created_nodes: Vec<IrNodeId>,
@@ -23,6 +26,7 @@ impl IrBuilder {
             ir: MermaidDiagramIr::empty(diagram_type),
             node_index_by_id: BTreeMap::new(),
             cluster_index_by_key: BTreeMap::new(),
+            subgraph_index_by_key: BTreeMap::new(),
             warnings: Vec::new(),
             auto_created_nodes: Vec::new(),
         }
@@ -256,6 +260,12 @@ impl IrBuilder {
         };
 
         self.ir.nodes.push(node);
+        self.ir.graph.nodes.push(IrGraphNode {
+            node_id,
+            kind: self.node_kind(),
+            clusters: Vec::new(),
+            subgraphs: Vec::new(),
+        });
         self.node_index_by_id
             .insert(normalized_id.to_string(), node_id);
 
@@ -285,6 +295,11 @@ impl IrBuilder {
                 {
                     existing_cluster.title = Some(label_id);
                 }
+                if let Some(existing_cluster) = self.ir.graph.clusters.get_mut(existing_index)
+                    && existing_cluster.title.is_none()
+                {
+                    existing_cluster.title = Some(label_id);
+                }
             }
             return Some(existing_index);
         }
@@ -295,6 +310,13 @@ impl IrBuilder {
             id: IrClusterId(cluster_index),
             title: title_id,
             members: Vec::new(),
+            span,
+        });
+        self.ir.graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(cluster_index),
+            title: title_id,
+            members: Vec::new(),
+            subgraph: None,
             span,
         });
         self.cluster_index_by_key
@@ -308,6 +330,106 @@ impl IrBuilder {
         };
         if !cluster.members.contains(&node_id) {
             cluster.members.push(node_id);
+        }
+        if let Some(graph_cluster) = self.ir.graph.clusters.get_mut(cluster_index)
+            && !graph_cluster.members.contains(&node_id)
+        {
+            graph_cluster.members.push(node_id);
+        }
+        if let Some(graph_node) = self.ir.graph.nodes.get_mut(node_id.0) {
+            let cluster_id = IrClusterId(cluster_index);
+            if !graph_node.clusters.contains(&cluster_id) {
+                graph_node.clusters.push(cluster_id);
+            }
+        }
+    }
+
+    pub(crate) fn ensure_subgraph(
+        &mut self,
+        key: &str,
+        title: Option<&str>,
+        span: Span,
+        parent: Option<usize>,
+        cluster_index: Option<usize>,
+    ) -> Option<usize> {
+        let normalized_key = key.trim();
+        if normalized_key.is_empty() {
+            return None;
+        }
+
+        if let Some(existing_index) = self.subgraph_index_by_key.get(normalized_key).copied() {
+            if let Some(cleaned_title) = clean_label(title) {
+                let label_id = self.intern_label(cleaned_title, span);
+                if let Some(existing) = self.ir.graph.subgraphs.get_mut(existing_index)
+                    && existing.title.is_none()
+                {
+                    existing.title = Some(label_id);
+                }
+            }
+            if let Some(parent_index) = parent {
+                let parent_id = IrSubgraphId(parent_index);
+                if let Some(existing) = self.ir.graph.subgraphs.get_mut(existing_index)
+                    && existing.parent.is_none()
+                {
+                    existing.parent = Some(parent_id);
+                }
+                if let Some(parent_graph) = self.ir.graph.subgraphs.get_mut(parent_index) {
+                    let child_id = IrSubgraphId(existing_index);
+                    if !parent_graph.children.contains(&child_id) {
+                        parent_graph.children.push(child_id);
+                    }
+                }
+            }
+            if let Some(cluster_index) = cluster_index
+                && let Some(existing_cluster) = self.ir.graph.clusters.get_mut(cluster_index)
+                && existing_cluster.subgraph.is_none()
+            {
+                existing_cluster.subgraph = Some(IrSubgraphId(existing_index));
+            }
+            return Some(existing_index);
+        }
+
+        let title_id = clean_label(title).map(|value| self.intern_label(value, span));
+        let subgraph_index = self.ir.graph.subgraphs.len();
+        let parent_id = parent.map(IrSubgraphId);
+        let cluster_id = cluster_index.map(IrClusterId);
+        self.ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(subgraph_index),
+            key: normalized_key.to_string(),
+            title: title_id,
+            parent: parent_id,
+            children: Vec::new(),
+            members: Vec::new(),
+            cluster: cluster_id,
+            span,
+        });
+        if let Some(parent_index) = parent
+            && let Some(parent_graph) = self.ir.graph.subgraphs.get_mut(parent_index)
+        {
+            parent_graph.children.push(IrSubgraphId(subgraph_index));
+        }
+        if let Some(cluster_index) = cluster_index
+            && let Some(graph_cluster) = self.ir.graph.clusters.get_mut(cluster_index)
+        {
+            graph_cluster.subgraph = Some(IrSubgraphId(subgraph_index));
+        }
+        self.subgraph_index_by_key
+            .insert(normalized_key.to_string(), subgraph_index);
+        Some(subgraph_index)
+    }
+
+    pub(crate) fn add_node_to_subgraph(&mut self, subgraph_index: usize, node_id: IrNodeId) {
+        let Some(subgraph) = self.ir.graph.subgraphs.get_mut(subgraph_index) else {
+            return;
+        };
+        if !subgraph.members.contains(&node_id) {
+            subgraph.members.push(node_id);
+        }
+        if let Some(graph_node) = self.ir.graph.nodes.get_mut(node_id.0) {
+            let subgraph_id = IrSubgraphId(subgraph_index);
+            if !graph_node.subgraphs.contains(&subgraph_id) {
+                graph_node.subgraphs.push(subgraph_id);
+            }
         }
     }
 
@@ -401,12 +523,47 @@ impl IrBuilder {
             label: label_id,
             span,
         });
+        self.ir.graph.edges.push(IrGraphEdge {
+            edge_id: self.ir.edges.len() - 1,
+            kind: self.edge_kind(),
+            from: IrEndpoint::Node(from),
+            to: IrEndpoint::Node(to),
+            span,
+        });
     }
 
     fn intern_label(&mut self, text: String, span: Span) -> IrLabelId {
         let label_id = IrLabelId(self.ir.labels.len());
         self.ir.labels.push(IrLabel { text, span });
         label_id
+    }
+}
+
+impl IrBuilder {
+    fn node_kind(&self) -> IrNodeKind {
+        match self.ir.diagram_type {
+            DiagramType::Er => IrNodeKind::Entity,
+            DiagramType::Sequence => IrNodeKind::Participant,
+            DiagramType::State => IrNodeKind::State,
+            DiagramType::Gantt => IrNodeKind::Task,
+            DiagramType::Timeline | DiagramType::Journey => IrNodeKind::Event,
+            DiagramType::GitGraph => IrNodeKind::Commit,
+            DiagramType::Requirement => IrNodeKind::Requirement,
+            DiagramType::Pie => IrNodeKind::Slice,
+            DiagramType::QuadrantChart | DiagramType::XyChart => IrNodeKind::Point,
+            _ => IrNodeKind::Generic,
+        }
+    }
+
+    fn edge_kind(&self) -> IrEdgeKind {
+        match self.ir.diagram_type {
+            DiagramType::Er => IrEdgeKind::Relationship,
+            DiagramType::Sequence => IrEdgeKind::Message,
+            DiagramType::Timeline | DiagramType::Journey => IrEdgeKind::Timeline,
+            DiagramType::Gantt => IrEdgeKind::Dependency,
+            DiagramType::GitGraph => IrEdgeKind::Commit,
+            _ => IrEdgeKind::Generic,
+        }
     }
 }
 

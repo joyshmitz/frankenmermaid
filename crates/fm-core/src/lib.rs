@@ -233,6 +233,9 @@ pub struct IrLabelId(pub usize);
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 pub struct IrClusterId(pub usize);
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+pub struct IrSubgraphId(pub usize);
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum IrPortSideHint {
     #[default]
@@ -351,6 +354,21 @@ pub struct IrNode {
     pub members: Vec<IrEntityAttribute>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+pub enum IrNodeKind {
+    #[default]
+    Generic,
+    Entity,
+    Participant,
+    State,
+    Task,
+    Event,
+    Commit,
+    Requirement,
+    Slice,
+    Point,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct IrPort {
     pub node: IrNodeId,
@@ -376,12 +394,104 @@ pub struct IrEdge {
     pub span: Span,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+pub enum IrEdgeKind {
+    #[default]
+    Generic,
+    Relationship,
+    Message,
+    Timeline,
+    Dependency,
+    Commit,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct IrCluster {
     pub id: IrClusterId,
     pub title: Option<IrLabelId>,
     pub members: Vec<IrNodeId>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrSubgraph {
+    pub id: IrSubgraphId,
+    pub key: String,
+    pub title: Option<IrLabelId>,
+    pub parent: Option<IrSubgraphId>,
+    pub children: Vec<IrSubgraphId>,
+    pub members: Vec<IrNodeId>,
+    pub cluster: Option<IrClusterId>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrGraphNode {
+    pub node_id: IrNodeId,
+    pub kind: IrNodeKind,
+    pub clusters: Vec<IrClusterId>,
+    pub subgraphs: Vec<IrSubgraphId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrGraphEdge {
+    pub edge_id: usize,
+    pub kind: IrEdgeKind,
+    pub from: IrEndpoint,
+    pub to: IrEndpoint,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrGraphCluster {
+    pub cluster_id: IrClusterId,
+    pub title: Option<IrLabelId>,
+    pub members: Vec<IrNodeId>,
+    pub subgraph: Option<IrSubgraphId>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct MermaidGraphIr {
+    pub nodes: Vec<IrGraphNode>,
+    pub edges: Vec<IrGraphEdge>,
+    pub clusters: Vec<IrGraphCluster>,
+    pub subgraphs: Vec<IrSubgraph>,
+}
+
+impl MermaidGraphIr {
+    #[must_use]
+    pub fn node(&self, node_id: IrNodeId) -> Option<&IrGraphNode> {
+        self.nodes.get(node_id.0)
+    }
+
+    #[must_use]
+    pub fn edge(&self, edge_id: usize) -> Option<&IrGraphEdge> {
+        self.edges.get(edge_id)
+    }
+
+    #[must_use]
+    pub fn cluster(&self, cluster_id: IrClusterId) -> Option<&IrGraphCluster> {
+        self.clusters.get(cluster_id.0)
+    }
+
+    #[must_use]
+    pub fn subgraph(&self, subgraph_id: IrSubgraphId) -> Option<&IrSubgraph> {
+        self.subgraphs.get(subgraph_id.0)
+    }
+
+    #[must_use]
+    pub fn find_subgraph_by_key(&self, key: &str) -> Option<&IrSubgraph> {
+        self.subgraphs.iter().find(|subgraph| subgraph.key == key)
+    }
+
+    #[must_use]
+    pub fn root_subgraphs(&self) -> Vec<&IrSubgraph> {
+        self.subgraphs
+            .iter()
+            .filter(|subgraph| subgraph.parent.is_none())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1225,6 +1335,7 @@ pub struct MermaidDiagramIr {
     pub edges: Vec<IrEdge>,
     pub ports: Vec<IrPort>,
     pub clusters: Vec<IrCluster>,
+    pub graph: MermaidGraphIr,
     pub labels: Vec<IrLabel>,
     pub constraints: Vec<IrConstraint>,
     pub meta: MermaidDiagramMeta,
@@ -1241,6 +1352,7 @@ impl MermaidDiagramIr {
             edges: Vec::new(),
             ports: Vec::new(),
             clusters: Vec::new(),
+            graph: MermaidGraphIr::default(),
             labels: Vec::new(),
             constraints: Vec::new(),
             meta: MermaidDiagramMeta {
@@ -1321,6 +1433,16 @@ impl MermaidDiagramIr {
     pub fn find_node(&self, id: &str) -> Option<&IrNode> {
         self.nodes.iter().find(|n| n.id == id)
     }
+
+    #[must_use]
+    pub fn graph_node(&self, node_id: IrNodeId) -> Option<&IrGraphNode> {
+        self.graph.node(node_id)
+    }
+
+    #[must_use]
+    pub fn graph_subgraph(&self, subgraph_id: IrSubgraphId) -> Option<&IrSubgraph> {
+        self.graph.subgraph(subgraph_id)
+    }
 }
 
 /// Counts of diagnostics by severity level.
@@ -1353,12 +1475,13 @@ mod tests {
 
     use super::{
         ArrowType, Diagnostic, DiagnosticCategory, DiagnosticSeverity, DiagramPalettePreset,
-        DiagramType, GraphDirection, IrAttributeKey, IrCluster, IrClusterId, IrEdge, IrEndpoint,
-        IrEntityAttribute, IrLabel, IrLabelId, IrNode, IrNodeId, IrPortId, IrPortSideHint,
-        MermaidConfig, MermaidDiagramIr, MermaidError, MermaidErrorCode, MermaidFallbackAction,
-        MermaidFallbackPolicy, MermaidSanitizeMode, MermaidSupportLevel, MermaidWarningCode,
-        NodeShape, Position, Span, StructuredDiagnostic, parse_mermaid_js_config_value,
-        to_init_parse,
+        DiagramType, GraphDirection, IrAttributeKey, IrCluster, IrClusterId, IrEdge, IrEdgeKind,
+        IrEndpoint, IrEntityAttribute, IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel,
+        IrLabelId, IrNode, IrNodeId, IrNodeKind, IrPortId, IrPortSideHint, IrSubgraph,
+        IrSubgraphId, MermaidConfig, MermaidDiagramIr, MermaidError, MermaidErrorCode,
+        MermaidFallbackAction, MermaidFallbackPolicy, MermaidSanitizeMode, MermaidSupportLevel,
+        MermaidWarningCode, NodeShape, Position, Span, StructuredDiagnostic,
+        parse_mermaid_js_config_value, to_init_parse,
     };
 
     fn sample_span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -1382,6 +1505,10 @@ mod tests {
         assert_eq!(ir.direction, GraphDirection::TB);
         assert_eq!(ir.nodes.len(), 0);
         assert_eq!(ir.edges.len(), 0);
+        assert!(ir.graph.nodes.is_empty());
+        assert!(ir.graph.edges.is_empty());
+        assert!(ir.graph.clusters.is_empty());
+        assert!(ir.graph.subgraphs.is_empty());
         assert_eq!(ir.diagnostics.len(), 0);
     }
 
@@ -2155,6 +2282,119 @@ mod tests {
         assert!(empty.members.is_empty());
         assert_eq!(single.members, vec![IrNodeId(9)]);
         assert_eq!(single.title, Some(IrLabelId(2)));
+    }
+
+    #[test]
+    fn graph_ir_supports_typed_nodes_edges_clusters_and_subgraphs() {
+        let subgraph = IrSubgraph {
+            id: IrSubgraphId(0),
+            key: "api".to_string(),
+            title: Some(IrLabelId(0)),
+            parent: None,
+            children: vec![IrSubgraphId(1)],
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            cluster: Some(IrClusterId(0)),
+            span: sample_span(1, 1, 3),
+        };
+        let child = IrSubgraph {
+            id: IrSubgraphId(1),
+            key: "workers".to_string(),
+            title: Some(IrLabelId(1)),
+            parent: Some(IrSubgraphId(0)),
+            children: Vec::new(),
+            members: vec![IrNodeId(1)],
+            cluster: Some(IrClusterId(1)),
+            span: sample_span(2, 1, 3),
+        };
+        let graph_node = IrGraphNode {
+            node_id: IrNodeId(1),
+            kind: IrNodeKind::Participant,
+            clusters: vec![IrClusterId(0), IrClusterId(1)],
+            subgraphs: vec![IrSubgraphId(0), IrSubgraphId(1)],
+        };
+        let graph_edge = IrGraphEdge {
+            edge_id: 0,
+            kind: IrEdgeKind::Message,
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            span: sample_span(3, 1, 5),
+        };
+        let graph_cluster = IrGraphCluster {
+            cluster_id: IrClusterId(1),
+            title: Some(IrLabelId(1)),
+            members: vec![IrNodeId(1)],
+            subgraph: Some(IrSubgraphId(1)),
+            span: sample_span(2, 1, 3),
+        };
+
+        assert_eq!(subgraph.children, vec![IrSubgraphId(1)]);
+        assert_eq!(child.parent, Some(IrSubgraphId(0)));
+        assert_eq!(graph_node.kind, IrNodeKind::Participant);
+        assert_eq!(graph_node.subgraphs.len(), 2);
+        assert_eq!(graph_edge.kind, IrEdgeKind::Message);
+        assert_eq!(graph_cluster.subgraph, Some(IrSubgraphId(1)));
+    }
+
+    #[test]
+    fn graph_ir_query_helpers_return_expected_records() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.graph.nodes.push(IrGraphNode {
+            node_id: IrNodeId(0),
+            kind: IrNodeKind::Generic,
+            clusters: vec![IrClusterId(0)],
+            subgraphs: vec![IrSubgraphId(0)],
+        });
+        ir.graph.edges.push(IrGraphEdge {
+            edge_id: 0,
+            kind: IrEdgeKind::Generic,
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(0)),
+            span: sample_span(1, 1, 1),
+        });
+        ir.graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(0),
+            title: None,
+            members: vec![IrNodeId(0)],
+            subgraph: Some(IrSubgraphId(0)),
+            span: sample_span(1, 1, 1),
+        });
+        ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(0),
+            key: "root".to_string(),
+            title: None,
+            parent: None,
+            children: Vec::new(),
+            members: vec![IrNodeId(0)],
+            cluster: Some(IrClusterId(0)),
+            span: sample_span(1, 1, 1),
+        });
+
+        assert_eq!(
+            ir.graph_node(IrNodeId(0)).map(|node| node.kind),
+            Some(IrNodeKind::Generic)
+        );
+        assert_eq!(
+            ir.graph.edge(0).map(|edge| edge.kind),
+            Some(IrEdgeKind::Generic)
+        );
+        assert_eq!(
+            ir.graph
+                .cluster(IrClusterId(0))
+                .and_then(|cluster| cluster.subgraph),
+            Some(IrSubgraphId(0))
+        );
+        assert_eq!(
+            ir.graph
+                .find_subgraph_by_key("root")
+                .map(|subgraph| subgraph.id),
+            Some(IrSubgraphId(0))
+        );
+        assert_eq!(ir.graph.root_subgraphs().len(), 1);
+        assert_eq!(
+            ir.graph_subgraph(IrSubgraphId(0))
+                .map(|subgraph| subgraph.key.as_str()),
+            Some("root")
+        );
     }
 
     #[test]

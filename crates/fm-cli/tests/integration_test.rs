@@ -284,6 +284,16 @@ fn handles_subgraphs() {
         2,
         "Expected two parsed subgraph clusters"
     );
+    assert_eq!(
+        ir.graph.subgraphs.len(),
+        2,
+        "Expected two parsed graph subgraphs"
+    );
+    assert_eq!(
+        ir.graph.clusters.len(),
+        2,
+        "Expected two graph-level cluster mirrors"
+    );
 
     // Nodes and edges within subgraphs should still be parsed.
     assert_eq!(
@@ -343,6 +353,13 @@ fn handles_subgraphs() {
         node_index_by_id.len(),
         4,
         "Node index should include all parsed nodes"
+    );
+    assert!(
+        ir.graph
+            .nodes
+            .iter()
+            .all(|node| !node.subgraphs.is_empty() && !node.clusters.is_empty()),
+        "All subgraph-contained nodes should retain graph membership"
     );
 
     // Layout should include clusters and remain valid.

@@ -26,6 +26,7 @@ pub fn parse_dot(input: &str) -> ParseResult {
     let body = extract_body(input);
     let normalized_body = normalize_dot_body(body);
     let mut active_clusters: Vec<usize> = Vec::new();
+    let mut active_subgraphs: Vec<usize> = Vec::new();
 
     for (index, line) in normalized_body.lines().enumerate() {
         let line_number = index + 1;
@@ -38,6 +39,7 @@ pub fn parse_dot(input: &str) -> ParseResult {
             let close_count = statement.chars().take_while(|ch| *ch == '}').count();
             for _ in 0..close_count {
                 let _ = active_clusters.pop();
+                let _ = active_subgraphs.pop();
             }
             let statement = statement.trim_start_matches('}').trim();
             if statement.is_empty() {
@@ -54,9 +56,21 @@ pub fn parse_dot(input: &str) -> ParseResult {
                     &cluster_key,
                     cluster_title.as_deref(),
                     span_for(line_number, line),
-                ) && opens_scope
-                {
-                    active_clusters.push(cluster_index);
+                ) {
+                    let parent_subgraph = active_subgraphs.last().copied();
+                    let subgraph_index = builder.ensure_subgraph(
+                        &cluster_key,
+                        cluster_title.as_deref(),
+                        span_for(line_number, line),
+                        parent_subgraph,
+                        Some(cluster_index),
+                    );
+                    if opens_scope {
+                        active_clusters.push(cluster_index);
+                        if let Some(subgraph_index) = subgraph_index {
+                            active_subgraphs.push(subgraph_index);
+                        }
+                    }
                 }
                 continue;
             }
@@ -67,6 +81,7 @@ pub fn parse_dot(input: &str) -> ParseResult {
                 line_number,
                 line,
                 &active_clusters,
+                &active_subgraphs,
                 &mut builder,
             ) {
                 continue;
@@ -76,6 +91,7 @@ pub fn parse_dot(input: &str) -> ParseResult {
                 line_number,
                 line,
                 &active_clusters,
+                &active_subgraphs,
                 &mut builder,
             ) {
                 continue;
@@ -100,6 +116,7 @@ fn parse_dot_edge_statement(
     line_number: usize,
     source_line: &str,
     active_clusters: &[usize],
+    active_subgraphs: &[usize],
     builder: &mut IrBuilder,
 ) -> bool {
     let operator = if statement.contains("->") {
@@ -157,10 +174,8 @@ fn parse_dot_edge_statement(
 
         if let (Some(from_id), Some(to_id)) = (from, to) {
             builder.push_edge(from_id, to_id, arrow, edge_label_str.as_deref(), span);
-            for &cluster_index in active_clusters {
-                builder.add_node_to_cluster(cluster_index, from_id);
-                builder.add_node_to_cluster(cluster_index, to_id);
-            }
+            add_node_to_active_groups(builder, active_clusters, active_subgraphs, from_id);
+            add_node_to_active_groups(builder, active_clusters, active_subgraphs, to_id);
         }
     }
 
@@ -172,6 +187,7 @@ fn parse_dot_node_statement(
     line_number: usize,
     source_line: &str,
     active_clusters: &[usize],
+    active_subgraphs: &[usize],
     builder: &mut IrBuilder,
 ) -> bool {
     let Some(node) = parse_dot_node_fragment(statement) else {
@@ -180,11 +196,23 @@ fn parse_dot_node_statement(
     let span = span_for(line_number, source_line);
     let node_id = builder.intern_node(&node.id, node.label.as_deref(), NodeShape::Rect, span);
     if let Some(node_id) = node_id {
-        for &cluster_index in active_clusters {
-            builder.add_node_to_cluster(cluster_index, node_id);
-        }
+        add_node_to_active_groups(builder, active_clusters, active_subgraphs, node_id);
     }
     true
+}
+
+fn add_node_to_active_groups(
+    builder: &mut IrBuilder,
+    active_clusters: &[usize],
+    active_subgraphs: &[usize],
+    node_id: fm_core::IrNodeId,
+) {
+    for &cluster_index in active_clusters {
+        builder.add_node_to_cluster(cluster_index, node_id);
+    }
+    for &subgraph_index in active_subgraphs {
+        builder.add_node_to_subgraph(subgraph_index, node_id);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -596,6 +624,13 @@ mod tests {
         let parsed = parse_dot("digraph G { subgraph cluster_0 { a; b; } a -> b; }");
         assert_eq!(parsed.ir.clusters.len(), 1);
         assert_eq!(parsed.ir.clusters[0].members.len(), 2);
+        assert_eq!(parsed.ir.graph.subgraphs.len(), 1);
+        assert_eq!(parsed.ir.graph.clusters.len(), 1);
+        assert_eq!(
+            parsed.ir.graph.subgraphs[0].cluster,
+            Some(fm_core::IrClusterId(0))
+        );
+        assert_eq!(parsed.ir.graph.subgraphs[0].members.len(), 2);
     }
 
     #[test]

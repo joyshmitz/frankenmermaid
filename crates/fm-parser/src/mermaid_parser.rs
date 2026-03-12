@@ -416,6 +416,7 @@ fn lower_flow_ast(
     source_line: &str,
     builder: &mut IrBuilder,
     active_clusters: &[usize],
+    active_subgraphs: &[usize],
 ) {
     let span = span_for(line_number, source_line);
 
@@ -425,7 +426,7 @@ fn lower_flow_ast(
         }
         FlowAst::Node(n) => {
             if let Some(node_id) = builder.intern_node(&n.id, n.label.as_deref(), n.shape, span) {
-                add_node_to_active_clusters(builder, active_clusters, node_id);
+                add_node_to_active_groups(builder, active_clusters, active_subgraphs, node_id);
             }
         }
         FlowAst::Edge {
@@ -437,13 +438,14 @@ fn lower_flow_ast(
             let from_id = builder.intern_node(&from.id, from.label.as_deref(), from.shape, span);
             let to_id = builder.intern_node(&to.id, to.label.as_deref(), to.shape, span);
             if let (Some(f), Some(t)) = (from_id, to_id) {
-                add_node_to_active_clusters(builder, active_clusters, f);
-                add_node_to_active_clusters(builder, active_clusters, t);
+                add_node_to_active_groups(builder, active_clusters, active_subgraphs, f);
+                add_node_to_active_groups(builder, active_clusters, active_subgraphs, t);
                 builder.push_edge(f, t, *arrow, label.as_deref(), span);
             }
         }
         FlowAst::Subgraph { id, title, .. } => {
-            let _cluster = builder.ensure_cluster(id, title.as_deref(), span);
+            let cluster_index = builder.ensure_cluster(id, title.as_deref(), span);
+            let _ = builder.ensure_subgraph(id, title.as_deref(), span, None, cluster_index);
         }
         FlowAst::ClassAssign { nodes, class } => {
             for class_name in class.split(',').map(str::trim).filter(|s| !s.is_empty()) {
@@ -484,6 +486,7 @@ fn lower_flow_ast(
 
 fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
     let mut active_clusters: Vec<usize> = Vec::new();
+    let mut active_subgraphs: Vec<usize> = Vec::new();
 
     for (index, line) in input.lines().enumerate() {
         let line_number = index + 1;
@@ -519,6 +522,16 @@ fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
                 if let Some(cluster_index) =
                     builder.ensure_cluster(&cluster_key, cluster_title.as_deref(), span)
                 {
+                    let parent_subgraph = active_subgraphs.last().copied();
+                    if let Some(subgraph_index) = builder.ensure_subgraph(
+                        &cluster_key,
+                        cluster_title.as_deref(),
+                        span,
+                        parent_subgraph,
+                        Some(cluster_index),
+                    ) {
+                        active_subgraphs.push(subgraph_index);
+                    }
                     active_clusters.push(cluster_index);
                 }
                 parsed_line = true;
@@ -531,6 +544,7 @@ fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
                         "Line {line_number}: encountered 'end' without matching 'subgraph'"
                     ));
                 }
+                let _ = active_subgraphs.pop();
                 parsed_line = true;
                 continue;
             }
@@ -542,7 +556,14 @@ fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
             if errors.is_empty()
                 && let Some(ref ast_node) = ast
             {
-                lower_flow_ast(ast_node, line_number, line, builder, &active_clusters);
+                lower_flow_ast(
+                    ast_node,
+                    line_number,
+                    line,
+                    builder,
+                    &active_clusters,
+                    &active_subgraphs,
+                );
                 parsed_line = true;
                 continue;
             }
@@ -561,7 +582,12 @@ fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
                 builder,
             ) {
                 for node_id in node_ids {
-                    add_node_to_active_clusters(builder, &active_clusters, node_id);
+                    add_node_to_active_groups(
+                        builder,
+                        &active_clusters,
+                        &active_subgraphs,
+                        node_id,
+                    );
                 }
                 parsed_line = true;
                 continue;
@@ -571,7 +597,12 @@ fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
                 if let Some(node_id) =
                     builder.intern_node(&node.id, node.label.as_deref(), node.shape, span)
                 {
-                    add_node_to_active_clusters(builder, &active_clusters, node_id);
+                    add_node_to_active_groups(
+                        builder,
+                        &active_clusters,
+                        &active_subgraphs,
+                        node_id,
+                    );
                 }
                 parsed_line = true;
             }
@@ -610,6 +641,18 @@ fn add_node_to_active_clusters(
 ) {
     for &cluster_index in active_clusters {
         builder.add_node_to_cluster(cluster_index, node_id);
+    }
+}
+
+fn add_node_to_active_groups(
+    builder: &mut IrBuilder,
+    active_clusters: &[usize],
+    active_subgraphs: &[usize],
+    node_id: IrNodeId,
+) {
+    add_node_to_active_clusters(builder, active_clusters, node_id);
+    for &subgraph_index in active_subgraphs {
+        builder.add_node_to_subgraph(subgraph_index, node_id);
     }
 }
 
@@ -1513,6 +1556,7 @@ fn parse_timeline(input: &str, builder: &mut IrBuilder) {
     let mut previous_period: Option<IrNodeId> = None;
     let mut current_period: Option<IrNodeId> = None;
     let mut current_section: Option<usize> = None;
+    let mut current_section_subgraph: Option<usize> = None;
 
     for (index, line) in input.lines().enumerate() {
         let line_number = index + 1;
@@ -1538,6 +1582,15 @@ fn parse_timeline(input: &str, builder: &mut IrBuilder) {
             let section_name = section_name.trim();
             let span = span_for(line_number, line);
             current_section = builder.ensure_cluster(section_name, Some(section_name), span);
+            current_section_subgraph = current_section.and_then(|section_idx| {
+                builder.ensure_subgraph(
+                    section_name,
+                    Some(section_name),
+                    span,
+                    None,
+                    Some(section_idx),
+                )
+            });
             continue;
         }
 
@@ -1548,7 +1601,15 @@ fn parse_timeline(input: &str, builder: &mut IrBuilder) {
             // This is a continuation event for the current period
             if let Some(period_id) = current_period {
                 let events_text = continuation.trim();
-                parse_timeline_events(events_text, period_id, line_number, line, builder);
+                parse_timeline_events(
+                    events_text,
+                    period_id,
+                    line_number,
+                    line,
+                    current_section,
+                    current_section_subgraph,
+                    builder,
+                );
             } else {
                 builder.add_warning(format!(
                     "Line {line_number}: continuation event without preceding time period: {trimmed}"
@@ -1584,6 +1645,9 @@ fn parse_timeline(input: &str, builder: &mut IrBuilder) {
                 if let Some(section_idx) = current_section {
                     builder.add_node_to_cluster(section_idx, period_node_id);
                 }
+                if let Some(subgraph_idx) = current_section_subgraph {
+                    builder.add_node_to_subgraph(subgraph_idx, period_node_id);
+                }
 
                 // Link to previous period (timeline sequence)
                 if let Some(prev_id) = previous_period {
@@ -1595,7 +1659,15 @@ fn parse_timeline(input: &str, builder: &mut IrBuilder) {
 
                 // Parse events for this period
                 if !events_text.is_empty() {
-                    parse_timeline_events(events_text, period_node_id, line_number, line, builder);
+                    parse_timeline_events(
+                        events_text,
+                        period_node_id,
+                        line_number,
+                        line,
+                        current_section,
+                        current_section_subgraph,
+                        builder,
+                    );
                 }
             }
         } else {
@@ -1616,6 +1688,9 @@ fn parse_timeline(input: &str, builder: &mut IrBuilder) {
                 if let Some(section_idx) = current_section {
                     builder.add_node_to_cluster(section_idx, period_node_id);
                 }
+                if let Some(subgraph_idx) = current_section_subgraph {
+                    builder.add_node_to_subgraph(subgraph_idx, period_node_id);
+                }
 
                 if let Some(prev_id) = previous_period {
                     builder.push_edge(prev_id, period_node_id, ArrowType::Arrow, None, span);
@@ -1634,6 +1709,8 @@ fn parse_timeline_events(
     period_id: IrNodeId,
     line_number: usize,
     source_line: &str,
+    current_section: Option<usize>,
+    current_section_subgraph: Option<usize>,
     builder: &mut IrBuilder,
 ) {
     let span = span_for(line_number, source_line);
@@ -1654,6 +1731,12 @@ fn parse_timeline_events(
         if let Some(event_node_id) =
             builder.intern_node(&event_id, Some(event_text), NodeShape::Rounded, span)
         {
+            if let Some(section_idx) = current_section {
+                builder.add_node_to_cluster(section_idx, event_node_id);
+            }
+            if let Some(subgraph_idx) = current_section_subgraph {
+                builder.add_node_to_subgraph(subgraph_idx, event_node_id);
+            }
             // Events are children of their time period
             builder.push_edge(period_id, event_node_id, ArrowType::Line, None, span);
         }
@@ -3283,6 +3366,52 @@ mod tests {
     }
 
     #[test]
+    fn flowchart_nested_subgraphs_populate_graph_hierarchy() {
+        let parsed = parse_mermaid(
+            "flowchart TB\nsubgraph api [API]\nA-->B\nsubgraph workers [Workers]\nB-->C\nend\nend",
+        );
+
+        assert_eq!(parsed.ir.graph.subgraphs.len(), 2);
+        assert_eq!(parsed.ir.graph.clusters.len(), 2);
+
+        let api_idx = parsed
+            .ir
+            .graph
+            .subgraphs
+            .iter()
+            .position(|subgraph| subgraph.key == "api")
+            .expect("api subgraph should exist");
+        let workers_idx = parsed
+            .ir
+            .graph
+            .subgraphs
+            .iter()
+            .position(|subgraph| subgraph.key == "workers")
+            .expect("workers subgraph should exist");
+
+        let api = &parsed.ir.graph.subgraphs[api_idx];
+        let workers = &parsed.ir.graph.subgraphs[workers_idx];
+        assert_eq!(api.parent, None);
+        assert_eq!(api.children, vec![fm_core::IrSubgraphId(workers_idx)]);
+        assert_eq!(workers.parent, Some(fm_core::IrSubgraphId(api_idx)));
+
+        let node_b = parsed
+            .ir
+            .find_node_index("B")
+            .and_then(|index| parsed.ir.graph.nodes.get(index))
+            .expect("node B should exist");
+        assert_eq!(node_b.subgraphs.len(), 2);
+        assert_eq!(node_b.clusters.len(), 2);
+
+        let worker_cluster = &parsed.ir.graph.clusters[workers_idx];
+        assert_eq!(
+            worker_cluster.subgraph,
+            Some(fm_core::IrSubgraphId(workers_idx))
+        );
+        assert!(!worker_cluster.members.is_empty());
+    }
+
+    #[test]
     fn flowchart_inline_comment_does_not_strip_node_labels_with_percent_signs() {
         let parsed = parse_mermaid("flowchart TB\nA[50%% done]-->B");
         assert!(
@@ -3712,6 +3841,24 @@ mod tests {
         assert_eq!(parsed.ir.nodes.len(), 4);
         // 2 clusters (sections)
         assert_eq!(parsed.ir.clusters.len(), 2);
+        assert_eq!(parsed.ir.graph.subgraphs.len(), 2);
+        assert_eq!(parsed.ir.graph.clusters.len(), 2);
+
+        let early_days = parsed
+            .ir
+            .graph
+            .find_subgraph_by_key("Early Days")
+            .expect("Early Days subgraph should exist");
+        let growth_era = parsed
+            .ir
+            .graph
+            .find_subgraph_by_key("Growth Era")
+            .expect("Growth Era subgraph should exist");
+
+        assert_eq!(early_days.parent, None);
+        assert_eq!(growth_era.parent, None);
+        assert_eq!(early_days.members.len(), 2);
+        assert_eq!(growth_era.members.len(), 2);
     }
 
     #[test]
