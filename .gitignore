@@ -34,6 +34,21 @@ B*nend*
 .beads/*.pre_recovery_*
 .beads/*.recover*.sql
 
+# Beads history snapshots (JSONL export is tracked, history is local)
+.beads/.br_history/
+
+# Beads ephemeral DB artifacts (rebuild, recovery, test, bad snapshots)
+.beads/beads.db.bad_*
+.beads/beads.db.rebuild_*
+.beads/beads.db.fresh_*
+.beads/beads.db.cachetest*
+.beads/beads.db.cyclefix*
+.beads/beads.db.exporttest*
+.beads/beads.db.*.dumpfix
+.beads/beads.db.*.reindexed
+.beads/beads.db.*.repair*
+.beads/recovery_*/
+
 # Ephemeral agent session files
 SESSION_TODO.md
 SESSION_REPORT.md
