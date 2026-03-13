@@ -421,6 +421,7 @@ pub struct IrCluster {
     pub id: IrClusterId,
     pub title: Option<IrLabelId>,
     pub members: Vec<IrNodeId>,
+    pub grid_span: usize,
     pub span: Span,
 }
 
@@ -433,6 +434,7 @@ pub struct IrSubgraph {
     pub children: Vec<IrSubgraphId>,
     pub members: Vec<IrNodeId>,
     pub cluster: Option<IrClusterId>,
+    pub grid_span: usize,
     pub span: Span,
 }
 
@@ -459,6 +461,7 @@ pub struct IrGraphCluster {
     pub title: Option<IrLabelId>,
     pub members: Vec<IrNodeId>,
     pub subgraph: Option<IrSubgraphId>,
+    pub grid_span: usize,
     pub span: Span,
 }
 

@@ -2144,9 +2144,12 @@ fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
             if let Some(span_cols) = span_cols
                 && span_cols > 1
             {
-                builder.add_warning(format!(
-                    "Line {line_number}: block-beta group '{group_key}' span {span_cols} recognized but group span layout is not implemented yet"
-                ));
+                if let Some(cluster_index) = cluster_index {
+                    builder.set_cluster_grid_span(cluster_index, span_cols);
+                }
+                if let Some(subgraph_index) = subgraph_index {
+                    builder.set_subgraph_grid_span(subgraph_index, span_cols);
+                }
             }
 
             match (cluster_index, subgraph_index) {
@@ -4252,6 +4255,8 @@ mod tests {
         let data = data[0];
         assert_eq!(api.parent, None);
         assert_eq!(data.parent, Some(api.id));
+        assert_eq!(api.grid_span, 1);
+        assert_eq!(data.grid_span, 2);
 
         let svc = parsed.ir.find_node_index("svc").unwrap();
         let db = parsed.ir.find_node_index("db").unwrap();
@@ -4259,6 +4264,12 @@ mod tests {
         let db_graph = &parsed.ir.graph.nodes[db];
         assert_eq!(svc_graph.subgraphs, vec![api.id]);
         assert_eq!(db_graph.subgraphs, vec![api.id, data.id]);
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .all(|warning| !warning.contains("group span layout is not implemented yet"))
+        );
     }
 
     #[test]

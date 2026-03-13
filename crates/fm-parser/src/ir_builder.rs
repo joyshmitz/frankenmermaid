@@ -291,6 +291,7 @@ impl IrBuilder {
             id: IrClusterId(cluster_index),
             title: title_id,
             members: Vec::new(),
+            grid_span: 1,
             span,
         });
         self.ir.graph.clusters.push(IrGraphCluster {
@@ -298,6 +299,7 @@ impl IrBuilder {
             title: title_id,
             members: Vec::new(),
             subgraph: None,
+            grid_span: 1,
             span,
         });
         Some(cluster_index)
@@ -348,6 +350,7 @@ impl IrBuilder {
             children: Vec::new(),
             members: Vec::new(),
             cluster: cluster_id,
+            grid_span: 1,
             span,
         });
         if let Some(parent_index) = parent
@@ -375,6 +378,23 @@ impl IrBuilder {
             if !graph_node.subgraphs.contains(&subgraph_id) {
                 graph_node.subgraphs.push(subgraph_id);
             }
+        }
+    }
+
+    pub(crate) fn set_cluster_grid_span(&mut self, cluster_index: usize, grid_span: usize) {
+        let grid_span = grid_span.max(1);
+        if let Some(cluster) = self.ir.clusters.get_mut(cluster_index) {
+            cluster.grid_span = grid_span;
+        }
+        if let Some(graph_cluster) = self.ir.graph.clusters.get_mut(cluster_index) {
+            graph_cluster.grid_span = grid_span;
+        }
+    }
+
+    pub(crate) fn set_subgraph_grid_span(&mut self, subgraph_index: usize, grid_span: usize) {
+        let grid_span = grid_span.max(1);
+        if let Some(subgraph) = self.ir.graph.subgraphs.get_mut(subgraph_index) {
+            subgraph.grid_span = grid_span;
         }
     }
 
