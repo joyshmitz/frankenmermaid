@@ -2141,14 +2141,18 @@ fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
                 )
             });
 
-            if let Some(span_cols) = span_cols
-                && span_cols > 1
-            {
+            if let Some(span_cols) = span_cols {
+                let normalized_span = span_cols.max(1);
+                if span_cols == 0 {
+                    builder.add_warning(format!(
+                        "Line {line_number}: block-beta group '{group_key}' span must be >= 1"
+                    ));
+                }
                 if let Some(cluster_index) = cluster_index {
-                    builder.set_cluster_grid_span(cluster_index, span_cols);
+                    builder.set_cluster_grid_span(cluster_index, normalized_span);
                 }
                 if let Some(subgraph_index) = subgraph_index {
-                    builder.set_subgraph_grid_span(subgraph_index, span_cols);
+                    builder.set_subgraph_grid_span(subgraph_index, normalized_span);
                 }
             }
 
@@ -2172,6 +2176,13 @@ fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
         let blocks = parse_block_beta_blocks(trimmed, line_number);
         if !blocks.is_empty() {
             for block in blocks {
+                let span_cols = block.span_cols.max(1);
+                if block.span_cols == 0 {
+                    builder.add_warning(format!(
+                        "Line {line_number}: block-beta block '{}' span must be >= 1",
+                        block.id
+                    ));
+                }
                 let Some(node_id) =
                     builder.intern_node(&block.id, block.label.as_deref(), block.shape, span)
                 else {
@@ -2186,10 +2197,10 @@ fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
                 if block.is_space {
                     builder.add_class_to_node(&block.id, "block-beta-space", span);
                 }
-                if block.span_cols > 1 {
+                if span_cols > 1 {
                     builder.add_class_to_node(
                         &block.id,
-                        &format!("block-beta-span-{}", block.span_cols),
+                        &format!("block-beta-span-{span_cols}"),
                         span,
                     );
                 }
@@ -4300,6 +4311,41 @@ mod tests {
                 .warnings
                 .iter()
                 .all(|warning| !warning.contains("span-aware layout is not implemented yet"))
+        );
+    }
+
+    #[test]
+    fn block_beta_zero_spans_warn_and_coerce_to_one() {
+        let parsed = parse_mermaid("block-beta\nblock:api:0\ncache:0\nend");
+        assert_eq!(parsed.ir.diagram_type, DiagramType::BlockBeta);
+
+        let api = parsed.ir.graph.subgraphs_by_key("api");
+        assert_eq!(api.len(), 1);
+        assert_eq!(api[0].grid_span, 1);
+
+        let cache = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "cache")
+            .unwrap();
+        assert!(
+            cache
+                .classes
+                .iter()
+                .all(|class_name| class_name != "block-beta-span-0")
+        );
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("group 'api' span must be >= 1"))
+        );
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("block-beta block 'cache' span must be >= 1"))
         );
     }
 
