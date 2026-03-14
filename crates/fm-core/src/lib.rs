@@ -255,6 +255,26 @@ pub enum MermaidSupportLevel {
     Unsupported,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MermaidParseMode {
+    Strict,
+    #[default]
+    Compat,
+    Recover,
+}
+
+impl MermaidParseMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::Compat => "compat",
+            Self::Recover => "recover",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum CapabilityStatus {
@@ -1596,6 +1616,7 @@ pub struct MermaidDiagramMeta {
     pub diagram_type: DiagramType,
     pub direction: GraphDirection,
     pub support_level: MermaidSupportLevel,
+    pub parse_mode: MermaidParseMode,
     pub block_beta_columns: Option<usize>,
     pub init: MermaidInitParse,
     pub theme_overrides: MermaidThemeOverrides,
@@ -1926,6 +1947,7 @@ impl MermaidDiagramIr {
                 diagram_type,
                 direction: GraphDirection::TB,
                 support_level: diagram_type.support_level(),
+                parse_mode: MermaidParseMode::Compat,
                 block_beta_columns: None,
                 init: MermaidInitParse::default(),
                 theme_overrides: MermaidThemeOverrides::default(),
