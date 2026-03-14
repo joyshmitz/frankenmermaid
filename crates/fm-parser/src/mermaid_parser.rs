@@ -75,6 +75,13 @@ struct BlockDef {
     is_space: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SequenceStatement {
+    Participant(String),
+    Actor(String),
+    Message(String),
+}
+
 /// Simple type detection (used by tests).
 #[must_use]
 #[allow(dead_code)] // Used by tests
@@ -907,31 +914,55 @@ fn parse_sequence(input: &str, builder: &mut IrBuilder) {
             continue;
         }
 
-        if let Some(rest) = trimmed.strip_prefix("participant ") {
-            if !register_participant(rest, line_number, line, builder) {
+        let Some(statement) = parse_sequence_statement(trimmed) else {
+            builder.add_warning(format!(
+                "Line {line_number}: unsupported sequence syntax: {trimmed}"
+            ));
+            continue;
+        };
+
+        lower_sequence_statement(statement, line_number, line, builder);
+    }
+}
+
+fn parse_sequence_statement(line: &str) -> Option<SequenceStatement> {
+    if let Some(rest) = line.strip_prefix("participant ") {
+        return Some(SequenceStatement::Participant(rest.trim().to_string()));
+    }
+
+    if let Some(rest) = line.strip_prefix("actor ") {
+        return Some(SequenceStatement::Actor(rest.trim().to_string()));
+    }
+
+    parse_sequence_message_ast(line).map(SequenceStatement::Message)
+}
+
+fn lower_sequence_statement(
+    statement: SequenceStatement,
+    line_number: usize,
+    source_line: &str,
+    builder: &mut IrBuilder,
+) {
+    match statement {
+        SequenceStatement::Participant(declaration) => {
+            if !register_participant(&declaration, line_number, source_line, builder) {
                 builder.add_warning(format!(
-                    "Line {line_number}: unable to parse participant declaration: {trimmed}"
+                    "Line {line_number}: unable to parse participant declaration: {}",
+                    source_line.trim()
                 ));
             }
-            continue;
         }
-
-        if let Some(rest) = trimmed.strip_prefix("actor ") {
-            if !register_participant(rest, line_number, line, builder) {
+        SequenceStatement::Actor(declaration) => {
+            if !register_participant(&declaration, line_number, source_line, builder) {
                 builder.add_warning(format!(
-                    "Line {line_number}: unable to parse actor declaration: {trimmed}"
+                    "Line {line_number}: unable to parse actor declaration: {}",
+                    source_line.trim()
                 ));
             }
-            continue;
         }
-
-        if parse_sequence_message(trimmed, line_number, line, builder) {
-            continue;
+        SequenceStatement::Message(statement) => {
+            let _ = lower_sequence_message(&statement, line_number, source_line, builder);
         }
-
-        builder.add_warning(format!(
-            "Line {line_number}: unsupported sequence syntax: {trimmed}"
-        ));
     }
 }
 
@@ -993,40 +1024,69 @@ fn parse_state(input: &str, builder: &mut IrBuilder) {
             continue;
         }
 
-        if trimmed.starts_with("direction ") {
-            if let Some(direction) = parse_graph_direction(trimmed) {
-                builder.set_direction(direction);
-            }
-            continue;
-        }
-
         if trimmed == "[*]" || trimmed == "{" || trimmed == "}" {
             continue;
         }
 
-        if let Some(declaration) = trimmed.strip_prefix("state ")
-            && register_state_declaration(declaration, line_number, line, builder)
-        {
-            continue;
-        }
-
-        let mut parsed_line = false;
-        for statement in split_statements(trimmed) {
-            if parse_edge_statement(statement, line_number, line, &FLOW_OPERATORS, builder) {
-                parsed_line = true;
-                continue;
-            }
-            if let Some(node) = parse_node_token(statement) {
-                let span = span_for(line_number, line);
-                let _ = builder.intern_node(&node.id, node.label.as_deref(), node.shape, span);
-                parsed_line = true;
-            }
-        }
-
-        if !parsed_line {
+        let Some(statements) = parse_state_statements(trimmed) else {
             builder.add_warning(format!(
                 "Line {line_number}: unsupported state syntax: {trimmed}"
             ));
+            continue;
+        };
+
+        for statement in statements {
+            lower_state_statement(statement, line_number, line, builder);
+        }
+    }
+}
+
+fn parse_state_statements(line: &str) -> Option<Vec<StateStatement>> {
+    if line.starts_with("direction ") {
+        return parse_graph_direction(line)
+            .map(|direction| vec![StateStatement::Direction(direction)]);
+    }
+
+    if let Some(declaration) = line.strip_prefix("state ") {
+        let declaration = declaration.trim();
+        if !declaration.is_empty() {
+            return Some(vec![StateStatement::Declaration(declaration.to_string())]);
+        }
+    }
+
+    let mut statements = Vec::new();
+    for statement in split_statements(line) {
+        if let Some(asts) = parse_edge_statement_asts(statement, &FLOW_OPERATORS) {
+            statements.push(StateStatement::Edge(asts));
+            continue;
+        }
+        if let Some(node) = parse_node_token(statement) {
+            statements.push(StateStatement::Node(node));
+        }
+    }
+
+    (!statements.is_empty()).then_some(statements)
+}
+
+fn lower_state_statement(
+    statement: StateStatement,
+    line_number: usize,
+    source_line: &str,
+    builder: &mut IrBuilder,
+) {
+    match statement {
+        StateStatement::Direction(direction) => builder.set_direction(direction),
+        StateStatement::Declaration(declaration) => {
+            let _ = register_state_declaration(&declaration, line_number, source_line, builder);
+        }
+        StateStatement::Edge(asts) => {
+            for ast in asts {
+                lower_flow_ast(&ast, line_number, source_line, builder, &[], &[]);
+            }
+        }
+        StateStatement::Node(node) => {
+            let span = span_for(line_number, source_line);
+            let _ = builder.intern_node(&node.id, node.label.as_deref(), node.shape, span);
         }
     }
 }
@@ -2128,6 +2188,13 @@ enum GitGraphCommand {
     CherryPick(String),
 }
 
+enum StateStatement {
+    Direction(GraphDirection),
+    Declaration(String),
+    Edge(Vec<FlowAst>),
+    Node(NodeToken),
+}
+
 fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
     let document = parse_block_beta_document(input);
     for warning in &document.warnings {
@@ -3018,7 +3085,28 @@ fn register_participant(
     true
 }
 
-fn parse_sequence_message(
+fn parse_sequence_message_ast(statement: &str) -> Option<String> {
+    let (operator_idx, operator, _) = find_operator(statement, &SEQUENCE_OPERATORS)?;
+    let left = statement[..operator_idx].trim();
+    let right = statement[operator_idx + operator.len()..].trim();
+    if left.is_empty() || right.is_empty() {
+        return None;
+    }
+
+    let target_raw = right
+        .split_once(':')
+        .map_or(right, |(target, _)| target)
+        .trim();
+    let from_id = normalize_identifier(left);
+    let to_id = normalize_identifier(target_raw);
+    if from_id.is_empty() || to_id.is_empty() {
+        return None;
+    }
+
+    Some(statement.to_string())
+}
+
+fn lower_sequence_message(
     statement: &str,
     line_number: usize,
     source_line: &str,
@@ -4255,6 +4343,28 @@ mod tests {
         assert_eq!(parsed.ir.nodes.len(), 2);
         assert_eq!(parsed.ir.edges.len(), 1);
         assert!(parsed.warnings.is_empty());
+    }
+
+    #[test]
+    fn sequence_preserves_specific_participant_parse_warning() {
+        let parsed = parse_mermaid("sequenceDiagram\nparticipant \"\"");
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("unable to parse participant declaration"))
+        );
+    }
+
+    #[test]
+    fn sequence_preserves_specific_actor_parse_warning() {
+        let parsed = parse_mermaid("sequenceDiagram\nactor \"\"");
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("unable to parse actor declaration"))
+        );
     }
 
     #[test]
