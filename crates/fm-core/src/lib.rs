@@ -349,6 +349,63 @@ pub fn capability_matrix_json_pretty() -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(&capability_matrix())
 }
 
+#[must_use]
+pub fn capability_readme_supported_diagram_types_markdown() -> String {
+    let mut lines = vec![
+        String::from("| Diagram Type | Runtime Status |"),
+        String::from("|--------------|----------------|"),
+    ];
+
+    for diagram_type in documented_diagram_types() {
+        let status = match diagram_type.support_level() {
+            MermaidSupportLevel::Supported => CapabilityStatus::Implemented,
+            MermaidSupportLevel::Partial => CapabilityStatus::Partial,
+            MermaidSupportLevel::Unsupported => CapabilityStatus::Unsupported,
+        };
+        lines.push(format!(
+            "| `{}` | {} |",
+            diagram_type.as_str(),
+            capability_status_label(status)
+        ));
+    }
+
+    lines.join("\n")
+}
+
+#[must_use]
+pub fn capability_readme_surface_markdown() -> String {
+    let matrix = capability_matrix();
+    let mut lines = vec![
+        String::from("| Surface | Status | Evidence |"),
+        String::from("|---------|--------|----------|"),
+    ];
+
+    for claim in matrix
+        .claims
+        .iter()
+        .filter(|claim| claim.category == "surface")
+    {
+        lines.push(format!(
+            "| {} | {} | {} evidence refs |",
+            claim.title,
+            capability_status_label(claim.status),
+            claim.evidence.len()
+        ));
+    }
+
+    lines.join("\n")
+}
+
+fn capability_status_label(status: CapabilityStatus) -> &'static str {
+    match status {
+        CapabilityStatus::Implemented => "Implemented",
+        CapabilityStatus::Partial => "Partial",
+        CapabilityStatus::Experimental => "Experimental",
+        CapabilityStatus::Planned => "Planned",
+        CapabilityStatus::Unsupported => "Unsupported",
+    }
+}
+
 fn documented_diagram_type_claims() -> Vec<CapabilityClaim> {
     documented_diagram_types()
         .iter()
@@ -510,6 +567,38 @@ fn surface_capability_claims() -> Vec<CapabilityClaim> {
             notes: vec![],
         },
         CapabilityClaim {
+            id: String::from("surface/cli-capabilities"),
+            category: String::from("surface"),
+            title: String::from("CLI capability matrix command"),
+            status: CapabilityStatus::Implemented,
+            advertised_in: vec![
+                String::from("README.md#command-reference"),
+                String::from("README.md#runtime-capability-metadata"),
+            ],
+            code_paths: vec![
+                String::from("crates/fm-cli/src/main.rs::Command::Capabilities"),
+                String::from("crates/fm-cli/src/main.rs::cmd_capabilities"),
+                String::from("crates/fm-core/src/lib.rs::capability_matrix"),
+            ],
+            evidence: vec![
+                CapabilityEvidence {
+                    kind: String::from("test"),
+                    reference: String::from(
+                        "crates/fm-core/src/lib.rs::tests::capability_matrix_json_matches_checked_in_artifact",
+                    ),
+                    note: Some(String::from(
+                        "CLI command serializes the checked-in capability artifact",
+                    )),
+                },
+                CapabilityEvidence {
+                    kind: String::from("code_path"),
+                    reference: String::from("crates/fm-cli/src/main.rs::cmd_capabilities"),
+                    note: None,
+                },
+            ],
+            notes: vec![],
+        },
+        CapabilityClaim {
             id: String::from("surface/wasm-svg"),
             category: String::from("surface"),
             title: String::from("WASM API renders SVG"),
@@ -520,7 +609,8 @@ fn surface_capability_claims() -> Vec<CapabilityClaim> {
             ],
             code_paths: vec![
                 String::from("crates/fm-wasm/src/lib.rs::render"),
-                String::from("crates/fm-wasm/src/lib.rs::render_with_config"),
+                String::from("crates/fm-wasm/src/lib.rs::render_svg_js"),
+                String::from("crates/fm-wasm/src/lib.rs::Diagram::render"),
             ],
             evidence: vec![CapabilityEvidence {
                 kind: String::from("test"),
@@ -528,6 +618,30 @@ fn surface_capability_claims() -> Vec<CapabilityClaim> {
                     "crates/fm-wasm/src/lib.rs::tests::render_returns_svg_and_type",
                 ),
                 note: Some(String::from("WASM facade smoke coverage")),
+            }],
+            notes: vec![],
+        },
+        CapabilityClaim {
+            id: String::from("surface/wasm-capabilities"),
+            category: String::from("surface"),
+            title: String::from("WASM API exposes capability matrix metadata"),
+            status: CapabilityStatus::Implemented,
+            advertised_in: vec![
+                String::from("README.md#javascript--wasm-api"),
+                String::from("README.md#runtime-capability-metadata"),
+            ],
+            code_paths: vec![
+                String::from("crates/fm-wasm/src/lib.rs::capability_matrix_js"),
+                String::from("crates/fm-core/src/lib.rs::capability_matrix"),
+            ],
+            evidence: vec![CapabilityEvidence {
+                kind: String::from("test"),
+                reference: String::from(
+                    "crates/fm-wasm/src/lib.rs::tests::capability_matrix_js_returns_matrix_payload",
+                ),
+                note: Some(String::from(
+                    "WASM surface returns the shared capability matrix",
+                )),
             }],
             notes: vec![],
         },
@@ -2127,8 +2241,9 @@ mod tests {
         IrSubgraphId, MermaidConfig, MermaidDiagramIr, MermaidError, MermaidErrorCode,
         MermaidFallbackAction, MermaidFallbackPolicy, MermaidSanitizeMode, MermaidSupportLevel,
         MermaidWarningCode, NodeShape, Position, Span, StructuredDiagnostic, capability_matrix,
-        capability_matrix_json_pretty, documented_diagram_types, parse_mermaid_js_config_value,
-        to_init_parse,
+        capability_matrix_json_pretty, capability_readme_supported_diagram_types_markdown,
+        capability_readme_surface_markdown, documented_diagram_types,
+        parse_mermaid_js_config_value, to_init_parse,
     };
 
     fn sample_span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -3351,5 +3466,50 @@ mod tests {
             capability_matrix_json_pretty().expect("matrix JSON should serialize"),
             expected
         );
+    }
+
+    #[test]
+    fn readme_supported_diagram_types_block_matches_generated_markdown() {
+        let readme = load_readme();
+        let actual = extract_generated_readme_block(&readme, "supported-diagram-types");
+
+        assert_eq!(
+            actual,
+            capability_readme_supported_diagram_types_markdown(),
+            "README supported diagram types block drifted from capability source of truth"
+        );
+    }
+
+    #[test]
+    fn readme_runtime_capability_metadata_block_matches_generated_markdown() {
+        let readme = load_readme();
+        let actual = extract_generated_readme_block(&readme, "runtime-capability-metadata");
+
+        assert_eq!(
+            actual,
+            capability_readme_surface_markdown(),
+            "README runtime capability metadata block drifted from capability source of truth"
+        );
+    }
+
+    fn load_readme() -> String {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let readme_path = manifest_dir.join("../../README.md");
+        std::fs::read_to_string(&readme_path).expect("README should exist")
+    }
+
+    fn extract_generated_readme_block(readme: &str, block_name: &str) -> String {
+        let start_marker = format!("<!-- BEGIN GENERATED: {block_name} -->");
+        let end_marker = format!("<!-- END GENERATED: {block_name} -->");
+        let start = readme
+            .find(&start_marker)
+            .unwrap_or_else(|| panic!("missing start marker for {block_name}"));
+        let body_start = start + start_marker.len();
+        let end = readme[body_start..]
+            .find(&end_marker)
+            .map(|offset| body_start + offset)
+            .unwrap_or_else(|| panic!("missing end marker for {block_name}"));
+
+        readme[body_start..end].trim().to_string()
     }
 }

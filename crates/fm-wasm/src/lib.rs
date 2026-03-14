@@ -2,6 +2,7 @@
 
 use std::sync::{LazyLock, RwLock};
 
+use fm_core::capability_matrix;
 use fm_layout::layout_diagram;
 #[cfg(target_arch = "wasm32")]
 use fm_parser::ParseResult;
@@ -359,6 +360,11 @@ pub fn parse_js(input: &str) -> Result<JsValue, JsValue> {
     to_js_value(&parsed)
 }
 
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = capabilityMatrix))]
+pub fn capability_matrix_js() -> Result<JsValue, JsValue> {
+    to_js_value(&capability_matrix())
+}
+
 #[cfg(target_arch = "wasm32")]
 #[derive(Debug, Clone)]
 struct WebCanvas2dContext {
@@ -703,5 +709,23 @@ mod tests {
         };
         let merged = merge_svg_config(&base, &overrides, None).expect("theme should parse");
         assert_eq!(merged.theme, ThemePreset::Dark);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn capability_matrix_js_returns_matrix_payload() {
+        let value = capability_matrix_js().expect("capability matrix should serialize");
+        let json = value
+            .as_string()
+            .expect("wasm tests should receive stringifiable payload");
+        let payload: serde_json::Value =
+            serde_json::from_str(&json).expect("payload should parse as JSON");
+        assert_eq!(payload["project"], "frankenmermaid");
+        assert_eq!(payload["schema_version"], 1);
+        assert!(
+            payload["claims"]
+                .as_array()
+                .is_some_and(|claims| !claims.is_empty())
+        );
     }
 }

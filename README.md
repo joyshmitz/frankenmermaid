@@ -109,13 +109,33 @@ Typography, spacing, theming, accessibility, and responsive behavior are part of
 
 ## Supported Diagram Types
 
-| Category | Types |
-|----------|-------|
-| Flow & Structure | Flowchart, Sequence, Class, State, ER, C4, Architecture, Block, DOT bridge |
-| Planning & Process | Gantt, Timeline, User Journey, Kanban |
-| Graph/Network | Git Graph, Sankey, Mindmap |
-| Charts | Pie/Donut, Quadrant, Radar, XY, Treemap |
-| Specialized | Requirement, Packet |
+<!-- BEGIN GENERATED: supported-diagram-types -->
+| Diagram Type | Runtime Status |
+|--------------|----------------|
+| `flowchart` | Implemented |
+| `sequence` | Partial |
+| `class` | Partial |
+| `state` | Partial |
+| `er` | Partial |
+| `C4Context` | Unsupported |
+| `C4Container` | Unsupported |
+| `C4Component` | Unsupported |
+| `C4Dynamic` | Unsupported |
+| `C4Deployment` | Unsupported |
+| `architecture-beta` | Unsupported |
+| `block-beta` | Partial |
+| `gantt` | Partial |
+| `timeline` | Partial |
+| `journey` | Partial |
+| `gitGraph` | Partial |
+| `sankey` | Unsupported |
+| `mindmap` | Partial |
+| `pie` | Partial |
+| `quadrantChart` | Partial |
+| `xyChart` | Unsupported |
+| `requirementDiagram` | Partial |
+| `packet-beta` | Partial |
+<!-- END GENERATED: supported-diagram-types -->
 
 ## Installation
 
@@ -200,6 +220,14 @@ Validate syntax/semantics and print diagnostics with spans and suggestions.
 fm-cli validate input.mmd
 ```
 
+### `fm-cli capabilities`
+
+Emit the runtime capability matrix as JSON from the same source of truth used by tests and README drift checks.
+
+```bash
+fm-cli capabilities --pretty
+```
+
 ### `fm-cli watch`
 
 Watch files and re-render on change.
@@ -219,17 +247,36 @@ fm-cli serve --host 127.0.0.1 --port 4173 --open
 ## JavaScript / WASM API
 
 ```ts
-import { init, renderSvg, detectType, parse, Diagram } from '@frankenmermaid/core';
+import { init, renderSvg, detectType, parse, capabilityMatrix, Diagram } from '@frankenmermaid/core';
 
 await init({ theme: 'corporate' });
 
 const svg = renderSvg('flowchart LR\nA-->B', { theme: 'neon' });
 const type = detectType('sequenceDiagram\nAlice->>Bob: hi');
 const ir = parse('classDiagram\nA <|-- B');
+const capabilities = capabilityMatrix();
 
 const diagram = new Diagram(document.getElementById('canvas-root')!, { renderer: 'canvas2d' });
 diagram.render('flowchart TD\nStart-->End');
 ```
+
+## Runtime Capability Metadata
+
+The runtime capability matrix is the source of truth for support status, surfaces, and evidence references. The CLI emits it with `fm-cli capabilities`, the WASM surface exposes it via `capabilityMatrix()`, and the generated blocks below are CI-validated against that same data.
+
+<!-- BEGIN GENERATED: runtime-capability-metadata -->
+| Surface | Status | Evidence |
+|---------|--------|----------|
+| CLI detect command | Implemented | 2 evidence refs |
+| CLI parse command with IR JSON evidence | Implemented | 1 evidence refs |
+| CLI SVG rendering | Implemented | 1 evidence refs |
+| CLI terminal rendering | Implemented | 1 evidence refs |
+| CLI validate command with structured diagnostics | Implemented | 1 evidence refs |
+| CLI capability matrix command | Implemented | 2 evidence refs |
+| WASM API renders SVG | Implemented | 1 evidence refs |
+| WASM API exposes capability matrix metadata | Implemented | 1 evidence refs |
+| Canvas rendering backend | Implemented | 1 evidence refs |
+<!-- END GENERATED: runtime-capability-metadata -->
 
 ## Configuration
 

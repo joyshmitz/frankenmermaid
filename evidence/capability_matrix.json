@@ -3,7 +3,7 @@
   "project": "frankenmermaid",
   "status_counts": {
     "experimental": 1,
-    "implemented": 9,
+    "implemented": 11,
     "partial": 15,
     "unsupported": 8
   },
@@ -768,6 +768,34 @@
       "notes": []
     },
     {
+      "id": "surface/cli-capabilities",
+      "category": "surface",
+      "title": "CLI capability matrix command",
+      "status": "implemented",
+      "advertised_in": [
+        "README.md#command-reference",
+        "README.md#runtime-capability-metadata"
+      ],
+      "code_paths": [
+        "crates/fm-cli/src/main.rs::Command::Capabilities",
+        "crates/fm-cli/src/main.rs::cmd_capabilities",
+        "crates/fm-core/src/lib.rs::capability_matrix"
+      ],
+      "evidence": [
+        {
+          "kind": "test",
+          "reference": "crates/fm-core/src/lib.rs::tests::capability_matrix_json_matches_checked_in_artifact",
+          "note": "CLI command serializes the checked-in capability artifact"
+        },
+        {
+          "kind": "code_path",
+          "reference": "crates/fm-cli/src/main.rs::cmd_capabilities",
+          "note": null
+        }
+      ],
+      "notes": []
+    },
+    {
       "id": "surface/wasm-svg",
       "category": "surface",
       "title": "WASM API renders SVG",
@@ -778,13 +806,36 @@
       ],
       "code_paths": [
         "crates/fm-wasm/src/lib.rs::render",
-        "crates/fm-wasm/src/lib.rs::render_with_config"
+        "crates/fm-wasm/src/lib.rs::render_svg_js",
+        "crates/fm-wasm/src/lib.rs::Diagram::render"
       ],
       "evidence": [
         {
           "kind": "test",
           "reference": "crates/fm-wasm/src/lib.rs::tests::render_returns_svg_and_type",
           "note": "WASM facade smoke coverage"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "surface/wasm-capabilities",
+      "category": "surface",
+      "title": "WASM API exposes capability matrix metadata",
+      "status": "implemented",
+      "advertised_in": [
+        "README.md#javascript--wasm-api",
+        "README.md#runtime-capability-metadata"
+      ],
+      "code_paths": [
+        "crates/fm-wasm/src/lib.rs::capability_matrix_js",
+        "crates/fm-core/src/lib.rs::capability_matrix"
+      ],
+      "evidence": [
+        {
+          "kind": "test",
+          "reference": "crates/fm-wasm/src/lib.rs::tests::capability_matrix_js_returns_matrix_payload",
+          "note": "WASM surface returns the shared capability matrix"
         }
       ],
       "notes": []
