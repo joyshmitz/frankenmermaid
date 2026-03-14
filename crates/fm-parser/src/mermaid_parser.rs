@@ -2529,7 +2529,12 @@ fn parse_gitgraph(input: &str, builder: &mut IrBuilder) {
         }
 
         if let Some(command) = parse_gitgraph_command(trimmed) {
-            lower_gitgraph_command(command, line_number, line, &mut state, builder);
+            match command {
+                Ok(command) => {
+                    lower_gitgraph_command(command, line_number, line, &mut state, builder);
+                }
+                Err(message) => builder.add_warning(format!("Line {line_number}: {message}")),
+            }
             continue;
         }
 
@@ -2539,33 +2544,37 @@ fn parse_gitgraph(input: &str, builder: &mut IrBuilder) {
     }
 }
 
-fn parse_gitgraph_command(line: &str) -> Option<GitGraphCommand> {
+fn parse_gitgraph_command(line: &str) -> Option<Result<GitGraphCommand, String>> {
     if let Some(rest) = strip_git_command(line, "commit") {
-        return Some(GitGraphCommand::Commit(parse_git_commit_options(rest)));
+        return Some(Ok(GitGraphCommand::Commit(parse_git_commit_options(rest))));
     }
 
     if let Some(rest) = strip_git_command(line, "branch") {
-        return Some(GitGraphCommand::Branch(rest.trim().to_string()));
+        return Some(Ok(GitGraphCommand::Branch(rest.trim().to_string())));
     }
 
     if let Some(rest) = strip_git_command(line, "checkout") {
-        return Some(GitGraphCommand::Checkout(rest.trim().to_string()));
+        return Some(Ok(GitGraphCommand::Checkout(rest.trim().to_string())));
     }
 
     if let Some(rest) = strip_git_command(line, "switch") {
-        return Some(GitGraphCommand::Checkout(rest.trim().to_string()));
+        return Some(Ok(GitGraphCommand::Checkout(rest.trim().to_string())));
     }
 
-    if let Some(rest) = strip_git_command(line, "merge")
-        && let Some(options) = parse_git_merge_options(rest.trim())
-    {
-        return Some(GitGraphCommand::Merge(options));
+    if let Some(rest) = strip_git_command(line, "merge") {
+        return Some(
+            parse_git_merge_options(rest.trim())
+                .map(GitGraphCommand::Merge)
+                .ok_or_else(|| "merge requires a branch name".to_string()),
+        );
     }
 
-    if let Some(rest) = strip_git_command(line, "cherry-pick")
-        && let Some(commit_id) = parse_git_cherry_pick_id(rest.trim())
-    {
-        return Some(GitGraphCommand::CherryPick(commit_id));
+    if let Some(rest) = strip_git_command(line, "cherry-pick") {
+        return Some(
+            parse_git_cherry_pick_id(rest.trim())
+                .map(GitGraphCommand::CherryPick)
+                .map_err(str::to_string),
+        );
     }
 
     None
@@ -2934,12 +2943,19 @@ fn parse_git_cherry_pick(
     state.set_head(&state.current_branch.clone(), new_node);
 }
 
-fn parse_git_cherry_pick_id(spec: &str) -> Option<String> {
+fn parse_git_cherry_pick_id(spec: &str) -> Result<String, &'static str> {
     let id_prefix = "id:";
-    let id_start = spec.find(id_prefix)?;
+    let Some(id_start) = spec.find(id_prefix) else {
+        return Err("cherry-pick requires id: parameter");
+    };
     let rest = spec[id_start + id_prefix.len()..].trim_start();
-    let (commit_id, _) = extract_quoted_or_word(rest)?;
-    (!commit_id.is_empty()).then_some(commit_id)
+    let Some((commit_id, _)) = extract_quoted_or_word(rest) else {
+        return Err("cherry-pick id must be a string value");
+    };
+    if commit_id.is_empty() {
+        return Err("cherry-pick id must be a string value");
+    }
+    Ok(commit_id)
 }
 
 fn register_state_declaration(
@@ -5124,6 +5140,28 @@ cherry-pick id: feat1"#,
                 .warnings
                 .iter()
                 .any(|w| w.contains("unsupported gitGraph syntax"))
+        );
+    }
+
+    #[test]
+    fn gitgraph_preserves_specific_merge_parse_warning() {
+        let parsed = parse_mermaid("gitGraph\ncommit\nmerge");
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("merge requires a branch name"))
+        );
+    }
+
+    #[test]
+    fn gitgraph_preserves_specific_cherry_pick_parse_warning() {
+        let parsed = parse_mermaid("gitGraph\ncommit\ncherry-pick");
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("cherry-pick requires id: parameter"))
         );
     }
 
