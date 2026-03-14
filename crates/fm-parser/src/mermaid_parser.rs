@@ -272,6 +272,35 @@ struct FlowDocumentParseResult {
     header_direction: Option<GraphDirection>,
 }
 
+#[derive(Debug, Clone)]
+enum BlockBetaStatement {
+    Columns(usize),
+    Edges(Vec<FlowAst>),
+    Blocks(Vec<BlockDef>),
+}
+
+#[derive(Debug, Clone)]
+enum BlockBetaDocumentItem {
+    Statement {
+        statement: BlockBetaStatement,
+        line_number: usize,
+        source_line: String,
+    },
+    Group {
+        id: String,
+        span_cols: Option<usize>,
+        line_number: usize,
+        source_line: String,
+        body: Vec<BlockBetaDocumentItem>,
+    },
+}
+
+#[derive(Debug, Default)]
+struct BlockBetaDocumentParseResult {
+    items: Vec<BlockBetaDocumentItem>,
+    warnings: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Chumsky flowchart statement parser (character-level on &str)
 // ---------------------------------------------------------------------------
@@ -2092,10 +2121,46 @@ impl GitGraphState {
 }
 
 fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
-    let mut active_groups: Vec<(usize, Option<usize>)> = Vec::new();
+    let document = parse_block_beta_document(input);
+    for warning in &document.warnings {
+        builder.add_warning(warning.clone());
+    }
+    for item in &document.items {
+        lower_block_beta_document_item(item, builder, &[], &[]);
+    }
+}
 
-    for (index, line) in input.lines().enumerate() {
-        let line_number = index + 1;
+fn parse_block_beta_document(input: &str) -> BlockBetaDocumentParseResult {
+    let lines: Vec<(usize, &str)> = input
+        .lines()
+        .enumerate()
+        .map(|(i, line)| (i + 1, line))
+        .collect();
+    let mut next_index = 0;
+    let mut warnings = Vec::new();
+    let (items, unclosed_groups) =
+        parse_block_beta_document_items(&lines, &mut next_index, false, &mut warnings);
+    if unclosed_groups > 0 {
+        warnings.push(format!(
+            "Block-beta diagram ended with {} unclosed block group(s)",
+            unclosed_groups
+        ));
+    }
+    BlockBetaDocumentParseResult { items, warnings }
+}
+
+fn parse_block_beta_document_items(
+    lines: &[(usize, &str)],
+    next_index: &mut usize,
+    stop_on_end: bool,
+    warnings: &mut Vec<String>,
+) -> (Vec<BlockBetaDocumentItem>, usize) {
+    let mut items = Vec::new();
+    let mut unclosed_groups = 0;
+
+    while let Some((line_number, line)) = lines.get(*next_index).copied() {
+        *next_index += 1;
+
         let trimmed = line.trim();
         if trimmed.is_empty() || is_comment(trimmed) {
             continue;
@@ -2106,125 +2171,194 @@ fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
             continue;
         }
 
-        let span = span_for(line_number, line);
-
-        if let Some(columns) = parse_block_beta_columns(trimmed) {
-            if columns == 0 {
-                builder.add_warning(format!(
-                    "Line {line_number}: block-beta columns must be >= 1"
-                ));
-            } else {
-                builder.set_block_beta_columns(columns);
-            }
-            continue;
-        }
-
         if lower == "end" {
-            if active_groups.pop().is_none() {
-                builder.add_warning(format!(
-                    "Line {line_number}: block-beta end without matching block group"
-                ));
+            if stop_on_end {
+                return (items, unclosed_groups);
             }
+            warnings.push(format!(
+                "Line {line_number}: block-beta end without matching block group"
+            ));
             continue;
         }
 
         if let Some((group_key, span_cols)) = parse_block_beta_group_start(trimmed) {
-            let parent_subgraph = active_groups.last().and_then(|(_, subgraph)| *subgraph);
-            let cluster_index = builder.ensure_cluster(&group_key, Some(&group_key), span);
-            let subgraph_index = cluster_index.and_then(|cluster_idx| {
-                builder.ensure_subgraph(
-                    &group_key,
-                    Some(&group_key),
-                    span,
-                    parent_subgraph,
-                    Some(cluster_idx),
-                )
+            let (body, child_unclosed) =
+                parse_block_beta_document_items(lines, next_index, true, warnings);
+            unclosed_groups += child_unclosed;
+            items.push(BlockBetaDocumentItem::Group {
+                id: group_key,
+                span_cols,
+                line_number,
+                source_line: line.to_string(),
+                body,
             });
-
-            if let Some(span_cols) = span_cols {
-                let normalized_span = span_cols.max(1);
-                if span_cols == 0 {
-                    builder.add_warning(format!(
-                        "Line {line_number}: block-beta group '{group_key}' span must be >= 1"
-                    ));
-                }
-                if let Some(cluster_index) = cluster_index {
-                    builder.set_cluster_grid_span(cluster_index, normalized_span);
-                }
-                if let Some(subgraph_index) = subgraph_index {
-                    builder.set_subgraph_grid_span(subgraph_index, normalized_span);
-                }
-            }
-
-            match (cluster_index, subgraph_index) {
-                (Some(cluster_idx), subgraph_idx) => {
-                    active_groups.push((cluster_idx, subgraph_idx))
-                }
-                _ => builder.add_warning(format!(
-                    "Line {line_number}: invalid block-beta group identifier: {trimmed}"
-                )),
-            }
             continue;
         }
 
-        if find_operator(trimmed, &FLOW_OPERATORS).is_some()
-            && parse_edge_statement(trimmed, line_number, line, &FLOW_OPERATORS, builder)
-        {
+        if let Some(columns) = parse_block_beta_columns(trimmed) {
+            items.push(BlockBetaDocumentItem::Statement {
+                statement: BlockBetaStatement::Columns(columns),
+                line_number,
+                source_line: line.to_string(),
+            });
+            continue;
+        }
+
+        if let Some(asts) = parse_edge_statement_asts(trimmed, &FLOW_OPERATORS) {
+            items.push(BlockBetaDocumentItem::Statement {
+                statement: BlockBetaStatement::Edges(asts),
+                line_number,
+                source_line: line.to_string(),
+            });
             continue;
         }
 
         let blocks = parse_block_beta_blocks(trimmed, line_number);
         if !blocks.is_empty() {
-            for block in blocks {
-                let span_cols = block.span_cols.max(1);
-                if block.span_cols == 0 {
-                    builder.add_warning(format!(
-                        "Line {line_number}: block-beta block '{}' span must be >= 1",
-                        block.id
-                    ));
-                }
-                let Some(node_id) =
-                    builder.intern_node(&block.id, block.label.as_deref(), block.shape, span)
-                else {
-                    builder.add_warning(format!(
-                        "Line {line_number}: invalid block-beta block identifier: {}",
-                        block.id
-                    ));
-                    continue;
-                };
-
-                builder.add_class_to_node(&block.id, "block-beta", span);
-                if block.is_space {
-                    builder.add_class_to_node(&block.id, "block-beta-space", span);
-                }
-                if span_cols > 1 {
-                    builder.add_class_to_node(
-                        &block.id,
-                        &format!("block-beta-span-{span_cols}"),
-                        span,
-                    );
-                }
-
-                for (cluster_index, subgraph_index) in &active_groups {
-                    builder.add_node_to_cluster(*cluster_index, node_id);
-                    if let Some(subgraph_index) = subgraph_index {
-                        builder.add_node_to_subgraph(*subgraph_index, node_id);
-                    }
-                }
-            }
+            items.push(BlockBetaDocumentItem::Statement {
+                statement: BlockBetaStatement::Blocks(blocks),
+                line_number,
+                source_line: line.to_string(),
+            });
             continue;
         }
 
-        builder.add_warning(format!(
+        warnings.push(format!(
             "Line {line_number}: unsupported block-beta syntax: {trimmed}"
         ));
     }
 
-    if !active_groups.is_empty() {
-        builder.add_warning(format!(
-            "Block-beta diagram ended with {} unclosed block group(s)",
-            active_groups.len()
-        ));
+    if stop_on_end {
+        unclosed_groups += 1;
+    }
+
+    (items, unclosed_groups)
+}
+
+fn lower_block_beta_document_item(
+    item: &BlockBetaDocumentItem,
+    builder: &mut IrBuilder,
+    active_clusters: &[usize],
+    active_subgraphs: &[usize],
+) {
+    match item {
+        BlockBetaDocumentItem::Statement {
+            statement,
+            line_number,
+            source_line,
+        } => {
+            let span = span_for(*line_number, source_line);
+            match statement {
+                BlockBetaStatement::Columns(columns) => {
+                    if *columns == 0 {
+                        builder.add_warning(format!(
+                            "Line {line_number}: block-beta columns must be >= 1"
+                        ));
+                    } else {
+                        builder.set_block_beta_columns(*columns);
+                    }
+                }
+                BlockBetaStatement::Edges(asts) => {
+                    for ast in asts {
+                        lower_flow_ast(
+                            ast,
+                            *line_number,
+                            source_line,
+                            builder,
+                            active_clusters,
+                            active_subgraphs,
+                        );
+                    }
+                }
+                BlockBetaStatement::Blocks(blocks) => {
+                    for block in blocks {
+                        let span_cols = block.span_cols.max(1);
+                        if block.span_cols == 0 {
+                            builder.add_warning(format!(
+                                "Line {line_number}: block-beta block '{}' span must be >= 1",
+                                block.id
+                            ));
+                        }
+                        let Some(node_id) = builder.intern_node(
+                            &block.id,
+                            block.label.as_deref(),
+                            block.shape,
+                            span,
+                        ) else {
+                            builder.add_warning(format!(
+                                "Line {line_number}: invalid block-beta block identifier: {}",
+                                block.id
+                            ));
+                            continue;
+                        };
+
+                        builder.add_class_to_node(&block.id, "block-beta", span);
+                        if block.is_space {
+                            builder.add_class_to_node(&block.id, "block-beta-space", span);
+                        }
+                        if span_cols > 1 {
+                            builder.add_class_to_node(
+                                &block.id,
+                                &format!("block-beta-span-{span_cols}"),
+                                span,
+                            );
+                        }
+
+                        add_node_to_active_groups(
+                            builder,
+                            active_clusters,
+                            active_subgraphs,
+                            node_id,
+                        );
+                    }
+                }
+            }
+        }
+        BlockBetaDocumentItem::Group {
+            id,
+            span_cols,
+            line_number,
+            source_line,
+            body,
+        } => {
+            let span = span_for(*line_number, source_line);
+            let Some(cluster_index) = builder.ensure_cluster(id, Some(id), span) else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid block-beta group identifier: {}",
+                    source_line.trim()
+                ));
+                return;
+            };
+            let parent_subgraph = active_subgraphs.last().copied();
+            let Some(subgraph_index) =
+                builder.ensure_subgraph(id, Some(id), span, parent_subgraph, Some(cluster_index))
+            else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid block-beta group identifier: {}",
+                    source_line.trim()
+                ));
+                return;
+            };
+
+            if let Some(span_cols) = span_cols {
+                let normalized_span = (*span_cols).max(1);
+                if *span_cols == 0 {
+                    builder.add_warning(format!(
+                        "Line {line_number}: block-beta group '{id}' span must be >= 1"
+                    ));
+                }
+                builder.set_cluster_grid_span(cluster_index, normalized_span);
+                builder.set_subgraph_grid_span(subgraph_index, normalized_span);
+            }
+
+            let mut child_clusters = active_clusters.to_vec();
+            child_clusters.push(cluster_index);
+            let mut child_subgraphs = active_subgraphs.to_vec();
+            child_subgraphs.push(subgraph_index);
+            for child in body {
+                lower_block_beta_document_item(child, builder, &child_clusters, &child_subgraphs);
+            }
+        }
     }
 }
 
@@ -4347,6 +4481,26 @@ mod tests {
                 .iter()
                 .any(|warning| warning.contains("block-beta block 'cache' span must be >= 1"))
         );
+    }
+
+    #[test]
+    fn block_beta_document_parsing_preserves_end_warnings() {
+        let stray_end = parse_mermaid("block-beta\nend");
+        assert!(
+            stray_end
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("end without matching block group"))
+        );
+
+        let unclosed = parse_mermaid("block-beta\nblock:api\nsvc[Service]");
+        assert!(
+            unclosed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("ended with 1 unclosed block group"))
+        );
+        assert!(unclosed.ir.nodes.iter().any(|node| node.id == "svc"));
     }
 
     #[test]

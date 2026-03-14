@@ -188,6 +188,63 @@ impl DiagramType {
             Self::Unknown => "unknown",
         }
     }
+
+    #[must_use]
+    pub const fn support_level(self) -> MermaidSupportLevel {
+        match self {
+            Self::Flowchart => MermaidSupportLevel::Supported,
+            Self::Sequence
+            | Self::Class
+            | Self::State
+            | Self::Er
+            | Self::Pie
+            | Self::Gantt
+            | Self::Journey
+            | Self::Mindmap
+            | Self::Timeline
+            | Self::QuadrantChart
+            | Self::Requirement
+            | Self::GitGraph
+            | Self::BlockBeta
+            | Self::PacketBeta => MermaidSupportLevel::Partial,
+            Self::C4Context
+            | Self::C4Container
+            | Self::C4Component
+            | Self::C4Dynamic
+            | Self::C4Deployment
+            | Self::Sankey
+            | Self::XyChart
+            | Self::ArchitectureBeta
+            | Self::Unknown => MermaidSupportLevel::Unsupported,
+        }
+    }
+
+    #[must_use]
+    pub const fn support_label(self) -> &'static str {
+        match self {
+            Self::Flowchart => "full",
+            Self::Sequence | Self::Class | Self::State | Self::Er => "partial",
+            Self::Pie
+            | Self::Gantt
+            | Self::Journey
+            | Self::Mindmap
+            | Self::Timeline
+            | Self::QuadrantChart
+            | Self::Requirement
+            | Self::GitGraph
+            | Self::BlockBeta
+            | Self::PacketBeta => "basic",
+            Self::C4Context
+            | Self::C4Container
+            | Self::C4Component
+            | Self::C4Dynamic
+            | Self::C4Deployment
+            | Self::Sankey
+            | Self::XyChart
+            | Self::ArchitectureBeta => "unsupported",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1484,7 +1541,7 @@ impl MermaidDiagramIr {
             meta: MermaidDiagramMeta {
                 diagram_type,
                 direction: GraphDirection::TB,
-                support_level: MermaidSupportLevel::Supported,
+                support_level: diagram_type.support_level(),
                 block_beta_columns: None,
                 init: MermaidInitParse::default(),
                 theme_overrides: MermaidThemeOverrides::default(),
@@ -2834,6 +2891,33 @@ mod tests {
         assert_eq!(ir.diagram_type, DiagramType::Class);
         assert_eq!(ir.meta.diagram_type, DiagramType::Class);
         assert_eq!(ir.meta.direction, GraphDirection::TB);
-        assert_eq!(ir.meta.support_level, MermaidSupportLevel::Supported);
+        assert_eq!(ir.meta.support_level, MermaidSupportLevel::Partial);
+    }
+
+    #[test]
+    fn diagram_type_support_contract_matches_surface_expectations() {
+        assert_eq!(
+            DiagramType::Flowchart.support_level(),
+            MermaidSupportLevel::Supported
+        );
+        assert_eq!(DiagramType::Flowchart.support_label(), "full");
+
+        assert_eq!(
+            DiagramType::GitGraph.support_level(),
+            MermaidSupportLevel::Partial
+        );
+        assert_eq!(DiagramType::GitGraph.support_label(), "basic");
+
+        assert_eq!(
+            DiagramType::ArchitectureBeta.support_level(),
+            MermaidSupportLevel::Unsupported
+        );
+        assert_eq!(DiagramType::ArchitectureBeta.support_label(), "unsupported");
+
+        assert_eq!(
+            DiagramType::Unknown.support_level(),
+            MermaidSupportLevel::Unsupported
+        );
+        assert_eq!(DiagramType::Unknown.support_label(), "unknown");
     }
 }

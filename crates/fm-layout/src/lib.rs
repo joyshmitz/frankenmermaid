@@ -3923,8 +3923,13 @@ fn place_block_beta_items(
                     item_col as f32 * cell_width + ((span - 1) as f32 * cell_width / 2.0),
                     item_row as f32 * cell_height,
                 );
-                rank_by_node[node_index] = item_row;
-                order_by_node[node_index] = item_col;
+                if matches!(ir.direction, GraphDirection::LR | GraphDirection::RL) {
+                    rank_by_node[node_index] = item_col;
+                    order_by_node[node_index] = item_row;
+                } else {
+                    rank_by_node[node_index] = item_row;
+                    order_by_node[node_index] = item_col;
+                }
             }
             BlockBetaGridItem::Group(subgraph_id) => {
                 let child_items = block_beta_direct_items(ir, Some(subgraph_id));
@@ -5301,6 +5306,80 @@ mod tests {
         assert!(a.0 < b.0);
         assert!(b.0 < c.0);
         assert!(cluster.bounds.width > layout.nodes[2].bounds.width);
+    }
+
+    #[test]
+    fn block_beta_grouped_layout_respects_lr_rank_order_mapping() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::BlockBeta);
+        ir.direction = GraphDirection::LR;
+        ir.meta.block_beta_columns = Some(2);
+
+        for node_id in ["A", "B", "C"] {
+            ir.nodes.push(IrNode {
+                id: node_id.to_string(),
+                classes: vec!["block-beta".to_string()],
+                ..IrNode::default()
+            });
+            ir.graph.nodes.push(IrGraphNode {
+                node_id: IrNodeId(ir.graph.nodes.len()),
+                kind: fm_core::IrNodeKind::Generic,
+                clusters: Vec::new(),
+                subgraphs: Vec::new(),
+            });
+        }
+
+        ir.clusters.push(IrCluster {
+            id: IrClusterId(0),
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            grid_span: 2,
+            ..IrCluster::default()
+        });
+        ir.graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(0),
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            subgraph: Some(IrSubgraphId(0)),
+            grid_span: 2,
+            ..IrGraphCluster::default()
+        });
+        ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(0),
+            key: "api".to_string(),
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            cluster: Some(IrClusterId(0)),
+            grid_span: 2,
+            ..IrSubgraph::default()
+        });
+
+        ir.graph.nodes[0].clusters.push(IrClusterId(0));
+        ir.graph.nodes[0].subgraphs.push(IrSubgraphId(0));
+        ir.graph.nodes[1].clusters.push(IrClusterId(0));
+        ir.graph.nodes[1].subgraphs.push(IrSubgraphId(0));
+
+        let layout = layout_diagram_grid(&ir);
+        let a = layout
+            .nodes
+            .iter()
+            .find(|node| node.node_id == "A")
+            .unwrap();
+        let b = layout
+            .nodes
+            .iter()
+            .find(|node| node.node_id == "B")
+            .unwrap();
+        let c = layout
+            .nodes
+            .iter()
+            .find(|node| node.node_id == "C")
+            .unwrap();
+
+        assert_eq!(a.rank, c.rank);
+        assert!(b.rank > a.rank);
+        assert_eq!(a.order, b.order);
+        assert!(c.order > a.order);
+        assert_eq!(a.bounds.x, c.bounds.x);
+        assert!(b.bounds.x > a.bounds.x);
+        assert_eq!(a.bounds.y, b.bounds.y);
+        assert!(c.bounds.y > a.bounds.y);
     }
 
     #[test]

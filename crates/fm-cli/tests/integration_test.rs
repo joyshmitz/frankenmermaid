@@ -458,9 +458,11 @@ fn run_cli(args: &[&str], stdin: &str) -> std::process::Output {
         let Some(mut child_stdin) = child.stdin.take() else {
             panic!("failed to open stdin pipe");
         };
-        child_stdin
-            .write_all(stdin.as_bytes())
-            .expect("failed writing stdin to fm-cli");
+        if let Err(err) = child_stdin.write_all(stdin.as_bytes())
+            && err.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            panic!("failed writing stdin to fm-cli: {err}");
+        }
         drop(child_stdin);
         child
             .wait_with_output()
@@ -655,4 +657,53 @@ fn detect_does_not_treat_blockquote_as_block_beta() {
     let json: serde_json::Value =
         serde_json::from_str(&stdout).expect("detect --json must print valid JSON");
     assert_ne!(json["diagram_type"], "block-beta");
+}
+
+#[test]
+fn detect_reports_dot_inputs_via_dot_format_method() {
+    let output = run_cli(&["detect", "-", "--json"], "digraph G { a -> b; }\n");
+    assert!(
+        output.status.success(),
+        "detect --json should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("detect --json must print valid JSON");
+    assert_eq!(json["diagram_type"], "flowchart");
+    assert_eq!(json["confidence"], "high");
+    assert_eq!(json["detection_method"], "DOT format detected");
+}
+
+#[test]
+fn detect_reports_fuzzy_keyword_method_for_header_typos() {
+    let output = run_cli(&["detect", "-", "--json"], "flwochart LR\nA-->B\n");
+    assert!(
+        output.status.success(),
+        "detect --json should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("detect --json must print valid JSON");
+    assert_eq!(json["diagram_type"], "flowchart");
+    assert_eq!(json["confidence"], "medium");
+    assert_eq!(json["detection_method"], "fuzzy keyword match");
+}
+
+#[test]
+fn parse_full_reports_canonical_core_support_level() {
+    let output = run_cli(&["parse", "-", "--full"], "classDiagram\nAnimal <|-- Dog\n");
+    assert!(
+        output.status.success(),
+        "parse --full should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("parse --full must print valid JSON");
+    assert_eq!(json["meta"]["support_level"], "Partial");
 }

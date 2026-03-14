@@ -19,7 +19,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use fm_core::{DiagramType, MermaidDiagramIr, StructuredDiagnostic};
 use fm_layout::layout_diagram;
-use fm_parser::{detect_type, parse, parse_evidence_json};
+use fm_parser::{detect_type_with_confidence, parse, parse_evidence_json};
 use fm_render_svg::{SvgRenderConfig, ThemePreset, render_svg_with_layout};
 use fm_render_term::{TermRenderConfig, render_term_with_config};
 use serde::Serialize;
@@ -674,17 +674,18 @@ fn cmd_parse(input: &str, full: bool, pretty: bool) -> Result<()> {
 
 fn cmd_detect(input: &str, json_output: bool) -> Result<()> {
     let source = load_input(input)?;
-    let diagram_type = detect_type(&source);
+    let detection = detect_type_with_confidence(&source);
+    let diagram_type = detection.diagram_type;
 
-    // Determine confidence based on detection method
     let first_line = source
         .lines()
         .find(|l| !l.trim().is_empty() && !l.trim().starts_with("%%"))
         .unwrap_or("")
         .trim();
 
-    let (confidence, detection_method) = analyze_detection_confidence(&source, diagram_type);
-    let support_level = get_support_level(diagram_type);
+    let confidence = confidence_label(detection.confidence);
+    let detection_method = detection.method.as_str();
+    let support_level = diagram_type.support_label();
 
     if json_output {
         let result = DetectResult {
@@ -713,83 +714,14 @@ fn cmd_detect(input: &str, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-fn analyze_detection_confidence(
-    source: &str,
-    diagram_type: DiagramType,
-) -> (&'static str, &'static str) {
-    let first_line = source
-        .lines()
-        .find(|l| !l.trim().is_empty() && !l.trim().starts_with("%%"))
-        .unwrap_or("")
-        .trim()
-        .to_lowercase();
-
-    // Check for explicit diagram keywords
-    let has_explicit_keyword = first_line.starts_with("flowchart")
-        || first_line.starts_with("graph")
-        || first_line.starts_with("sequencediagram")
-        || first_line.starts_with("classdiagram")
-        || first_line.starts_with("statediagram")
-        || first_line.starts_with("erdiagram")
-        || first_line.starts_with("pie")
-        || first_line.starts_with("gantt")
-        || first_line.starts_with("journey")
-        || first_line.starts_with("mindmap")
-        || first_line.starts_with("timeline")
-        || first_line.starts_with("quadrantchart")
-        || is_block_beta_header(&first_line)
-        || first_line.starts_with("requirement")
-        || first_line.starts_with("digraph")
-        || first_line.starts_with("graph {")
-        || first_line.starts_with("strict digraph")
-        || first_line.starts_with("strict graph");
-
-    match (diagram_type, has_explicit_keyword) {
-        (DiagramType::Unknown, _) => ("low", "no recognized header"),
-        (_, true) => ("high", "explicit keyword match"),
-        (_, false) => ("medium", "content heuristics"),
+fn confidence_label(confidence: f32) -> &'static str {
+    if confidence >= 0.9 {
+        "high"
+    } else if confidence >= 0.6 {
+        "medium"
+    } else {
+        "low"
     }
-}
-
-fn get_support_level(diagram_type: DiagramType) -> &'static str {
-    match diagram_type {
-        DiagramType::Flowchart => "full",
-        DiagramType::Sequence => "partial",
-        DiagramType::Class => "partial",
-        DiagramType::State => "partial",
-        DiagramType::Er => "partial",
-        DiagramType::Pie => "basic",
-        DiagramType::Gantt => "basic",
-        DiagramType::Journey => "basic",
-        DiagramType::Mindmap => "basic",
-        DiagramType::Timeline => "basic",
-        DiagramType::QuadrantChart => "basic",
-        DiagramType::Requirement => "basic",
-        DiagramType::GitGraph => "basic",
-        DiagramType::C4Context
-        | DiagramType::C4Container
-        | DiagramType::C4Component
-        | DiagramType::C4Dynamic
-        | DiagramType::C4Deployment => "unsupported",
-        DiagramType::Sankey => "unsupported",
-        DiagramType::XyChart => "unsupported",
-        DiagramType::BlockBeta => "basic",
-        DiagramType::PacketBeta => "basic",
-        DiagramType::ArchitectureBeta => "unsupported",
-        DiagramType::Unknown => "unknown",
-    }
-}
-
-fn is_block_beta_header(line: &str) -> bool {
-    matches_keyword_header(line, "block-beta") || matches_keyword_header(line, "block")
-}
-
-fn matches_keyword_header(line: &str, keyword: &str) -> bool {
-    line == keyword
-        || line
-            .strip_prefix(keyword)
-            .and_then(|rest| rest.chars().next())
-            .is_some_and(char::is_whitespace)
 }
 
 // =============================================================================
