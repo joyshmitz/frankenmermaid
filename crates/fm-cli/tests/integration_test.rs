@@ -589,6 +589,8 @@ fn render_json_writes_artifact_and_stdout_metadata() {
     assert_eq!(json["diagram_type"], "flowchart");
     assert_eq!(json["layout_requested"], "auto");
     assert_eq!(json["layout_selected"], "sugiyama");
+    assert_eq!(json["layout_band_count"], 0);
+    assert_eq!(json["layout_tick_count"], 0);
     assert!(json["output_bytes"].as_u64().is_some_and(|value| value > 0));
 
     let artifact = std::fs::read_to_string(&output_path).expect("failed to read rendered svg");
@@ -646,6 +648,8 @@ fn render_json_reports_specialized_auto_layout_selection() {
             serde_json::from_str(&stdout).expect("render --json must print metadata JSON");
         assert_eq!(json["layout_requested"], "auto");
         assert_eq!(json["layout_selected"], expected_layout);
+        assert!(json["layout_band_count"].is_u64());
+        assert!(json["layout_tick_count"].is_u64());
     }
 }
 

@@ -221,6 +221,32 @@ pub struct LayoutCycleCluster {
     pub bounds: LayoutRect,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LayoutExtensions {
+    pub bands: Vec<LayoutBand>,
+    pub axis_ticks: Vec<LayoutAxisTick>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutBand {
+    pub kind: LayoutBandKind,
+    pub label: String,
+    pub bounds: LayoutRect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutBandKind {
+    Section,
+    Lane,
+    Column,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutAxisTick {
+    pub label: String,
+    pub position: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DiagramLayout {
     pub nodes: Vec<LayoutNodeBox>,
@@ -229,6 +255,7 @@ pub struct DiagramLayout {
     pub edges: Vec<LayoutEdgePath>,
     pub bounds: LayoutRect,
     pub stats: LayoutStats,
+    pub extensions: LayoutExtensions,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1001,6 +1028,7 @@ fn layout_diagram_sugiyama_traced_with_config(
             edges,
             bounds,
             stats,
+            extensions: LayoutExtensions::default(),
         },
         trace,
     }
@@ -1037,6 +1065,7 @@ pub fn layout_diagram_force_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                     height: 0.0,
                 },
                 stats: LayoutStats::default(),
+                extensions: LayoutExtensions::default(),
             },
             trace,
         };
@@ -1134,6 +1163,7 @@ pub fn layout_diagram_force_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             edges,
             bounds,
             stats,
+            extensions: LayoutExtensions::default(),
         },
         trace,
     }
@@ -1167,6 +1197,7 @@ pub fn layout_diagram_tree_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                     height: 0.0,
                 },
                 stats: LayoutStats::default(),
+                extensions: LayoutExtensions::default(),
             },
             trace,
         };
@@ -1277,6 +1308,7 @@ pub fn layout_diagram_tree_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             edges,
             bounds,
             stats,
+            extensions: LayoutExtensions::default(),
         },
         trace,
     }
@@ -1310,6 +1342,7 @@ pub fn layout_diagram_radial_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                     height: 0.0,
                 },
                 stats: LayoutStats::default(),
+                extensions: LayoutExtensions::default(),
             },
             trace,
         };
@@ -1437,6 +1470,7 @@ pub fn layout_diagram_radial_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             edges,
             bounds,
             stats,
+            extensions: LayoutExtensions::default(),
         },
         trace,
     }
@@ -1535,7 +1569,7 @@ pub fn layout_diagram_timeline_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         spill = spill.saturating_add(1);
     }
 
-    finalize_specialized_layout(
+    let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
         rank_by_node,
@@ -1543,7 +1577,41 @@ pub fn layout_diagram_timeline_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         centers,
         trace,
         true,
-    )
+    );
+    traced.layout.extensions.axis_ticks = period_indexes
+        .into_iter()
+        .map(|node_index| {
+            let node = traced
+                .layout
+                .nodes
+                .iter()
+                .find(|node| node.node_index == node_index)
+                .expect("timeline period node should exist in layout");
+            LayoutAxisTick {
+                label: layout_label_text(ir, node_index).to_string(),
+                position: node.bounds.center().x,
+            }
+        })
+        .collect();
+    traced.layout.extensions.bands = traced
+        .layout
+        .clusters
+        .iter()
+        .filter_map(|cluster| {
+            let title = ir
+                .clusters
+                .get(cluster.cluster_index)
+                .and_then(|cluster| cluster.title)
+                .and_then(|label_id| ir.labels.get(label_id.0))
+                .map(|label| label.text.clone())?;
+            Some(LayoutBand {
+                kind: LayoutBandKind::Section,
+                label: title,
+                bounds: cluster.bounds,
+            })
+        })
+        .collect();
+    traced
 }
 
 #[must_use]
@@ -1623,7 +1691,7 @@ pub fn layout_diagram_gantt_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         section_base_y += (nodes.len().max(1) as f32 * row_gap) + 56.0;
     }
 
-    finalize_specialized_layout(
+    let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
         rank_by_node,
@@ -1631,7 +1699,30 @@ pub fn layout_diagram_gantt_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         centers,
         trace,
         true,
-    )
+    );
+    traced.layout.extensions.axis_ticks = ordered_hints
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, hint)| {
+            let node = traced.layout.nodes.iter().find(|node| node.rank == slot)?;
+            Some(LayoutAxisTick {
+                label: hint.to_string(),
+                position: node.bounds.center().x,
+            })
+        })
+        .collect();
+    traced.layout.extensions.bands = section_to_nodes
+        .iter()
+        .filter_map(|(section, node_indexes)| {
+            let bounds = layout_bounds_for_nodes(&traced.layout, node_indexes, 24.0)?;
+            Some(LayoutBand {
+                kind: LayoutBandKind::Section,
+                label: section.clone(),
+                bounds,
+            })
+        })
+        .collect();
+    traced
 }
 
 #[must_use]
@@ -1702,7 +1793,7 @@ pub fn layout_diagram_sankey_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         }
     }
 
-    finalize_specialized_layout(
+    let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
         rank_by_node,
@@ -1710,7 +1801,21 @@ pub fn layout_diagram_sankey_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         centers,
         trace,
         true,
-    )
+    );
+    traced.layout.extensions.bands = nodes_by_rank
+        .keys()
+        .copied()
+        .filter_map(|rank| {
+            layout_band_for_rank(
+                &traced.layout,
+                rank,
+                LayoutBandKind::Column,
+                format!("column {}", rank + 1),
+                20.0,
+            )
+        })
+        .collect();
+    traced
 }
 
 #[must_use]
@@ -1874,7 +1979,7 @@ fn layout_diagram_kanban_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         }
     }
 
-    finalize_specialized_layout(
+    let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
         rank_by_node,
@@ -1882,7 +1987,21 @@ fn layout_diagram_kanban_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         centers,
         trace,
         true,
-    )
+    );
+    traced.layout.extensions.bands = nodes_by_rank
+        .keys()
+        .copied()
+        .filter_map(|rank| {
+            layout_band_for_rank(
+                &traced.layout,
+                rank,
+                LayoutBandKind::Lane,
+                format!("lane {}", rank + 1),
+                20.0,
+            )
+        })
+        .collect();
+    traced
 }
 
 fn layout_label_text(ir: &MermaidDiagramIr, node_index: usize) -> &str {
@@ -1893,6 +2012,59 @@ fn layout_label_text(ir: &MermaidDiagramIr, node_index: usize) -> &str {
         .map(|label| label.text.as_str())
         .or_else(|| ir.nodes.get(node_index).map(|node| node.id.as_str()))
         .unwrap_or("")
+}
+
+fn layout_bounds_for_nodes(
+    layout: &DiagramLayout,
+    node_indexes: &[usize],
+    padding: f32,
+) -> Option<LayoutRect> {
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for node_box in &layout.nodes {
+        if !node_indexes.contains(&node_box.node_index) {
+            continue;
+        }
+        min_x = min_x.min(node_box.bounds.x);
+        min_y = min_y.min(node_box.bounds.y);
+        max_x = max_x.max(node_box.bounds.x + node_box.bounds.width);
+        max_y = max_y.max(node_box.bounds.y + node_box.bounds.height);
+    }
+
+    if !min_x.is_finite() {
+        return None;
+    }
+
+    Some(LayoutRect {
+        x: min_x - padding,
+        y: min_y - padding,
+        width: (max_x - min_x) + (padding * 2.0),
+        height: (max_y - min_y) + (padding * 2.0),
+    })
+}
+
+fn layout_band_for_rank(
+    layout: &DiagramLayout,
+    rank: usize,
+    kind: LayoutBandKind,
+    label: String,
+    padding: f32,
+) -> Option<LayoutBand> {
+    let node_indexes: Vec<usize> = layout
+        .nodes
+        .iter()
+        .filter(|node| node.rank == rank)
+        .map(|node| node.node_index)
+        .collect();
+    let bounds = layout_bounds_for_nodes(layout, &node_indexes, padding)?;
+    Some(LayoutBand {
+        kind,
+        label,
+        bounds,
+    })
 }
 
 fn parse_order_hint(node_id: &str, fallback: usize) -> usize {
@@ -2032,6 +2204,7 @@ fn finalize_specialized_layout(
             edges,
             bounds,
             stats,
+            extensions: LayoutExtensions::default(),
         },
         trace,
     }
@@ -2059,6 +2232,7 @@ pub fn layout_diagram_radial_traced_dup(ir: &MermaidDiagramIr) -> TracedLayout {
                     height: 0.0,
                 },
                 stats: LayoutStats::default(),
+                extensions: LayoutExtensions::default(),
             },
             trace,
         };
@@ -2186,6 +2360,7 @@ pub fn layout_diagram_radial_traced_dup(ir: &MermaidDiagramIr) -> TracedLayout {
             edges,
             bounds,
             stats,
+            extensions: LayoutExtensions::default(),
         },
         trace,
     }
@@ -5561,6 +5736,7 @@ mod tests {
         assert!(kickoff.y > period_2024.y);
         assert!(launch.y > kickoff.y);
         assert!(retro.y > period_2025.y);
+        assert_eq!(layout.extensions.axis_ticks.len(), 2);
     }
 
     #[test]
@@ -5600,6 +5776,8 @@ mod tests {
         assert!(task_1.bounds.center().x < task_3.bounds.center().x);
         assert!(task_3.bounds.center().y > task_1.bounds.center().y);
         assert!((task_1.bounds.center().y - task_2.bounds.center().y).abs() > 10.0);
+        assert_eq!(layout.extensions.bands.len(), 2);
+        assert_eq!(layout.extensions.axis_ticks.len(), 3);
     }
 
     #[test]
@@ -5651,6 +5829,7 @@ mod tests {
         assert!(right_source.bounds.center().x < hub.bounds.center().x);
         assert!(hub.bounds.center().x < left_sink.bounds.center().x);
         assert!(hub.bounds.center().x < right_sink.bounds.center().x);
+        assert_eq!(layout.extensions.bands.len(), 3);
     }
 
     #[test]
@@ -5688,6 +5867,7 @@ mod tests {
         assert!((doing_a.x - doing_b.x).abs() < 0.001);
         assert!(doing_b.y > doing_a.y);
         assert!(doing_a.x > backlog_a.x);
+        assert_eq!(layout.extensions.bands.len(), 2);
     }
 
     #[test]
