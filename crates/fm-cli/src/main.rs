@@ -661,8 +661,12 @@ fn render_format(
 ) -> Result<(Vec<u8>, Option<u32>, Option<u32>)> {
     match format {
         OutputFormat::Svg => {
-            let mut svg_config = SvgRenderConfig::default();
-            svg_config.theme = resolve_theme_preset(theme, svg_config.theme);
+            let base = SvgRenderConfig::default();
+            let svg_config = SvgRenderConfig {
+                theme: resolve_theme_preset(theme, base.theme),
+                include_source_spans: true,
+                ..base
+            };
             let svg = render_svg_with_layout(ir, layout, &svg_config);
             // Extract dimensions from SVG if available
             let (w, h) = extract_svg_dimensions(&svg);
@@ -672,8 +676,12 @@ fn render_format(
         OutputFormat::Png => {
             #[cfg(feature = "png")]
             {
-                let mut svg_config = SvgRenderConfig::default();
-                svg_config.theme = resolve_theme_preset(theme, svg_config.theme);
+                let base = SvgRenderConfig::default();
+                let svg_config = SvgRenderConfig {
+                    theme: resolve_theme_preset(theme, base.theme),
+                    include_source_spans: true,
+                    ..base
+                };
                 let svg = render_svg_with_layout(ir, layout, &svg_config);
                 let (png, px_width, px_height) = svg_to_png(&svg, width, height)?;
                 Ok((png, Some(px_width), Some(px_height)))
@@ -931,7 +939,11 @@ fn cmd_validate(
     let parsed = parse_with_mode(&source, parse_mode);
     let traced_layout = layout_diagram_traced_with_algorithm(&parsed.ir, layout_algorithm);
     let layout = &traced_layout.layout;
-    let svg_output = render_svg_with_layout(&parsed.ir, layout, &SvgRenderConfig::default());
+    let svg_config = SvgRenderConfig {
+        include_source_spans: true,
+        ..SvgRenderConfig::default()
+    };
+    let svg_output = render_svg_with_layout(&parsed.ir, layout, &svg_config);
 
     let mut diagnostics = collect_parse_diagnostics(&parsed);
     diagnostics.extend(collect_structural_diagnostics(&parsed));

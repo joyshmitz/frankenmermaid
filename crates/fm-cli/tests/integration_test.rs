@@ -591,11 +591,35 @@ fn render_json_writes_artifact_and_stdout_metadata() {
     assert_eq!(json["layout_selected"], "sugiyama");
     assert_eq!(json["layout_band_count"], 0);
     assert_eq!(json["layout_tick_count"], 0);
+    assert_eq!(json["source_span_node_count"], 2);
+    assert_eq!(json["source_span_edge_count"], 1);
+    assert_eq!(json["source_span_cluster_count"], 0);
     assert!(json["output_bytes"].as_u64().is_some_and(|value| value > 0));
 
     let artifact = std::fs::read_to_string(&output_path).expect("failed to read rendered svg");
     assert!(artifact.starts_with("<svg"));
     assert!(artifact.contains("</svg>"));
+    assert!(artifact.contains("data-fm-source-span="));
+}
+
+#[test]
+fn validate_json_reports_source_span_counts() {
+    let output = run_cli(
+        &["validate", "-", "--format", "json"],
+        "flowchart TD\nsubgraph Cluster\nA-->B\nend\n",
+    );
+    assert!(
+        output.status.success(),
+        "validate --format json should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("validate --format json must print valid JSON");
+    assert_eq!(json["source_span_node_count"], 2);
+    assert_eq!(json["source_span_edge_count"], 1);
+    assert_eq!(json["source_span_cluster_count"], 1);
 }
 
 #[test]

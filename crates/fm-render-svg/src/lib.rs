@@ -119,6 +119,8 @@ pub struct SvgRenderConfig {
     pub print_optimized: bool,
     /// Accessibility configuration.
     pub a11y: A11yConfig,
+    /// Whether to emit source-span metadata attributes in the SVG output.
+    pub include_source_spans: bool,
 }
 
 impl Default for SvgRenderConfig {
@@ -156,6 +158,7 @@ impl Default for SvgRenderConfig {
             min_font_size: 8.0,
             print_optimized: true,
             a11y: A11yConfig::full(),
+            include_source_spans: false,
         }
     }
 }
@@ -389,14 +392,18 @@ fn render_scene_item(
         RenderItem::Group(group) => {
             render_scene_group(group, config, ir, clip_defs, clip_id_counter)
         }
-        RenderItem::Path(path) => render_scene_path(path, ir),
+        RenderItem::Path(path) => render_scene_path(path, config.include_source_spans, ir),
         RenderItem::Text(text) => render_scene_text(text, config, ir),
     }
 }
 
-fn render_scene_path(path: &RenderPath, ir: Option<&MermaidDiagramIr>) -> Element {
+fn render_scene_path(
+    path: &RenderPath,
+    include_source_spans: bool,
+    ir: Option<&MermaidDiagramIr>,
+) -> Element {
     let mut elem = Element::path().d(&path_cmds_to_d(&path.commands));
-    elem = apply_source_metadata(elem, path.source, ir);
+    elem = apply_source_metadata(elem, path.source, include_source_spans, ir);
 
     if let Some(fill) = &path.fill {
         elem = apply_fill_style(elem, fill);
@@ -429,12 +436,13 @@ fn render_scene_text(
         .build();
 
     elem = apply_fill_style(elem, &text.fill);
-    apply_source_metadata(elem, text.source, ir)
+    apply_source_metadata(elem, text.source, config.include_source_spans, ir)
 }
 
 fn apply_source_metadata(
     mut elem: Element,
     source: RenderSource,
+    include_source_spans: bool,
     ir: Option<&MermaidDiagramIr>,
 ) -> Element {
     match source {
@@ -458,7 +466,9 @@ fn apply_source_metadata(
         }
     }
 
-    if let Some(span) = ir.and_then(|diagram_ir| render_source_span(diagram_ir, source)) {
+    if include_source_spans
+        && let Some(span) = ir.and_then(|diagram_ir| render_source_span(diagram_ir, source))
+    {
         elem = apply_span_metadata(elem, span);
     }
 
@@ -1012,7 +1022,9 @@ fn render_layout_to_svg(
             rect = rect.class("fm-cluster-swimlane");
         }
 
-        rect = apply_span_metadata(rect, cluster.span);
+        if config.include_source_spans {
+            rect = apply_span_metadata(rect, cluster.span);
+        }
 
         doc = doc.child(rect);
 
@@ -1044,7 +1056,12 @@ fn render_layout_to_svg(
                     .fill(label_color)
                     .class("fm-cluster-label")
                     .build();
-                doc = doc.child(apply_span_metadata(text, cluster.span));
+                let text = if config.include_source_spans {
+                    apply_span_metadata(text, cluster.span)
+                } else {
+                    text
+                };
+                doc = doc.child(text);
             }
         }
     }
@@ -1111,7 +1128,9 @@ fn render_node(
         .class(node_shape_css_class(shape))
         .data("id", node_id)
         .data("fm-node-id", node_id);
-    group = apply_span_metadata(group, node_box.span);
+    if config.include_source_spans {
+        group = apply_span_metadata(group, node_box.span);
+    }
 
     if let Some(node) = ir_node {
         for class in &node.classes {
@@ -1747,7 +1766,9 @@ fn render_edge(
         .class("fm-edge")
         .class(style_class)
         .data("fm-edge-id", &edge_index.to_string());
-    elem = apply_span_metadata(elem, edge_path.span);
+    if config.include_source_spans {
+        elem = apply_span_metadata(elem, edge_path.span);
+    }
 
     if let Some(dasharray) = base_dasharray {
         elem = elem.stroke_dasharray(dasharray);
@@ -1784,7 +1805,9 @@ fn render_edge(
         let mut group = Element::group()
             .class("fm-edge-labeled")
             .data("fm-edge-id", &edge_index.to_string());
-        group = apply_span_metadata(group, edge_path.span);
+        if config.include_source_spans {
+            group = apply_span_metadata(group, edge_path.span);
+        }
 
         // Add accessibility attributes to group
         if config.a11y.aria_labels {
@@ -1876,7 +1899,9 @@ fn render_edge(
         let mut group = Element::group()
             .class("fm-edge")
             .data("fm-edge-id", &edge_index.to_string());
-        group = apply_span_metadata(group, edge_path.span);
+        if config.include_source_spans {
+            group = apply_span_metadata(group, edge_path.span);
+        }
         if config.a11y.aria_labels {
             group = group.attr("role", "graphics-symbol");
         }
@@ -2465,7 +2490,11 @@ mod tests {
             span: cluster_span,
         });
 
-        let svg = render_svg(&ir);
+        let config = SvgRenderConfig {
+            include_source_spans: true,
+            ..Default::default()
+        };
+        let svg = render_svg_with_config(&ir, &config);
         assert!(svg.contains("data-fm-source-span=\"2:1-2:4@0-0\""));
         assert!(svg.contains("data-fm-source-span=\"3:1-3:6@0-0\""));
         assert!(svg.contains("data-fm-source-span=\"1:1-1:10@0-0\""));

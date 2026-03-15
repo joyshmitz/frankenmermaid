@@ -173,38 +173,50 @@ static RUNTIME_CONFIG: LazyLock<RwLock<RuntimeConfig>> =
 fn collect_source_spans(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> Vec<SourceSpanRecord> {
     let mut spans = Vec::new();
 
-    spans.extend(layout.nodes.iter().filter_map(|node| {
-        (!node.span.is_unknown()).then(|| SourceSpanRecord {
-            kind: "node",
-            index: node.node_index,
-            id: Some(node.node_id.clone()),
-            span: node.span,
-        })
-    }));
+    spans.extend(
+        layout
+            .nodes
+            .iter()
+            .filter(|node| !node.span.is_unknown())
+            .map(|node| SourceSpanRecord {
+                kind: "node",
+                index: node.node_index,
+                id: Some(node.node_id.clone()),
+                span: node.span,
+            }),
+    );
 
-    spans.extend(layout.edges.iter().filter_map(|edge| {
-        (!edge.span.is_unknown()).then(|| SourceSpanRecord {
-            kind: "edge",
-            index: edge.edge_index,
-            id: None,
-            span: edge.span,
-        })
-    }));
+    spans.extend(
+        layout
+            .edges
+            .iter()
+            .filter(|edge| !edge.span.is_unknown())
+            .map(|edge| SourceSpanRecord {
+                kind: "edge",
+                index: edge.edge_index,
+                id: None,
+                span: edge.span,
+            }),
+    );
 
-    spans.extend(layout.clusters.iter().filter_map(|cluster| {
-        (!cluster.span.is_unknown()).then(|| {
-            let id = ir
-                .clusters
-                .get(cluster.cluster_index)
-                .map(|cluster_ir| cluster_ir.id.0.to_string());
-            SourceSpanRecord {
-                kind: "cluster",
-                index: cluster.cluster_index,
-                id,
-                span: cluster.span,
-            }
-        })
-    }));
+    spans.extend(
+        layout
+            .clusters
+            .iter()
+            .filter(|cluster| !cluster.span.is_unknown())
+            .map(|cluster| {
+                let id = ir
+                    .clusters
+                    .get(cluster.cluster_index)
+                    .map(|cluster_ir| cluster_ir.id.0.to_string());
+                SourceSpanRecord {
+                    kind: "cluster",
+                    index: cluster.cluster_index,
+                    id,
+                    span: cluster.span,
+                }
+            }),
+    );
 
     spans
 }
@@ -380,9 +392,13 @@ pub fn render(input: &str) -> WasmRenderOutput {
     let traced_layout = layout_diagram_traced(&parsed.ir);
     let guard = build_layout_guard_report(&parsed.ir, &traced_layout);
     let source_spans = collect_source_spans(&parsed.ir, &traced_layout.layout);
+    let svg_config = SvgRenderConfig {
+        include_source_spans: true,
+        ..runtime.svg.clone()
+    };
 
     WasmRenderOutput {
-        svg: render_svg_with_layout(&parsed.ir, &traced_layout.layout, &runtime.svg),
+        svg: render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config),
         detected_type: parsed.ir.diagram_type.as_str().to_string(),
         guard,
         source_spans,
@@ -407,7 +423,10 @@ pub fn init(config: Option<JsValue>) -> Result<(), JsValue> {
 pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsValue> {
     let overrides: RuntimeInitConfig = parse_js_value_or_default(config)?;
     let runtime = read_runtime_config();
-    let svg_config = merge_svg_config(&runtime.svg, &overrides.svg, overrides.theme.as_deref())?;
+    let svg_config = SvgRenderConfig {
+        include_source_spans: true,
+        ..merge_svg_config(&runtime.svg, &overrides.svg, overrides.theme.as_deref())?
+    };
     let parsed = parse(input);
     let traced_layout = layout_diagram_traced(&parsed.ir);
     Ok(render_svg_with_layout(
@@ -690,12 +709,16 @@ impl Diagram {
         let overrides: RuntimeInitConfig = parse_js_value_or_default(config)?;
         let next_svg =
             merge_svg_config(&self.svg_config, &overrides.svg, overrides.theme.as_deref())?;
+        let render_svg_config = SvgRenderConfig {
+            include_source_spans: true,
+            ..next_svg.clone()
+        };
         let next_canvas = merge_canvas_config(&self.canvas_config, &overrides.canvas);
 
         let parsed = parse(input);
         let traced_layout = layout_diagram_traced(&parsed.ir);
         let guard = build_layout_guard_report(&parsed.ir, &traced_layout);
-        let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &next_svg);
+        let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &render_svg_config);
 
         let mut web_canvas = WebCanvas2dContext::new(self.canvas.clone(), self.context.clone());
         let canvas_result = render_to_canvas_with_layout(
@@ -772,7 +795,9 @@ impl Diagram {
 
 #[cfg(test)]
 mod tests {
-    use super::{SvgConfigOverrides, ThemePreset, merge_svg_config, render};
+    use super::{SvgConfigOverrides, ThemePreset, collect_source_spans, merge_svg_config, render};
+    use fm_layout::layout_diagram_traced;
+    use fm_parser::parse;
     use fm_render_svg::SvgRenderConfig;
 
     #[test]
@@ -787,6 +812,16 @@ mod tests {
         assert_eq!(output.guard.guard_reason.as_deref(), Some("within_budget"));
         assert!(output.source_spans.iter().any(|span| span.kind == "node"));
         assert!(output.source_spans.iter().any(|span| span.kind == "edge"));
+    }
+
+    #[test]
+    fn collect_source_spans_reports_node_edge_and_cluster_records() {
+        let parsed = parse("flowchart TD\nsubgraph Cluster\nA-->B\nend\n");
+        let traced = layout_diagram_traced(&parsed.ir);
+        let spans = collect_source_spans(&parsed.ir, &traced.layout);
+        assert!(spans.iter().any(|span| span.kind == "node"));
+        assert!(spans.iter().any(|span| span.kind == "edge"));
+        assert!(spans.iter().any(|span| span.kind == "cluster"));
     }
 
     #[test]
