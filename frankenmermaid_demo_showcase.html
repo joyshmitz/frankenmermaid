@@ -446,20 +446,32 @@
       ]
     };
 
-    const runtimeCandidates = [
-      {
-        label: "jsDelivr from GitHub main",
-        kind: "github-backed-cdn",
-        moduleUrl: "https://cdn.jsdelivr.net/gh/Dicklesworthstone/frankenmermaid@main/pkg/frankenmermaid.js",
-        wasmUrl: "https://cdn.jsdelivr.net/gh/Dicklesworthstone/frankenmermaid@main/pkg/frankenmermaid_bg.wasm"
-      },
-      {
-        label: "raw.githubusercontent main branch",
-        kind: "github-raw",
-        moduleUrl: "https://raw.githubusercontent.com/Dicklesworthstone/frankenmermaid/main/pkg/frankenmermaid.js",
-        wasmUrl: "https://raw.githubusercontent.com/Dicklesworthstone/frankenmermaid/main/pkg/frankenmermaid_bg.wasm"
+    const runtimeCandidates = (() => {
+      const candidates = [];
+      if (location.protocol !== "file:") {
+        candidates.push({
+          label: "same-origin Pages artifact",
+          kind: "same-origin",
+          moduleUrl: new URL("./pkg/frankenmermaid.js", location.href).href,
+          wasmUrl: new URL("./pkg/frankenmermaid_bg.wasm", location.href).href
+        });
       }
-    ];
+      candidates.push(
+        {
+          label: "jsDelivr from GitHub main",
+          kind: "github-backed-cdn",
+          moduleUrl: "https://cdn.jsdelivr.net/gh/Dicklesworthstone/frankenmermaid@main/pkg/frankenmermaid.js",
+          wasmUrl: "https://cdn.jsdelivr.net/gh/Dicklesworthstone/frankenmermaid@main/pkg/frankenmermaid_bg.wasm"
+        },
+        {
+          label: "raw.githubusercontent main branch",
+          kind: "github-raw",
+          moduleUrl: "https://raw.githubusercontent.com/Dicklesworthstone/frankenmermaid/main/pkg/frankenmermaid.js",
+          wasmUrl: "https://raw.githubusercontent.com/Dicklesworthstone/frankenmermaid/main/pkg/frankenmermaid_bg.wasm"
+        }
+      );
+      return candidates;
+    })();
 
     const samples = [
       {

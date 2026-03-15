@@ -16,6 +16,16 @@
 Rust-first Mermaid-compatible diagram engine with smarter parsing, better layouts, and higher-quality output across CLI, SVG, terminal, and web.
 
 <div align="center">
+
+### Live Demo
+
+**GitHub Pages showcase:** <https://dicklesworthstone.github.io/frankenmermaid/>
+
+**Standalone source file:** [frankenmermaid_demo_showcase.html](frankenmermaid_demo_showcase.html)
+
+</div>
+
+<div align="center">
 <h3>Quick Install</h3>
 
 ```bash
