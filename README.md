@@ -122,7 +122,7 @@ Typography, spacing, theming, accessibility, and responsive behavior are part of
 | `C4Component` | Partial |
 | `C4Dynamic` | Partial |
 | `C4Deployment` | Partial |
-| `architecture-beta` | Unsupported |
+| `architecture-beta` | Partial |
 | `block-beta` | Partial |
 | `gantt` | Partial |
 | `timeline` | Partial |

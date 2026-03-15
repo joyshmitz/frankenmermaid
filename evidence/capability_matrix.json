@@ -4,8 +4,8 @@
   "status_counts": {
     "experimental": 1,
     "implemented": 11,
-    "partial": 21,
-    "unsupported": 2
+    "partial": 22,
+    "unsupported": 1
   },
   "claims": [
     {
@@ -292,7 +292,7 @@
       "id": "diagram-type/architecture-beta",
       "category": "diagram_type",
       "title": "Support architecture-beta diagrams",
-      "status": "unsupported",
+      "status": "partial",
       "advertised_in": [
         "README.md#supported-diagram-types"
       ],
@@ -313,7 +313,7 @@
         }
       ],
       "notes": [
-        "README advertises this family; current code marks it as unsupported capability"
+        "README advertises this family; current code marks it as partial capability"
       ]
     },
     {

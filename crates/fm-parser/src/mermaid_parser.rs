@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chumsky::prelude::*;
 use fm_core::{
     ArrowType, Diagnostic, DiagnosticCategory, DiagramType, GraphDirection, IrAttributeKey,
@@ -193,6 +195,7 @@ pub fn parse_mermaid_with_detection(
         DiagramType::Journey => parse_journey(content, &mut builder),
         DiagramType::Timeline => parse_timeline(content, &mut builder),
         DiagramType::Sankey => parse_sankey(content, &mut builder),
+        DiagramType::ArchitectureBeta => parse_architecture(content, &mut builder),
         DiagramType::C4Context
         | DiagramType::C4Container
         | DiagramType::C4Component
@@ -2473,6 +2476,145 @@ fn parse_c4(input: &str, builder: &mut IrBuilder) {
     }
 }
 
+fn parse_architecture(input: &str, builder: &mut IrBuilder) {
+    let mut groups: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+
+    for (index, raw_line) in input.lines().enumerate() {
+        let line_number = index + 1;
+        let trimmed = strip_flowchart_inline_comment(raw_line).trim();
+        if trimmed.is_empty() || is_comment(trimmed) {
+            continue;
+        }
+
+        if trimmed.starts_with("architecture-beta") || trimmed.starts_with("title ") {
+            continue;
+        }
+
+        let span = span_for(line_number, raw_line);
+
+        if let Some(declaration) = parse_architecture_declaration(trimmed, "group") {
+            let title = declaration
+                .label
+                .as_deref()
+                .or(Some(declaration.id.as_str()));
+            let Some(cluster_index) = builder.ensure_cluster(&declaration.id, title, span) else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid architecture group identifier: {trimmed}"
+                ));
+                continue;
+            };
+            let parent_subgraph = declaration.parent.as_ref().and_then(|parent| {
+                groups
+                    .get(parent)
+                    .map(|(_, subgraph_index)| *subgraph_index)
+            });
+            if declaration.parent.is_some() && parent_subgraph.is_none() {
+                builder.add_warning(format!(
+                    "Line {line_number}: architecture group parent is unknown: {trimmed}"
+                ));
+            }
+            let Some(subgraph_index) = builder.ensure_subgraph(
+                &declaration.id,
+                title,
+                span,
+                parent_subgraph,
+                Some(cluster_index),
+            ) else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid architecture group declaration: {trimmed}"
+                ));
+                continue;
+            };
+            groups.insert(declaration.id.clone(), (cluster_index, subgraph_index));
+            continue;
+        }
+
+        if let Some(declaration) = parse_architecture_declaration(trimmed, "service") {
+            let label = declaration
+                .label
+                .as_deref()
+                .or(Some(declaration.id.as_str()));
+            let Some(node_id) = builder.intern_node(&declaration.id, label, NodeShape::Rect, span)
+            else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid architecture service declaration: {trimmed}"
+                ));
+                continue;
+            };
+            builder.add_class_to_node(&declaration.id, "architecture", span);
+            builder.add_class_to_node(&declaration.id, "architecture-service", span);
+            if let Some(icon) = declaration.icon.as_deref() {
+                builder.add_class_to_node(
+                    &declaration.id,
+                    &format!("architecture-icon-{icon}"),
+                    span,
+                );
+            }
+            add_node_to_architecture_parent(
+                line_number,
+                trimmed,
+                declaration.parent.as_deref(),
+                &groups,
+                node_id,
+                builder,
+            );
+            continue;
+        }
+
+        if let Some(declaration) = parse_architecture_declaration(trimmed, "junction") {
+            let label = declaration.label.as_deref();
+            let Some(node_id) =
+                builder.intern_node(&declaration.id, label, NodeShape::Circle, span)
+            else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid architecture junction declaration: {trimmed}"
+                ));
+                continue;
+            };
+            builder.add_class_to_node(&declaration.id, "architecture", span);
+            builder.add_class_to_node(&declaration.id, "architecture-junction", span);
+            if let Some(icon) = declaration.icon.as_deref() {
+                builder.add_warning(format!(
+                    "Line {line_number}: architecture junction icons are ignored: {icon}"
+                ));
+            }
+            add_node_to_architecture_parent(
+                line_number,
+                trimmed,
+                declaration.parent.as_deref(),
+                &groups,
+                node_id,
+                builder,
+            );
+            continue;
+        }
+
+        if let Some((from_id, to_id, arrow)) = parse_architecture_edge(trimmed) {
+            let Some(from_node) =
+                builder.intern_node(&from_id, Some(&from_id), NodeShape::Rect, span)
+            else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid architecture edge source: {trimmed}"
+                ));
+                continue;
+            };
+            let Some(to_node) = builder.intern_node(&to_id, Some(&to_id), NodeShape::Rect, span)
+            else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid architecture edge target: {trimmed}"
+                ));
+                continue;
+            };
+            builder.push_edge(from_node, to_node, arrow, None, span);
+            continue;
+        }
+
+        builder.add_warning(format!(
+            "Line {line_number}: unsupported architecture syntax: {trimmed}"
+        ));
+    }
+}
+
 /// Git graph state tracker for parsing.
 struct GitGraphState {
     /// Map of branch names to their current head commit node ID
@@ -4435,6 +4577,133 @@ fn add_node_to_active_c4_boundaries(
     }
 }
 
+#[derive(Debug, Clone)]
+struct ArchitectureDeclaration {
+    id: String,
+    icon: Option<String>,
+    label: Option<String>,
+    parent: Option<String>,
+}
+
+fn parse_architecture_declaration(line: &str, keyword: &str) -> Option<ArchitectureDeclaration> {
+    let remainder = line.strip_prefix(keyword)?.trim_start();
+    if remainder.is_empty() {
+        return None;
+    }
+
+    let mut split_at = remainder.len();
+    for (idx, ch) in remainder.char_indices() {
+        if ch.is_whitespace() || matches!(ch, '(' | '[') {
+            split_at = idx;
+            break;
+        }
+    }
+
+    let id = clean_label(Some(&remainder[..split_at]))?;
+    let mut cursor = remainder[split_at..].trim_start();
+    let mut icon = None;
+    let mut label = None;
+    let mut parent = None;
+
+    if let Some(rest) = cursor.strip_prefix('(') {
+        let end = rest.find(')')?;
+        icon = clean_label(Some(&rest[..end]));
+        cursor = rest[end + 1..].trim_start();
+    }
+
+    if let Some(rest) = cursor.strip_prefix('[') {
+        let end = rest.find(']')?;
+        label = clean_label(Some(&rest[..end]));
+        cursor = rest[end + 1..].trim_start();
+    }
+
+    if let Some(rest) = cursor.strip_prefix("in ") {
+        parent = clean_label(Some(rest));
+        cursor = "";
+    }
+
+    if !cursor.trim().is_empty() {
+        return None;
+    }
+
+    Some(ArchitectureDeclaration {
+        id,
+        icon,
+        label,
+        parent,
+    })
+}
+
+fn add_node_to_architecture_parent(
+    line_number: usize,
+    source_line: &str,
+    parent: Option<&str>,
+    groups: &BTreeMap<String, (usize, usize)>,
+    node_id: IrNodeId,
+    builder: &mut IrBuilder,
+) {
+    let Some(parent_key) = parent else {
+        return;
+    };
+    let Some((cluster_index, subgraph_index)) = groups.get(parent_key).copied() else {
+        builder.add_warning(format!(
+            "Line {line_number}: architecture parent group '{parent_key}' is unknown: {source_line}"
+        ));
+        return;
+    };
+    builder.add_node_to_cluster(cluster_index, node_id);
+    builder.add_node_to_subgraph(subgraph_index, node_id);
+}
+
+fn parse_architecture_edge(line: &str) -> Option<(String, String, ArrowType)> {
+    const OPERATORS: [(&str, ArrowType, bool); 4] = [
+        ("<-->", ArrowType::Line, true),
+        ("-->", ArrowType::Arrow, false),
+        ("<--", ArrowType::Arrow, true),
+        ("--", ArrowType::Line, false),
+    ];
+
+    for (operator, arrow, reverse) in OPERATORS {
+        if let Some(index) = line.find(operator) {
+            let left = line[..index].trim();
+            let right = line[index + operator.len()..].trim();
+            let from = parse_architecture_endpoint(left)?;
+            let to = parse_architecture_endpoint(right)?;
+            return if reverse {
+                Some((to, from, arrow))
+            } else {
+                Some((from, to, arrow))
+            };
+        }
+    }
+
+    None
+}
+
+fn parse_architecture_endpoint(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((lhs, rhs)) = trimmed.split_once(':') {
+        let left = lhs.trim();
+        let right = rhs.trim();
+        if is_architecture_side_token(left) {
+            return clean_label(Some(right));
+        }
+        if is_architecture_side_token(right) {
+            return clean_label(Some(left));
+        }
+    }
+
+    clean_label(Some(trimmed))
+}
+
+fn is_architecture_side_token(token: &str) -> bool {
+    matches!(token, "L" | "R" | "T" | "B")
+}
+
 fn strip_flowchart_inline_comment(line: &str) -> &str {
     let mut in_quote: Option<char> = None;
     let mut escaped = false;
@@ -6008,6 +6277,89 @@ cherry-pick id: feat1"#,
                 .iter()
                 .any(|warning| warning.contains("sankey flow value is not numeric"))
         );
+    }
+
+    #[test]
+    fn architecture_parses_services_groups_junctions_and_edges() {
+        let parsed = parse_mermaid(
+            r#"architecture-beta
+group platform(cloud)[Platform]
+service api(server)[API] in platform
+junction fan_in in platform
+service db(database)[DB] in platform
+api:R --> L:fan_in
+fan_in:B --> T:db"#,
+        );
+        assert_eq!(parsed.ir.diagram_type, DiagramType::ArchitectureBeta);
+        assert_eq!(parsed.ir.nodes.len(), 3);
+        assert_eq!(parsed.ir.edges.len(), 2);
+        assert_eq!(parsed.ir.clusters.len(), 1);
+        assert_eq!(parsed.ir.graph.subgraphs.len(), 1);
+        assert!(
+            parsed.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            parsed.warnings
+        );
+
+        let api = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "api")
+            .expect("api node");
+        assert!(
+            api.classes
+                .iter()
+                .any(|class_name| class_name == "architecture-service")
+        );
+        assert!(
+            api.classes
+                .iter()
+                .any(|class_name| class_name == "architecture-icon-server")
+        );
+
+        let junction = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "fan_in")
+            .expect("junction node");
+        assert_eq!(junction.shape, NodeShape::Circle);
+
+        let platform_cluster = &parsed.ir.clusters[0];
+        let title = platform_cluster
+            .title
+            .and_then(|label_id| parsed.ir.labels.get(label_id.0))
+            .map(|label| label.text.as_str());
+        assert_eq!(title, Some("Platform"));
+        assert_eq!(platform_cluster.members.len(), 3);
+    }
+
+    #[test]
+    fn architecture_reverse_and_bidirectional_edges_map_cleanly() {
+        let parsed = parse_mermaid(
+            r#"architecture-beta
+service api[API]
+service db[DB]
+db <-- api
+api <--> db"#,
+        );
+        assert_eq!(parsed.ir.diagram_type, DiagramType::ArchitectureBeta);
+        assert_eq!(parsed.ir.nodes.len(), 2);
+        assert_eq!(parsed.ir.edges.len(), 2);
+        assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Arrow);
+        assert_eq!(parsed.ir.edges[1].arrow, ArrowType::Line);
+
+        let first_from = match parsed.ir.edges[0].from {
+            fm_core::IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.as_str(),
+            _ => panic!("expected architecture node endpoint"),
+        };
+        let first_to = match parsed.ir.edges[0].to {
+            fm_core::IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.as_str(),
+            _ => panic!("expected architecture node endpoint"),
+        };
+        assert_eq!(first_from, "api");
+        assert_eq!(first_to, "db");
     }
 
     #[test]

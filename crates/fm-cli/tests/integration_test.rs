@@ -805,14 +805,33 @@ fn parse_full_reports_canonical_core_support_level() {
 }
 
 #[test]
-fn parse_summary_reports_parse_mode_and_support_level_for_unsupported_family() {
+fn detect_reports_architecture_as_basic_support() {
     let output = run_cli(
-        &["parse", "-", "--parse-mode", "compat", "--pretty"],
-        "architecture-beta\nservice api\n",
+        &["detect", "-", "--json"],
+        "architecture-beta\nservice api[API]\n",
     );
     assert!(
         output.status.success(),
-        "parse summary should succeed in compat mode; stderr={}",
+        "detect --json should succeed for architecture; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("detect --json must print valid JSON");
+    assert_eq!(json["diagram_type"], "architecture-beta");
+    assert_eq!(json["support_level"], "Partial");
+}
+
+#[test]
+fn parse_summary_reports_architecture_counts_without_compatibility_fallback() {
+    let output = run_cli(
+        &["parse", "-", "--parse-mode", "compat", "--pretty"],
+        "architecture-beta\nservice api[API]\nservice db[DB]\napi --> db\n",
+    );
+    assert!(
+        output.status.success(),
+        "parse summary should succeed for architecture; stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -821,8 +840,10 @@ fn parse_summary_reports_parse_mode_and_support_level_for_unsupported_family() {
         serde_json::from_str(&stdout).expect("parse summary must print valid JSON");
     assert_eq!(json["diagram_type"], "architecture-beta");
     assert_eq!(json["parse_mode"], "compat");
-    assert_eq!(json["support_level"], "Unsupported");
-    assert!(json["diagnostic_count"].as_u64().unwrap_or(0) >= 1);
+    assert_eq!(json["support_level"], "Partial");
+    assert_eq!(json["node_count"], 2);
+    assert_eq!(json["edge_count"], 1);
+    assert_eq!(json["diagnostic_count"], 0);
 }
 
 #[test]
@@ -882,7 +903,7 @@ fn validate_strict_mode_fails_unsupported_family_with_compatibility_diagnostic()
             "--format",
             "json",
         ],
-        "architecture-beta\nservice api\n",
+        "xychart-beta\nline [1,2,3]\n",
     );
     assert!(
         !output.status.success(),

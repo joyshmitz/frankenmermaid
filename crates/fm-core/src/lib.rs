@@ -208,14 +208,13 @@ impl DiagramType {
             | Self::BlockBeta
             | Self::PacketBeta
             | Self::Sankey
+            | Self::ArchitectureBeta
             | Self::C4Context
             | Self::C4Container
             | Self::C4Component
             | Self::C4Dynamic
             | Self::C4Deployment => MermaidSupportLevel::Partial,
-            Self::XyChart | Self::ArchitectureBeta | Self::Unknown => {
-                MermaidSupportLevel::Unsupported
-            }
+            Self::XyChart | Self::Unknown => MermaidSupportLevel::Unsupported,
         }
     }
 
@@ -235,12 +234,13 @@ impl DiagramType {
             | Self::BlockBeta
             | Self::PacketBeta
             | Self::Sankey
+            | Self::ArchitectureBeta
             | Self::C4Context
             | Self::C4Container
             | Self::C4Component
             | Self::C4Dynamic
             | Self::C4Deployment => "basic",
-            Self::XyChart | Self::ArchitectureBeta => "unsupported",
+            Self::XyChart => "unsupported",
             Self::Unknown => "unknown",
         }
     }
@@ -3437,9 +3437,9 @@ mod tests {
 
         assert_eq!(
             DiagramType::ArchitectureBeta.support_level(),
-            MermaidSupportLevel::Unsupported
+            MermaidSupportLevel::Partial
         );
-        assert_eq!(DiagramType::ArchitectureBeta.support_label(), "unsupported");
+        assert_eq!(DiagramType::ArchitectureBeta.support_label(), "basic");
 
         assert_eq!(
             DiagramType::Unknown.support_level(),

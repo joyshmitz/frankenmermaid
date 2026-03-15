@@ -425,8 +425,8 @@ pub fn parse_evidence_json(parsed: &ParseResult) -> String {
 mod tests {
     use super::{detect_type, parse, parse_with_mode};
     use fm_core::{
-        ArrowType, DiagnosticCategory, DiagnosticSeverity, DiagramType, GraphDirection, IrEndpoint,
-        MermaidDiagramIr, MermaidParseMode,
+        ArrowType, DiagnosticCategory, DiagramType, GraphDirection, IrEndpoint, MermaidDiagramIr,
+        MermaidParseMode,
     };
     use proptest::prelude::*;
 
@@ -480,29 +480,35 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_rejects_unsupported_diagram_family_without_flowchart_salvage() {
-        let result = parse_with_mode("architecture-beta\nservice api\n", MermaidParseMode::Strict);
+    fn strict_mode_accepts_architecture_diagram_family_without_fallback() {
+        let result = parse_with_mode(
+            "architecture-beta\nservice api[API]\nservice db[DB]\napi --> db\n",
+            MermaidParseMode::Strict,
+        );
         assert_eq!(result.ir.diagram_type, DiagramType::ArchitectureBeta);
         assert_eq!(result.parse_mode(), MermaidParseMode::Strict);
-        assert!(result.ir.nodes.is_empty());
-        assert!(result.ir.edges.is_empty());
-        assert!(result.ir.has_errors());
-        assert!(result.ir.diagnostics.iter().any(|diagnostic| {
-            diagnostic.category == DiagnosticCategory::Compatibility
-                && diagnostic.severity == DiagnosticSeverity::Error
-        }));
+        assert_eq!(result.ir.nodes.len(), 2);
+        assert_eq!(result.ir.edges.len(), 1);
+        assert!(!result.ir.has_errors());
     }
 
     #[test]
-    fn compat_mode_emits_machine_readable_degradation_diagnostic() {
-        let result = parse_with_mode("architecture-beta\nservice api\n", MermaidParseMode::Compat);
+    fn compat_mode_parses_architecture_without_compatibility_diagnostic() {
+        let result = parse_with_mode(
+            "architecture-beta\nservice api[API]\nservice db[DB]\napi --> db\n",
+            MermaidParseMode::Compat,
+        );
         assert_eq!(result.ir.diagram_type, DiagramType::ArchitectureBeta);
         assert_eq!(result.parse_mode(), MermaidParseMode::Compat);
-        assert!(result.ir.diagnostics.iter().any(|diagnostic| {
-            diagnostic.category == DiagnosticCategory::Compatibility
-                && diagnostic.severity == DiagnosticSeverity::Warning
-                && diagnostic.message.contains("best-effort flowchart salvage")
-        }));
+        assert_eq!(result.ir.nodes.len(), 2);
+        assert_eq!(result.ir.edges.len(), 1);
+        assert!(
+            !result
+                .ir
+                .diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.category == DiagnosticCategory::Compatibility })
+        );
     }
 
     #[test]
