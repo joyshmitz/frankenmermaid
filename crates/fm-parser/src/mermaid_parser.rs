@@ -1924,9 +1924,13 @@ fn parse_journey(input: &str, builder: &mut IrBuilder) {
                 current_section_subgraph = None;
                 continue;
             };
-            let Some(subgraph_index) =
-                builder.ensure_subgraph(&section_key, Some(&section_title), span, None, Some(cluster_index))
-            else {
+            let Some(subgraph_index) = builder.ensure_subgraph(
+                &section_key,
+                Some(&section_title),
+                span,
+                None,
+                Some(cluster_index),
+            ) else {
                 builder.add_warning(format!(
                     "Line {line_number}: invalid journey section declaration: {trimmed}"
                 ));
@@ -1953,7 +1957,8 @@ fn parse_journey(input: &str, builder: &mut IrBuilder) {
             continue;
         }
 
-        let current_step = builder.intern_node(&step_id, Some(&step.name), NodeShape::Rounded, span);
+        let current_step =
+            builder.intern_node(&step_id, Some(&step.name), NodeShape::Rounded, span);
         if let Some(step_node) = current_step {
             builder.add_class_to_node(&step_id, "journey-step", span);
             if let Some(score) = step.score {
@@ -5563,7 +5568,7 @@ mod tests {
             .ir
             .nodes
             .iter()
-            .find(|node| node.id == "Write")
+            .find(|node| node.id == "Write_code")
             .expect("journey step node");
         assert!(
             write_code
