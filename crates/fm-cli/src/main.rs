@@ -298,6 +298,14 @@ struct RenderResult {
     parse_mode: String,
     layout_requested: String,
     layout_selected: String,
+    layout_guard_reason: String,
+    layout_guard_fallback_applied: bool,
+    layout_guard_time_budget_exceeded: bool,
+    layout_guard_iteration_budget_exceeded: bool,
+    layout_guard_route_budget_exceeded: bool,
+    layout_guard_estimated_time_ms: usize,
+    layout_guard_estimated_iterations: usize,
+    layout_guard_estimated_route_ops: usize,
     layout_band_count: usize,
     layout_tick_count: usize,
     diagram_type: String,
@@ -341,6 +349,14 @@ struct ValidateResult {
     parse_mode: String,
     layout_requested: String,
     layout_selected: String,
+    layout_guard_reason: String,
+    layout_guard_fallback_applied: bool,
+    layout_guard_time_budget_exceeded: bool,
+    layout_guard_iteration_budget_exceeded: bool,
+    layout_guard_route_budget_exceeded: bool,
+    layout_guard_estimated_time_ms: usize,
+    layout_guard_estimated_iterations: usize,
+    layout_guard_estimated_route_ops: usize,
     layout_band_count: usize,
     layout_tick_count: usize,
     diagram_type: String,
@@ -551,6 +567,14 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
         layout.bounds.height,
         layout.stats.crossing_count
     );
+    if traced_layout.trace.guard.fallback_applied {
+        warn!(
+            "Layout guardrail fallback applied: {} -> {} ({})",
+            traced_layout.trace.guard.initial_algorithm.as_str(),
+            traced_layout.trace.guard.selected_algorithm.as_str(),
+            traced_layout.trace.guard.reason,
+        );
+    }
 
     // Render
     let render_start = Instant::now();
@@ -566,6 +590,20 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             parse_mode: parse_mode.as_str().to_string(),
             layout_requested: traced_layout.trace.dispatch.requested.as_str().to_string(),
             layout_selected: traced_layout.trace.dispatch.selected.as_str().to_string(),
+            layout_guard_reason: traced_layout.trace.guard.reason.to_string(),
+            layout_guard_fallback_applied: traced_layout.trace.guard.fallback_applied,
+            layout_guard_time_budget_exceeded: traced_layout.trace.guard.time_budget_exceeded,
+            layout_guard_iteration_budget_exceeded: traced_layout
+                .trace
+                .guard
+                .iteration_budget_exceeded,
+            layout_guard_route_budget_exceeded: traced_layout.trace.guard.route_budget_exceeded,
+            layout_guard_estimated_time_ms: traced_layout.trace.guard.estimated_layout_time_ms,
+            layout_guard_estimated_iterations: traced_layout
+                .trace
+                .guard
+                .estimated_layout_iterations,
+            layout_guard_estimated_route_ops: traced_layout.trace.guard.estimated_route_ops,
             layout_band_count: traced_layout.layout.extensions.bands.len(),
             layout_tick_count: traced_layout.layout.extensions.axis_ticks.len(),
             diagram_type: parsed.ir.diagram_type.as_str().to_string(),
@@ -899,6 +937,14 @@ fn cmd_validate(
         parse_mode: parse_mode.as_str().to_string(),
         layout_requested: traced_layout.trace.dispatch.requested.as_str().to_string(),
         layout_selected: traced_layout.trace.dispatch.selected.as_str().to_string(),
+        layout_guard_reason: traced_layout.trace.guard.reason.to_string(),
+        layout_guard_fallback_applied: traced_layout.trace.guard.fallback_applied,
+        layout_guard_time_budget_exceeded: traced_layout.trace.guard.time_budget_exceeded,
+        layout_guard_iteration_budget_exceeded: traced_layout.trace.guard.iteration_budget_exceeded,
+        layout_guard_route_budget_exceeded: traced_layout.trace.guard.route_budget_exceeded,
+        layout_guard_estimated_time_ms: traced_layout.trace.guard.estimated_layout_time_ms,
+        layout_guard_estimated_iterations: traced_layout.trace.guard.estimated_layout_iterations,
+        layout_guard_estimated_route_ops: traced_layout.trace.guard.estimated_route_ops,
         layout_band_count: traced_layout.layout.extensions.bands.len(),
         layout_tick_count: traced_layout.layout.extensions.axis_ticks.len(),
         diagram_type: parsed.ir.diagram_type.as_str().to_string(),

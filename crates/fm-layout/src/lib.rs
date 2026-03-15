@@ -4,7 +4,9 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use std::f32::consts::PI;
 
-use fm_core::{DiagramType, FontMetrics, GraphDirection, IrEndpoint, IrNode, MermaidDiagramIr};
+use fm_core::{
+    DiagramType, FontMetrics, GraphDirection, IrEndpoint, IrNode, MermaidConfig, MermaidDiagramIr,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutAlgorithm {
@@ -192,7 +194,63 @@ pub struct LayoutStageSnapshot {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LayoutTrace {
     pub dispatch: LayoutDispatch,
+    pub guard: LayoutGuardDecision,
     pub snapshots: Vec<LayoutStageSnapshot>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LayoutGuardrails {
+    pub max_layout_time_ms: usize,
+    pub max_layout_iterations: usize,
+    pub max_route_ops: usize,
+}
+
+impl Default for LayoutGuardrails {
+    fn default() -> Self {
+        let defaults = MermaidConfig::default();
+        Self {
+            max_layout_time_ms: 250,
+            max_layout_iterations: defaults.layout_iteration_budget,
+            max_route_ops: defaults.route_budget,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LayoutGuardDecision {
+    pub initial_algorithm: LayoutAlgorithm,
+    pub selected_algorithm: LayoutAlgorithm,
+    pub estimated_layout_time_ms: usize,
+    pub estimated_layout_iterations: usize,
+    pub estimated_route_ops: usize,
+    pub selected_estimated_layout_time_ms: usize,
+    pub selected_estimated_layout_iterations: usize,
+    pub selected_estimated_route_ops: usize,
+    pub time_budget_exceeded: bool,
+    pub iteration_budget_exceeded: bool,
+    pub route_budget_exceeded: bool,
+    pub fallback_applied: bool,
+    pub reason: &'static str,
+}
+
+impl Default for LayoutGuardDecision {
+    fn default() -> Self {
+        Self {
+            initial_algorithm: LayoutAlgorithm::Sugiyama,
+            selected_algorithm: LayoutAlgorithm::Sugiyama,
+            estimated_layout_time_ms: 0,
+            estimated_layout_iterations: 0,
+            estimated_route_ops: 0,
+            selected_estimated_layout_time_ms: 0,
+            selected_estimated_layout_iterations: 0,
+            selected_estimated_route_ops: 0,
+            time_budget_exceeded: false,
+            iteration_budget_exceeded: false,
+            route_budget_exceeded: false,
+            fallback_applied: false,
+            reason: "within_budget",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -820,6 +878,23 @@ pub fn layout_diagram_traced_with_algorithm(
 }
 
 #[must_use]
+pub fn layout_diagram_traced_with_algorithm_and_guardrails(
+    ir: &MermaidDiagramIr,
+    algorithm: LayoutAlgorithm,
+    guardrails: LayoutGuardrails,
+) -> TracedLayout {
+    layout_diagram_traced_with_config_and_guardrails(
+        ir,
+        algorithm,
+        LayoutConfig {
+            cycle_strategy: default_cycle_strategy(),
+            collapse_cycle_clusters: false,
+        },
+        guardrails,
+    )
+}
+
+#[must_use]
 pub fn layout_diagram_traced_with_algorithm_and_cycle_strategy(
     ir: &MermaidDiagramIr,
     algorithm: LayoutAlgorithm,
@@ -841,8 +916,30 @@ pub fn layout_diagram_traced_with_config(
     algorithm: LayoutAlgorithm,
     config: LayoutConfig,
 ) -> TracedLayout {
+    layout_diagram_traced_with_config_and_guardrails(
+        ir,
+        algorithm,
+        config,
+        LayoutGuardrails::default(),
+    )
+}
+
+#[must_use]
+pub fn layout_diagram_traced_with_config_and_guardrails(
+    ir: &MermaidDiagramIr,
+    algorithm: LayoutAlgorithm,
+    config: LayoutConfig,
+    guardrails: LayoutGuardrails,
+) -> TracedLayout {
     let dispatch = dispatch_layout_algorithm(ir, algorithm);
-    let mut traced = match dispatch.selected {
+    let guard = evaluate_layout_guardrails(ir, dispatch.selected, guardrails);
+    let mut guarded_dispatch = dispatch;
+    guarded_dispatch.selected = guard.selected_algorithm;
+    if guard.fallback_applied {
+        guarded_dispatch.reason = guard.reason;
+    }
+
+    let mut traced = match guarded_dispatch.selected {
         LayoutAlgorithm::Sugiyama => layout_diagram_sugiyama_traced_with_config(ir, config),
         LayoutAlgorithm::Force => layout_diagram_force_traced(ir),
         LayoutAlgorithm::Tree => layout_diagram_tree_traced(ir),
@@ -854,7 +951,8 @@ pub fn layout_diagram_traced_with_config(
         LayoutAlgorithm::Grid => layout_diagram_grid_traced(ir),
         LayoutAlgorithm::Auto => unreachable!("dispatch must resolve auto to a concrete layout"),
     };
-    traced.trace.dispatch = dispatch;
+    traced.trace.dispatch = guarded_dispatch;
+    traced.trace.guard = guard;
     traced.trace.snapshots.insert(
         0,
         LayoutStageSnapshot {
@@ -919,6 +1017,265 @@ fn algorithm_available_for_diagram(diagram_type: DiagramType, algorithm: LayoutA
         LayoutAlgorithm::Sankey => matches!(diagram_type, DiagramType::Sankey),
         LayoutAlgorithm::Kanban => matches!(diagram_type, DiagramType::Journey),
         LayoutAlgorithm::Grid => matches!(diagram_type, DiagramType::BlockBeta),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LayoutCostEstimate {
+    time_ms: usize,
+    iterations: usize,
+    route_ops: usize,
+}
+
+impl LayoutCostEstimate {
+    #[must_use]
+    fn exceeds(self, guardrails: LayoutGuardrails) -> (bool, bool, bool) {
+        (
+            self.time_ms > guardrails.max_layout_time_ms,
+            self.iterations > guardrails.max_layout_iterations,
+            self.route_ops > guardrails.max_route_ops,
+        )
+    }
+
+    #[must_use]
+    const fn score(self) -> usize {
+        self.time_ms
+            .saturating_mul(16)
+            .saturating_add(self.iterations.saturating_mul(4))
+            .saturating_add(self.route_ops)
+    }
+}
+
+fn estimate_layout_cost(ir: &MermaidDiagramIr, algorithm: LayoutAlgorithm) -> LayoutCostEstimate {
+    let nodes = ir.nodes.len();
+    let edges = ir.edges.len();
+    let ranks_hint = nodes.max(1).div_ceil(4);
+    match algorithm {
+        LayoutAlgorithm::Sugiyama => LayoutCostEstimate {
+            time_ms: nodes
+                .saturating_mul(edges.max(1))
+                .saturating_mul(2)
+                .saturating_add(ranks_hint.saturating_mul(20))
+                .saturating_add(25),
+            iterations: ranks_hint.saturating_mul(10).saturating_add(24),
+            route_ops: edges
+                .saturating_mul(24)
+                .saturating_add(nodes.saturating_mul(4)),
+        },
+        LayoutAlgorithm::Force => {
+            let iterations = force_iteration_budget(nodes);
+            LayoutCostEstimate {
+                time_ms: nodes
+                    .saturating_mul(nodes.max(1))
+                    .saturating_mul(iterations.max(1))
+                    / 40
+                    + 20,
+                iterations,
+                route_ops: edges
+                    .saturating_mul(16)
+                    .saturating_add(nodes.saturating_mul(6)),
+            }
+        }
+        LayoutAlgorithm::Tree => LayoutCostEstimate {
+            time_ms: nodes
+                .saturating_mul(4)
+                .saturating_add(edges.saturating_mul(2))
+                .saturating_add(8),
+            iterations: nodes.saturating_add(4),
+            route_ops: edges.saturating_mul(8).saturating_add(nodes),
+        },
+        LayoutAlgorithm::Radial => LayoutCostEstimate {
+            time_ms: nodes
+                .saturating_mul(5)
+                .saturating_add(edges.saturating_mul(2))
+                .saturating_add(12),
+            iterations: nodes.saturating_add(6),
+            route_ops: edges
+                .saturating_mul(8)
+                .saturating_add(nodes.saturating_mul(2)),
+        },
+        LayoutAlgorithm::Timeline
+        | LayoutAlgorithm::Gantt
+        | LayoutAlgorithm::Kanban
+        | LayoutAlgorithm::Grid => LayoutCostEstimate {
+            time_ms: nodes
+                .saturating_mul(3)
+                .saturating_add(edges.saturating_mul(2))
+                .saturating_add(6),
+            iterations: nodes.saturating_add(2),
+            route_ops: edges.saturating_mul(6).saturating_add(nodes),
+        },
+        LayoutAlgorithm::Sankey => LayoutCostEstimate {
+            time_ms: nodes
+                .saturating_mul(8)
+                .saturating_add(edges.saturating_mul(6))
+                .saturating_add(20),
+            iterations: nodes.saturating_mul(2).saturating_add(8),
+            route_ops: edges
+                .saturating_mul(18)
+                .saturating_add(nodes.saturating_mul(4)),
+        },
+        LayoutAlgorithm::Auto => LayoutCostEstimate {
+            time_ms: 0,
+            iterations: 0,
+            route_ops: 0,
+        },
+    }
+}
+
+fn fallback_candidates(ir: &MermaidDiagramIr, selected: LayoutAlgorithm) -> Vec<LayoutAlgorithm> {
+    let mut candidates = vec![selected];
+    let preferred = match ir.diagram_type {
+        DiagramType::BlockBeta => [
+            LayoutAlgorithm::Grid,
+            LayoutAlgorithm::Tree,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        DiagramType::Mindmap => [
+            LayoutAlgorithm::Radial,
+            LayoutAlgorithm::Tree,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        DiagramType::Timeline => [
+            LayoutAlgorithm::Timeline,
+            LayoutAlgorithm::Tree,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        DiagramType::Gantt => [
+            LayoutAlgorithm::Gantt,
+            LayoutAlgorithm::Grid,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        DiagramType::Sankey => [
+            LayoutAlgorithm::Sankey,
+            LayoutAlgorithm::Tree,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        DiagramType::Journey => [
+            LayoutAlgorithm::Kanban,
+            LayoutAlgorithm::Grid,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        _ => [selected, LayoutAlgorithm::Tree, LayoutAlgorithm::Sugiyama],
+    };
+
+    for candidate in preferred {
+        if candidate != LayoutAlgorithm::Auto
+            && algorithm_available_for_diagram(ir.diagram_type, candidate)
+            && !candidates.contains(&candidate)
+        {
+            candidates.push(candidate);
+        }
+    }
+
+    for candidate in [
+        LayoutAlgorithm::Tree,
+        LayoutAlgorithm::Sugiyama,
+        LayoutAlgorithm::Grid,
+    ] {
+        if candidate != LayoutAlgorithm::Auto
+            && algorithm_available_for_diagram(ir.diagram_type, candidate)
+            && !candidates.contains(&candidate)
+        {
+            candidates.push(candidate);
+        }
+    }
+
+    candidates
+}
+
+fn guardrail_reason(
+    time_budget_exceeded: bool,
+    iteration_budget_exceeded: bool,
+    route_budget_exceeded: bool,
+    fallback_applied: bool,
+    within_budget_candidate_found: bool,
+) -> &'static str {
+    match (
+        time_budget_exceeded,
+        iteration_budget_exceeded,
+        route_budget_exceeded,
+        fallback_applied,
+        within_budget_candidate_found,
+    ) {
+        (false, false, false, false, _) => "within_budget",
+        (true, false, false, true, true) => "guardrail_fallback_time_budget",
+        (false, true, false, true, true) => "guardrail_fallback_iteration_budget",
+        (false, false, true, true, true) => "guardrail_fallback_route_budget",
+        (_, _, _, true, true) => "guardrail_fallback_multi_budget",
+        (true, false, false, true, false) => "guardrail_forced_time_budget",
+        (false, true, false, true, false) => "guardrail_forced_iteration_budget",
+        (false, false, true, true, false) => "guardrail_forced_route_budget",
+        _ => "guardrail_forced_multi_budget",
+    }
+}
+
+fn evaluate_layout_guardrails(
+    ir: &MermaidDiagramIr,
+    selected: LayoutAlgorithm,
+    guardrails: LayoutGuardrails,
+) -> LayoutGuardDecision {
+    let initial_estimate = estimate_layout_cost(ir, selected);
+    let (time_budget_exceeded, iteration_budget_exceeded, route_budget_exceeded) =
+        initial_estimate.exceeds(guardrails);
+
+    if !(time_budget_exceeded || iteration_budget_exceeded || route_budget_exceeded) {
+        return LayoutGuardDecision {
+            initial_algorithm: selected,
+            selected_algorithm: selected,
+            estimated_layout_time_ms: initial_estimate.time_ms,
+            estimated_layout_iterations: initial_estimate.iterations,
+            estimated_route_ops: initial_estimate.route_ops,
+            selected_estimated_layout_time_ms: initial_estimate.time_ms,
+            selected_estimated_layout_iterations: initial_estimate.iterations,
+            selected_estimated_route_ops: initial_estimate.route_ops,
+            reason: "within_budget",
+            ..LayoutGuardDecision::default()
+        };
+    }
+
+    let mut selected_algorithm = selected;
+    let mut selected_estimate = initial_estimate;
+    let mut within_budget_candidate_found = false;
+
+    for candidate in fallback_candidates(ir, selected).into_iter().skip(1) {
+        let estimate = estimate_layout_cost(ir, candidate);
+        if !estimate.exceeds(guardrails).0
+            && !estimate.exceeds(guardrails).1
+            && !estimate.exceeds(guardrails).2
+        {
+            selected_algorithm = candidate;
+            selected_estimate = estimate;
+            within_budget_candidate_found = true;
+            break;
+        }
+
+        if estimate.score() < selected_estimate.score() {
+            selected_algorithm = candidate;
+            selected_estimate = estimate;
+        }
+    }
+
+    LayoutGuardDecision {
+        initial_algorithm: selected,
+        selected_algorithm,
+        estimated_layout_time_ms: initial_estimate.time_ms,
+        estimated_layout_iterations: initial_estimate.iterations,
+        estimated_route_ops: initial_estimate.route_ops,
+        selected_estimated_layout_time_ms: selected_estimate.time_ms,
+        selected_estimated_layout_iterations: selected_estimate.iterations,
+        selected_estimated_route_ops: selected_estimate.route_ops,
+        time_budget_exceeded,
+        iteration_budget_exceeded,
+        route_budget_exceeded,
+        fallback_applied: selected_algorithm != selected,
+        reason: guardrail_reason(
+            time_budget_exceeded,
+            iteration_budget_exceeded,
+            route_budget_exceeded,
+            selected_algorithm != selected,
+            within_budget_candidate_found,
+        ),
     }
 }
 
@@ -5257,11 +5614,12 @@ pub fn layout_stats_from(layout: &DiagramLayout) -> LayoutStats {
 #[cfg(test)]
 mod tests {
     use super::{
-        CycleStrategy, LayoutAlgorithm, LayoutPoint, RenderClip, RenderItem, RenderSource,
-        build_render_scene, layout, layout_diagram, layout_diagram_force,
+        CycleStrategy, LayoutAlgorithm, LayoutGuardrails, LayoutPoint, RenderClip, RenderItem,
+        RenderSource, build_render_scene, layout, layout_diagram, layout_diagram_force,
         layout_diagram_force_traced, layout_diagram_gantt, layout_diagram_grid,
         layout_diagram_radial, layout_diagram_sankey, layout_diagram_timeline,
-        layout_diagram_traced, layout_diagram_traced_with_algorithm, layout_diagram_tree,
+        layout_diagram_traced, layout_diagram_traced_with_algorithm,
+        layout_diagram_traced_with_algorithm_and_guardrails, layout_diagram_tree,
         layout_diagram_with_cycle_strategy, route_edge_points,
     };
     use fm_core::{
@@ -6849,6 +7207,60 @@ mod tests {
             traced.trace.dispatch.reason,
             "requested_algorithm_capability_unavailable_for_diagram_type"
         );
+    }
+
+    #[test]
+    fn layout_guardrails_leave_small_default_layouts_unchanged() {
+        let ir = sample_ir();
+        let traced = layout_diagram_traced_with_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(traced.trace.guard.reason, "within_budget");
+        assert!(!traced.trace.guard.fallback_applied);
+        assert_eq!(
+            traced.trace.guard.initial_algorithm,
+            traced.trace.guard.selected_algorithm
+        );
+    }
+
+    #[test]
+    fn tight_force_guardrails_fall_back_to_tree_deterministically() {
+        let ir = sample_er_ir();
+        let traced = layout_diagram_traced_with_algorithm_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Force,
+            LayoutGuardrails {
+                max_layout_time_ms: 1,
+                max_layout_iterations: 1,
+                max_route_ops: 1,
+            },
+        );
+        assert_eq!(traced.trace.guard.initial_algorithm, LayoutAlgorithm::Force);
+        assert_eq!(traced.trace.dispatch.selected, LayoutAlgorithm::Tree);
+        assert!(traced.trace.guard.fallback_applied);
+        assert!(traced.trace.guard.time_budget_exceeded);
+        assert!(traced.trace.guard.iteration_budget_exceeded);
+        assert!(traced.trace.guard.route_budget_exceeded);
+        assert_eq!(traced.trace.dispatch.reason, traced.trace.guard.reason);
+    }
+
+    #[test]
+    fn guardrail_fallback_is_repeatable() {
+        let ir = sample_er_ir();
+        let guardrails = LayoutGuardrails {
+            max_layout_time_ms: 1,
+            max_layout_iterations: 1,
+            max_route_ops: 1,
+        };
+        let first = layout_diagram_traced_with_algorithm_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Force,
+            guardrails,
+        );
+        let second = layout_diagram_traced_with_algorithm_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Force,
+            guardrails,
+        );
+        assert_eq!(first, second);
     }
 
     // --- Force-directed layout tests ---
