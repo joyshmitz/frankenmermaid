@@ -6,7 +6,7 @@ use std::f32::consts::PI;
 
 use fm_core::{
     DiagramType, FontMetrics, GraphDirection, IrEndpoint, IrNode, MermaidComplexity, MermaidConfig,
-    MermaidDiagramIr, MermaidFidelity, MermaidGlyphMode, MermaidGuardReport,
+    MermaidDiagramIr, MermaidFidelity, MermaidGlyphMode, MermaidGuardReport, Span,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,12 +136,14 @@ pub struct LayoutNodeBox {
     pub node_id: String,
     pub rank: usize,
     pub order: usize,
+    pub span: Span,
     pub bounds: LayoutRect,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayoutClusterBox {
     pub cluster_index: usize,
+    pub span: Span,
     pub bounds: LayoutRect,
 }
 
@@ -158,6 +160,7 @@ pub enum EdgeRouting {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayoutEdgePath {
     pub edge_index: usize,
+    pub span: Span,
     pub points: Vec<LayoutPoint>,
     pub reversed: bool,
     /// True if this is a self-loop edge (source == target).
@@ -2988,6 +2991,7 @@ fn node_boxes_from_centers(
                 node_id: node.id.clone(),
                 rank: rank_by_node[node_index],
                 order: order_by_node[node_index],
+                span: node.span_primary,
                 bounds: LayoutRect {
                     x: center_x - (width / 2.0),
                     y: center_y - (height / 2.0),
@@ -3536,6 +3540,7 @@ fn force_build_node_boxes(
                 node_id: node.id.clone(),
                 rank: 0,  // No ranks in force-directed layout.
                 order: i, // Order by index.
+                span: node.span_primary,
                 bounds: LayoutRect {
                     x: cx - w / 2.0,
                     y: cy - h / 2.0,
@@ -3567,6 +3572,7 @@ fn force_build_edge_paths(ir: &MermaidDiagramIr, nodes: &[LayoutNodeBox]) -> Vec
 
             Some(LayoutEdgePath {
                 edge_index: ei,
+                span: edge.span,
                 points: vec![from_pt, to_pt],
                 reversed: false,
                 is_self_loop: from_idx == to_idx,
@@ -4848,6 +4854,10 @@ fn coordinate_assignment(
                 node_id,
                 rank,
                 order,
+                span: ir
+                    .nodes
+                    .get(node_index)
+                    .map_or(Span::default(), |node| node.span_primary),
                 bounds: LayoutRect {
                     x,
                     y,
@@ -5130,6 +5140,10 @@ fn build_edge_paths_with_orientation(
 
             Some(LayoutEdgePath {
                 edge_index,
+                span: ir
+                    .edges
+                    .get(edge_index)
+                    .map_or(Span::default(), |edge| edge.span),
                 points,
                 reversed: highlighted_edge_indexes.contains(&edge_index),
                 is_self_loop,
@@ -5369,6 +5383,10 @@ fn build_cluster_boxes(
             (min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite())
                 .then_some(LayoutClusterBox {
                     cluster_index,
+                    span: ir
+                        .clusters
+                        .get(cluster_index)
+                        .map_or(Span::default(), |cluster| cluster.span),
                     bounds: LayoutRect {
                         x: min_x - spacing.cluster_padding,
                         y: min_y - spacing.cluster_padding,
@@ -5574,6 +5592,7 @@ fn build_cycle_cluster_results(
             // Also add as a regular cluster box for rendering consistency.
             clusters.push(LayoutClusterBox {
                 cluster_index: clusters.len(),
+                span: Span::default(),
                 bounds: cluster_bounds,
             });
         }
@@ -5702,7 +5721,7 @@ mod tests {
     use fm_core::{
         ArrowType, DiagramType, GraphDirection, IrCluster, IrClusterId, IrEdge, IrEndpoint,
         IrGraphCluster, IrGraphNode, IrLabel, IrLabelId, IrNode, IrNodeId, IrSubgraph,
-        IrSubgraphId, MermaidDiagramIr, NodeShape,
+        IrSubgraphId, MermaidDiagramIr, NodeShape, Span,
     };
     use proptest::prelude::*;
     use std::collections::BTreeMap;
@@ -7835,6 +7854,65 @@ mod tests {
             stage_names.contains(&"crossing_refinement"),
             "Trace should include crossing_refinement stage, got: {stage_names:?}"
         );
+    }
+
+    #[test]
+    fn layout_nodes_and_edges_preserve_ir_spans() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        let node_a_span = Span::at_line(2, 5);
+        let node_b_span = Span::at_line(3, 5);
+        let edge_span = Span::at_line(4, 8);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            span_primary: node_a_span,
+            ..IrNode::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "B".to_string(),
+            span_primary: node_b_span,
+            ..IrNode::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            span: edge_span,
+            ..IrEdge::default()
+        });
+
+        let layout = layout_diagram(&ir);
+        assert_eq!(layout.nodes[0].span, node_a_span);
+        assert_eq!(layout.nodes[1].span, node_b_span);
+        assert_eq!(layout.edges[0].span, edge_span);
+    }
+
+    #[test]
+    fn layout_clusters_preserve_ir_spans() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        let cluster_span = Span::at_line(2, 12);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            ..IrNode::default()
+        });
+        ir.clusters.push(IrCluster {
+            id: IrClusterId(0),
+            title: None,
+            members: vec![IrNodeId(0)],
+            grid_span: 1,
+            span: cluster_span,
+        });
+        ir.graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(0),
+            title: None,
+            members: vec![IrNodeId(0)],
+            subgraph: None,
+            grid_span: 1,
+            span: cluster_span,
+        });
+
+        let layout = layout_diagram(&ir);
+        assert_eq!(layout.clusters.len(), 1);
+        assert_eq!(layout.clusters[0].span, cluster_span);
     }
 
     proptest! {

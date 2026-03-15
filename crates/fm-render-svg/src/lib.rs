@@ -25,7 +25,7 @@ pub use text::{TextAnchor, TextBuilder, TextMetrics};
 pub use theme::{FontConfig, Theme, ThemeColors, ThemePreset, generate_palette};
 pub use transform::{Transform, TransformBuilder};
 
-use fm_core::{MermaidDiagramIr, MermaidTier};
+use fm_core::{MermaidDiagramIr, MermaidTier, Span};
 use fm_layout::{
     DiagramLayout, FillStyle, LayoutEdgePath, LayoutNodeBox, LineCap as RenderLineCap,
     LineJoin as RenderLineJoin, PathCmd, RenderClip, RenderGroup, RenderItem, RenderPath,
@@ -302,7 +302,13 @@ fn render_scene_document_with_ir(
 
     let mut clip_defs = Vec::new();
     let mut clip_id_counter = 0usize;
-    let scene_root = render_scene_group(&scene.root, config, &mut clip_defs, &mut clip_id_counter);
+    let scene_root = render_scene_group(
+        &scene.root,
+        config,
+        ir,
+        &mut clip_defs,
+        &mut clip_id_counter,
+    );
 
     if !clip_defs.is_empty() {
         let mut defs = DefsBuilder::new();
@@ -339,6 +345,7 @@ fn count_scene_items(group: &RenderGroup) -> (usize, usize, usize) {
 fn render_scene_group(
     group: &RenderGroup,
     config: &SvgRenderConfig,
+    ir: Option<&MermaidDiagramIr>,
     clip_defs: &mut Vec<Element>,
     clip_id_counter: &mut usize,
 ) -> Element {
@@ -359,7 +366,13 @@ fn render_scene_group(
     }
 
     for child in &group.children {
-        elem = elem.child(render_scene_item(child, config, clip_defs, clip_id_counter));
+        elem = elem.child(render_scene_item(
+            child,
+            config,
+            ir,
+            clip_defs,
+            clip_id_counter,
+        ));
     }
 
     elem
@@ -368,19 +381,22 @@ fn render_scene_group(
 fn render_scene_item(
     item: &RenderItem,
     config: &SvgRenderConfig,
+    ir: Option<&MermaidDiagramIr>,
     clip_defs: &mut Vec<Element>,
     clip_id_counter: &mut usize,
 ) -> Element {
     match item {
-        RenderItem::Group(group) => render_scene_group(group, config, clip_defs, clip_id_counter),
-        RenderItem::Path(path) => render_scene_path(path),
-        RenderItem::Text(text) => render_scene_text(text, config),
+        RenderItem::Group(group) => {
+            render_scene_group(group, config, ir, clip_defs, clip_id_counter)
+        }
+        RenderItem::Path(path) => render_scene_path(path, ir),
+        RenderItem::Text(text) => render_scene_text(text, config, ir),
     }
 }
 
-fn render_scene_path(path: &RenderPath) -> Element {
+fn render_scene_path(path: &RenderPath, ir: Option<&MermaidDiagramIr>) -> Element {
     let mut elem = Element::path().d(&path_cmds_to_d(&path.commands));
-    elem = apply_source_metadata(elem, path.source);
+    elem = apply_source_metadata(elem, path.source, ir);
 
     if let Some(fill) = &path.fill {
         elem = apply_fill_style(elem, fill);
@@ -397,7 +413,11 @@ fn render_scene_path(path: &RenderPath) -> Element {
     elem
 }
 
-fn render_scene_text(text: &RenderText, config: &SvgRenderConfig) -> Element {
+fn render_scene_text(
+    text: &RenderText,
+    config: &SvgRenderConfig,
+    ir: Option<&MermaidDiagramIr>,
+) -> Element {
     let mut elem = TextBuilder::new(&text.text)
         .x(text.x)
         .y(text.y)
@@ -409,10 +429,14 @@ fn render_scene_text(text: &RenderText, config: &SvgRenderConfig) -> Element {
         .build();
 
     elem = apply_fill_style(elem, &text.fill);
-    apply_source_metadata(elem, text.source)
+    apply_source_metadata(elem, text.source, ir)
 }
 
-fn apply_source_metadata(mut elem: Element, source: RenderSource) -> Element {
+fn apply_source_metadata(
+    mut elem: Element,
+    source: RenderSource,
+    ir: Option<&MermaidDiagramIr>,
+) -> Element {
     match source {
         RenderSource::Diagram => {
             elem = elem.data("fm-source-kind", "diagram");
@@ -434,7 +458,36 @@ fn apply_source_metadata(mut elem: Element, source: RenderSource) -> Element {
         }
     }
 
+    if let Some(span) = ir.and_then(|diagram_ir| render_source_span(diagram_ir, source)) {
+        elem = apply_span_metadata(elem, span);
+    }
+
     elem
+}
+
+fn render_source_span(ir: &MermaidDiagramIr, source: RenderSource) -> Option<Span> {
+    let span = match source {
+        RenderSource::Diagram => return None,
+        RenderSource::Node(index) => ir.nodes.get(index).map(|node| node.span_primary),
+        RenderSource::Edge(index) => ir.edges.get(index).map(|edge| edge.span),
+        RenderSource::Cluster(index) => ir.clusters.get(index).map(|cluster| cluster.span),
+    }?;
+
+    (!span.is_unknown()).then_some(span)
+}
+
+fn apply_span_metadata(mut elem: Element, span: Span) -> Element {
+    if span.is_unknown() {
+        return elem;
+    }
+
+    elem = elem.data("fm-source-span", &span.compact_display());
+    elem = elem.data("fm-source-start-line", &span.start.line.to_string());
+    elem = elem.data("fm-source-start-col", &span.start.col.to_string());
+    elem = elem.data("fm-source-start-byte", &span.start.byte.to_string());
+    elem = elem.data("fm-source-end-line", &span.end.line.to_string());
+    elem = elem.data("fm-source-end-col", &span.end.col.to_string());
+    elem.data("fm-source-end-byte", &span.end.byte.to_string())
 }
 
 fn register_clip_path(
@@ -959,6 +1012,8 @@ fn render_layout_to_svg(
             rect = rect.class("fm-cluster-swimlane");
         }
 
+        rect = apply_span_metadata(rect, cluster.span);
+
         doc = doc.child(rect);
 
         // Cluster label if present
@@ -989,7 +1044,7 @@ fn render_layout_to_svg(
                     .fill(label_color)
                     .class("fm-cluster-label")
                     .build();
-                doc = doc.child(text);
+                doc = doc.child(apply_span_metadata(text, cluster.span));
             }
         }
     }
@@ -1056,6 +1111,7 @@ fn render_node(
         .class(node_shape_css_class(shape))
         .data("id", node_id)
         .data("fm-node-id", node_id);
+    group = apply_span_metadata(group, node_box.span);
 
     if let Some(node) = ir_node {
         for class in &node.classes {
@@ -1691,6 +1747,7 @@ fn render_edge(
         .class("fm-edge")
         .class(style_class)
         .data("fm-edge-id", &edge_index.to_string());
+    elem = apply_span_metadata(elem, edge_path.span);
 
     if let Some(dasharray) = base_dasharray {
         elem = elem.stroke_dasharray(dasharray);
@@ -1727,6 +1784,7 @@ fn render_edge(
         let mut group = Element::group()
             .class("fm-edge-labeled")
             .data("fm-edge-id", &edge_index.to_string());
+        group = apply_span_metadata(group, edge_path.span);
 
         // Add accessibility attributes to group
         if config.a11y.aria_labels {
@@ -1818,6 +1876,7 @@ fn render_edge(
         let mut group = Element::group()
             .class("fm-edge")
             .data("fm-edge-id", &edge_index.to_string());
+        group = apply_span_metadata(group, edge_path.span);
         if config.a11y.aria_labels {
             group = group.attr("role", "graphics-symbol");
         }
@@ -2373,6 +2432,43 @@ mod tests {
         let svg = render_svg_with_config(&ir, &config);
         assert!(svg.contains("fm-node-inactive"));
         assert!(svg.contains(".fm-node-inactive { opacity: 0.35; }"));
+    }
+
+    #[test]
+    fn svg_emits_source_span_metadata_for_layout_elements() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        let node_span = Span::at_line(2, 4);
+        let edge_span = Span::at_line(3, 6);
+        let cluster_span = Span::at_line(1, 10);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            span_primary: node_span,
+            ..IrNode::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "B".to_string(),
+            span_primary: Span::at_line(4, 4),
+            ..IrNode::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            span: edge_span,
+            ..IrEdge::default()
+        });
+        ir.clusters.push(IrCluster {
+            id: IrClusterId(0),
+            title: None,
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            grid_span: 1,
+            span: cluster_span,
+        });
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains("data-fm-source-span=\"2:1-2:4@0-0\""));
+        assert!(svg.contains("data-fm-source-span=\"3:1-3:6@0-0\""));
+        assert!(svg.contains("data-fm-source-span=\"1:1-1:10@0-0\""));
     }
 
     proptest! {

@@ -308,6 +308,9 @@ struct RenderResult {
     layout_guard_estimated_route_ops: usize,
     layout_band_count: usize,
     layout_tick_count: usize,
+    source_span_node_count: usize,
+    source_span_edge_count: usize,
+    source_span_cluster_count: usize,
     diagram_type: String,
     node_count: usize,
     edge_count: usize,
@@ -359,6 +362,9 @@ struct ValidateResult {
     layout_guard_estimated_route_ops: usize,
     layout_band_count: usize,
     layout_tick_count: usize,
+    source_span_node_count: usize,
+    source_span_edge_count: usize,
+    source_span_cluster_count: usize,
     diagram_type: String,
     node_count: usize,
     edge_count: usize,
@@ -606,6 +612,9 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             layout_guard_estimated_route_ops: traced_layout.trace.guard.estimated_route_ops,
             layout_band_count: traced_layout.layout.extensions.bands.len(),
             layout_tick_count: traced_layout.layout.extensions.axis_ticks.len(),
+            source_span_node_count: count_known_node_spans(layout),
+            source_span_edge_count: count_known_edge_spans(layout),
+            source_span_cluster_count: count_known_cluster_spans(layout),
             diagram_type: parsed.ir.diagram_type.as_str().to_string(),
             node_count: parsed.ir.nodes.len(),
             edge_count: parsed.ir.edges.len(),
@@ -947,6 +956,9 @@ fn cmd_validate(
         layout_guard_estimated_route_ops: traced_layout.trace.guard.estimated_route_ops,
         layout_band_count: traced_layout.layout.extensions.bands.len(),
         layout_tick_count: traced_layout.layout.extensions.axis_ticks.len(),
+        source_span_node_count: count_known_node_spans(layout),
+        source_span_edge_count: count_known_edge_spans(layout),
+        source_span_cluster_count: count_known_cluster_spans(layout),
         diagram_type: parsed.ir.diagram_type.as_str().to_string(),
         node_count: parsed.ir.nodes.len(),
         edge_count: parsed.ir.edges.len(),
@@ -1025,6 +1037,30 @@ fn collect_parse_diagnostics(parsed: &fm_parser::ParseResult) -> Vec<ValidationD
     }
 
     diagnostics
+}
+
+fn count_known_node_spans(layout: &fm_layout::DiagramLayout) -> usize {
+    layout
+        .nodes
+        .iter()
+        .filter(|node| !node.span.is_unknown())
+        .count()
+}
+
+fn count_known_edge_spans(layout: &fm_layout::DiagramLayout) -> usize {
+    layout
+        .edges
+        .iter()
+        .filter(|edge| !edge.span.is_unknown())
+        .count()
+}
+
+fn count_known_cluster_spans(layout: &fm_layout::DiagramLayout) -> usize {
+    layout
+        .clusters
+        .iter()
+        .filter(|cluster| !cluster.span.is_unknown())
+        .count()
 }
 
 fn collect_structural_diagnostics(parsed: &fm_parser::ParseResult) -> Vec<ValidationDiagnostic> {

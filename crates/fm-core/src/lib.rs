@@ -46,6 +46,29 @@ impl Span {
         };
         Self::new(start, end)
     }
+
+    #[must_use]
+    pub const fn is_unknown(self) -> bool {
+        self.start.line == 0
+            && self.start.col == 0
+            && self.start.byte == 0
+            && self.end.line == 0
+            && self.end.col == 0
+            && self.end.byte == 0
+    }
+
+    #[must_use]
+    pub fn compact_display(self) -> String {
+        format!(
+            "{}:{}-{}:{}@{}-{}",
+            self.start.line,
+            self.start.col,
+            self.end.line,
+            self.end.col,
+            self.start.byte,
+            self.end.byte
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

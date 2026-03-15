@@ -2,8 +2,8 @@
 
 use std::sync::{LazyLock, RwLock};
 
-use fm_core::{MermaidGuardReport, capability_matrix};
-use fm_layout::{build_layout_guard_report, layout_diagram_traced};
+use fm_core::{MermaidDiagramIr, MermaidGuardReport, Span, capability_matrix};
+use fm_layout::{DiagramLayout, build_layout_guard_report, layout_diagram_traced};
 #[cfg(target_arch = "wasm32")]
 use fm_parser::ParseResult;
 use fm_parser::{detect_type_with_confidence, parse};
@@ -23,11 +23,22 @@ use wasm_bindgen::JsValue;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WasmRenderOutput {
     pub svg: String,
     pub detected_type: String,
     pub guard: MermaidGuardReport,
+    pub source_spans: Vec<SourceSpanRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSpanRecord {
+    kind: &'static str,
+    index: usize,
+    id: Option<String>,
+    span: Span,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -86,6 +97,7 @@ struct DiagramRenderOutput {
     confidence: f32,
     warnings: Vec<String>,
     guard: MermaidGuardReport,
+    source_spans: Vec<SourceSpanRecord>,
     canvas: CanvasRenderSummary,
 }
 
@@ -94,6 +106,7 @@ impl DiagramRenderOutput {
     fn new(
         svg: String,
         parsed: &ParseResult,
+        layout: &DiagramLayout,
         guard: MermaidGuardReport,
         canvas: &CanvasRenderResult,
     ) -> Self {
@@ -103,6 +116,7 @@ impl DiagramRenderOutput {
             confidence: parsed.confidence,
             warnings: parsed.warnings.clone(),
             guard,
+            source_spans: collect_source_spans(&parsed.ir, layout),
             canvas: CanvasRenderSummary::from(canvas),
         }
     }
@@ -155,6 +169,45 @@ struct ViewportSummary {
 
 static RUNTIME_CONFIG: LazyLock<RwLock<RuntimeConfig>> =
     LazyLock::new(|| RwLock::new(RuntimeConfig::default()));
+
+fn collect_source_spans(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> Vec<SourceSpanRecord> {
+    let mut spans = Vec::new();
+
+    spans.extend(layout.nodes.iter().filter_map(|node| {
+        (!node.span.is_unknown()).then(|| SourceSpanRecord {
+            kind: "node",
+            index: node.node_index,
+            id: Some(node.node_id.clone()),
+            span: node.span,
+        })
+    }));
+
+    spans.extend(layout.edges.iter().filter_map(|edge| {
+        (!edge.span.is_unknown()).then(|| SourceSpanRecord {
+            kind: "edge",
+            index: edge.edge_index,
+            id: None,
+            span: edge.span,
+        })
+    }));
+
+    spans.extend(layout.clusters.iter().filter_map(|cluster| {
+        (!cluster.span.is_unknown()).then(|| {
+            let id = ir
+                .clusters
+                .get(cluster.cluster_index)
+                .map(|cluster_ir| cluster_ir.id.0.to_string());
+            SourceSpanRecord {
+                kind: "cluster",
+                index: cluster.cluster_index,
+                id,
+                span: cluster.span,
+            }
+        })
+    }));
+
+    spans
+}
 
 fn read_runtime_config() -> RuntimeConfig {
     match RUNTIME_CONFIG.read() {
@@ -326,11 +379,13 @@ pub fn render(input: &str) -> WasmRenderOutput {
     let runtime = read_runtime_config();
     let traced_layout = layout_diagram_traced(&parsed.ir);
     let guard = build_layout_guard_report(&parsed.ir, &traced_layout);
+    let source_spans = collect_source_spans(&parsed.ir, &traced_layout.layout);
 
     WasmRenderOutput {
         svg: render_svg_with_layout(&parsed.ir, &traced_layout.layout, &runtime.svg),
         detected_type: parsed.ir.diagram_type.as_str().to_string(),
         guard,
+        source_spans,
     }
 }
 
@@ -372,6 +427,13 @@ pub fn detect_type_js(input: &str) -> Result<JsValue, JsValue> {
 pub fn parse_js(input: &str) -> Result<JsValue, JsValue> {
     let parsed = parse(input);
     to_js_value(&parsed)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = sourceSpans))]
+pub fn source_spans_js(input: &str) -> Result<JsValue, JsValue> {
+    let parsed = parse(input);
+    let traced_layout = layout_diagram_traced(&parsed.ir);
+    to_js_value(&collect_source_spans(&parsed.ir, &traced_layout.layout))
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = capabilityMatrix))]
@@ -646,7 +708,8 @@ impl Diagram {
         self.svg_config = next_svg;
         self.canvas_config = next_canvas;
 
-        let output = DiagramRenderOutput::new(svg, &parsed, guard, &canvas_result);
+        let output =
+            DiagramRenderOutput::new(svg, &parsed, &traced_layout.layout, guard, &canvas_result);
         to_js_value(&output)
     }
 
@@ -722,6 +785,8 @@ mod tests {
             Some("sugiyama")
         );
         assert_eq!(output.guard.guard_reason.as_deref(), Some("within_budget"));
+        assert!(output.source_spans.iter().any(|span| span.kind == "node"));
+        assert!(output.source_spans.iter().any(|span| span.kind == "edge"));
     }
 
     #[test]
