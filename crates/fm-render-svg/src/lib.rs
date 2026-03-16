@@ -139,8 +139,8 @@ impl Default for SvgRenderConfig {
             shadows: true,
             shadow_offset_x: 2.0,
             shadow_offset_y: 2.0,
-            shadow_blur: 4.0,
-            shadow_opacity: 0.20,
+            shadow_blur: 6.0,
+            shadow_opacity: 0.15,
             shadow_color: String::from("#000000"),
             node_gradients: true,
             node_gradient_style: NodeGradientStyle::LinearVertical,
@@ -150,7 +150,7 @@ impl Default for SvgRenderConfig {
             glow_color: String::from("#3b82f6"),
             cluster_fill_opacity: 0.08,
             inactive_opacity: 0.40,
-            rounded_corners: 12.0,
+            rounded_corners: 10.0,
             root_classes: Vec::new(),
             theme: ThemePreset::Default,
             embed_theme_css: true,
@@ -869,12 +869,21 @@ fn render_layout_to_svg(
     let mut defs = DefsBuilder::new();
 
     // Add standard arrowhead markers
-    defs = defs.marker(ArrowheadMarker::standard("arrow-end", "#333"));
-    defs = defs.marker(ArrowheadMarker::filled("arrow-filled", "#333"));
-    defs = defs.marker(ArrowheadMarker::open("arrow-open", "#333"));
-    defs = defs.marker(ArrowheadMarker::circle_marker("arrow-circle", "#333"));
-    defs = defs.marker(ArrowheadMarker::cross_marker("arrow-cross", "#333"));
-    defs = defs.marker(ArrowheadMarker::diamond_marker("arrow-diamond", "#333"));
+    defs = defs.marker(ArrowheadMarker::standard("arrow-end", &theme.colors.edge));
+    defs = defs.marker(ArrowheadMarker::filled("arrow-filled", &theme.colors.edge));
+    defs = defs.marker(ArrowheadMarker::open("arrow-open", &theme.colors.edge));
+    defs = defs.marker(ArrowheadMarker::circle_marker(
+        "arrow-circle",
+        &theme.colors.edge,
+    ));
+    defs = defs.marker(ArrowheadMarker::cross_marker(
+        "arrow-cross",
+        &theme.colors.edge,
+    ));
+    defs = defs.marker(ArrowheadMarker::diamond_marker(
+        "arrow-diamond",
+        &theme.colors.edge,
+    ));
 
     // Add drop shadow filter if enabled
     if detail.enable_shadows {
@@ -1068,13 +1077,29 @@ fn render_layout_to_svg(
 
     // Render edges
     for edge_path in &layout.edges {
-        let edge_elem = render_edge(edge_path, ir, offset_x, offset_y, config, detail);
+        let edge_elem = render_edge(
+            edge_path,
+            ir,
+            offset_x,
+            offset_y,
+            config,
+            detail,
+            &theme.colors,
+        );
         doc = doc.child(edge_elem);
     }
 
     // Render nodes
     for node_box in &layout.nodes {
-        let node_elem = render_node(node_box, ir, offset_x, offset_y, config, detail);
+        let node_elem = render_node(
+            node_box,
+            ir,
+            offset_x,
+            offset_y,
+            config,
+            detail,
+            &theme.colors,
+        );
         doc = doc.child(node_elem);
     }
 
@@ -1089,6 +1114,7 @@ fn render_node(
     offset_y: f32,
     config: &SvgRenderConfig,
     detail: RenderDetailProfile,
+    colors: &ThemeColors,
 ) -> Element {
     use fm_core::NodeShape;
 
@@ -1193,8 +1219,8 @@ fn render_node(
             .y(y)
             .width(w)
             .height(h)
-            .fill("#fff")
-            .stroke("#333")
+            .fill(&colors.node_fill)
+            .stroke(&colors.node_stroke)
             .stroke_width(1.5)
             .rx(config.rounded_corners * 0.55),
 
@@ -1203,8 +1229,8 @@ fn render_node(
             .y(y)
             .width(w)
             .height(h)
-            .fill("#fff")
-            .stroke("#333")
+            .fill(&colors.node_fill)
+            .stroke(&colors.node_stroke)
             .stroke_width(1.5)
             .rx(config.rounded_corners),
 
@@ -1213,8 +1239,8 @@ fn render_node(
             .y(y)
             .width(w)
             .height(h)
-            .fill("#fff")
-            .stroke("#333")
+            .fill(&colors.node_fill)
+            .stroke(&colors.node_stroke)
             .stroke_width(1.5)
             .rx(h / 2.0),
 
@@ -1228,8 +1254,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1246,8 +1272,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1257,8 +1283,8 @@ fn render_node(
                 .cx(cx)
                 .cy(cy)
                 .r(r)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5);
 
             if shape == NodeShape::DoubleCircle {
@@ -1281,8 +1307,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1297,8 +1323,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1314,9 +1340,9 @@ fn render_node(
                     .fill(if config.node_gradients {
                         "url(#fm-node-gradient)"
                     } else {
-                        "#fff"
+                        colors.node_fill.as_str()
                     })
-                    .stroke("#333")
+                    .stroke(&colors.node_stroke)
                     .stroke_width(1.5)
                     .rx(config.rounded_corners * 0.45),
             );
@@ -1327,7 +1353,7 @@ fn render_node(
                     .y1(y)
                     .x2(x + inset)
                     .y2(y + h)
-                    .stroke("#333")
+                    .stroke(&colors.node_stroke)
                     .stroke_width(1.0),
             );
             // Right vertical line
@@ -1337,7 +1363,7 @@ fn render_node(
                     .y1(y)
                     .x2(x + w - inset)
                     .y2(y + h)
-                    .stroke("#333")
+                    .stroke(&colors.node_stroke)
                     .stroke_width(1.0),
             );
             if detail.show_node_labels {
@@ -1348,7 +1374,7 @@ fn render_node(
                         .font_family(&config.font_family)
                         .font_size(node_font_size)
                         .anchor(TextAnchor::Middle)
-                        .fill("#333")
+                        .fill(&colors.text)
                         .build(),
                 );
             }
@@ -1367,8 +1393,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1387,8 +1413,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fffacd")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.0)
         }
 
@@ -1404,8 +1430,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1420,8 +1446,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1436,8 +1462,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1450,8 +1476,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1472,8 +1498,8 @@ fn render_node(
             }
             Element::path()
                 .d(&path.close().build())
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1496,8 +1522,8 @@ fn render_node(
             }
             Element::path()
                 .d(&path.close().build())
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1517,8 +1543,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1535,8 +1561,8 @@ fn render_node(
                 .build();
             Element::path()
                 .d(&path)
-                .fill("#fff")
-                .stroke("#333")
+                .fill(&colors.node_fill)
+                .stroke(&colors.node_stroke)
                 .stroke_width(1.5)
         }
 
@@ -1552,9 +1578,9 @@ fn render_node(
                     .fill(if config.node_gradients {
                         "url(#fm-node-gradient)"
                     } else {
-                        "#fff"
+                        colors.node_fill.as_str()
                     })
-                    .stroke("#333")
+                    .stroke(&colors.node_stroke)
                     .stroke_width(1.5),
             );
             // Diagonal lines
@@ -1565,7 +1591,7 @@ fn render_node(
                     .y1(cy - offset)
                     .x2(cx + offset)
                     .y2(cy + offset)
-                    .stroke("#333")
+                    .stroke(&colors.node_stroke)
                     .stroke_width(1.5),
             );
             g = g.child(
@@ -1574,7 +1600,7 @@ fn render_node(
                     .y1(cy - offset)
                     .x2(cx - offset)
                     .y2(cy + offset)
-                    .stroke("#333")
+                    .stroke(&colors.node_stroke)
                     .stroke_width(1.5),
             );
             if detail.show_node_labels {
@@ -1585,7 +1611,7 @@ fn render_node(
                         .font_family(&config.font_family)
                         .font_size(node_font_size)
                         .anchor(TextAnchor::Middle)
-                        .fill("#333")
+                        .fill(&colors.text)
                         .build(),
                 );
             }
@@ -1628,7 +1654,7 @@ fn render_node(
             .font_size(node_font_size)
             .line_height(config.line_height)
             .anchor(TextAnchor::Middle)
-            .fill("#333")
+            .fill(&colors.text)
             .build();
         group = group.child(text_elem);
     }
@@ -1696,6 +1722,59 @@ const fn node_shape_css_class(shape: fm_core::NodeShape) -> &'static str {
     }
 }
 
+/// Build a smooth SVG path `d` attribute from a series of points using
+/// Catmull-Rom to cubic bezier conversion.  For 2 or fewer points a simple
+/// polyline is produced; for 3+ points each interior segment is drawn as a
+/// cubic bezier curve giving a natural, rounded appearance.
+///
+/// A `tension` factor of 0.25 (1/4) is used so curves stay close to the
+/// original waypoints while still looking smooth.
+fn smooth_edge_path(points: &[(f32, f32)], _is_self_loop: bool) -> String {
+    let n = points.len();
+    if n == 0 {
+        return String::new();
+    }
+
+    let mut pb = PathBuilder::new();
+    pb = pb.move_to(points[0].0, points[0].1);
+
+    if n == 1 {
+        return pb.build();
+    }
+
+    if n == 2 {
+        pb = pb.line_to(points[1].0, points[1].1);
+        return pb.build();
+    }
+
+    // Catmull-Rom to cubic bezier conversion with tension = 1/4.
+    // For segment from p[i] to p[i+1]:
+    //   cp1 = p[i]   + (p[i+1] - p[i-1]) * tension
+    //   cp2 = p[i+1] - (p[i+2] - p[i])   * tension
+    // At boundaries we clamp the virtual neighbor to the endpoint itself.
+    let t: f32 = 0.25;
+
+    for i in 0..(n - 1) {
+        let p_prev = if i == 0 { points[0] } else { points[i - 1] };
+        let p_cur = points[i];
+        let p_next = points[i + 1];
+        let p_next2 = if i + 2 < n {
+            points[i + 2]
+        } else {
+            points[n - 1]
+        };
+
+        let cp1x = p_cur.0 + (p_next.0 - p_prev.0) * t;
+        let cp1y = p_cur.1 + (p_next.1 - p_prev.1) * t;
+        let cp2x = p_next.0 - (p_next2.0 - p_cur.0) * t;
+        let cp2y = p_next.1 - (p_next2.1 - p_cur.1) * t;
+
+        pb = pb.curve_to(cp1x, cp1y, cp2x, cp2y, p_next.0, p_next.1);
+    }
+
+    pb.build()
+}
+
 /// Render a single edge to an SVG element.
 fn render_edge(
     edge_path: &LayoutEdgePath,
@@ -1704,6 +1783,7 @@ fn render_edge(
     offset_y: f32,
     config: &SvgRenderConfig,
     detail: RenderDetailProfile,
+    colors: &ThemeColors,
 ) -> Element {
     use fm_core::ArrowType;
 
@@ -1712,35 +1792,33 @@ fn render_edge(
     let arrow = ir_edge.map_or(ArrowType::Arrow, |e| e.arrow);
     let is_back_edge = edge_path.reversed;
 
-    // Build path from points
-    let mut path_builder = PathBuilder::new();
-    let mut first = true;
-    for point in &edge_path.points {
-        let px = point.x + offset_x;
-        let py = point.y + offset_y;
-        if first {
-            path_builder = path_builder.move_to(px, py);
-            first = false;
-        } else {
-            path_builder = path_builder.line_to(px, py);
-        }
-    }
+    // Build path from points using smooth curves
+    let pts: Vec<(f32, f32)> = edge_path
+        .points
+        .iter()
+        .map(|p| (p.x + offset_x, p.y + offset_y))
+        .collect();
 
-    let path_str = path_builder.build();
+    let path_str = smooth_edge_path(&pts, edge_path.is_self_loop);
 
     // Back-edges get special treatment: dashed + muted color
-    let (base_dasharray, base_marker, base_color) = if is_back_edge {
-        (Some("4,4"), Some("url(#arrow-open)"), "#999")
-    } else {
-        match arrow {
-            ArrowType::Line => (None, None, "#333"),
-            ArrowType::Arrow => (None, Some("url(#arrow-end)"), "#333"),
-            ArrowType::ThickArrow => (None, Some("url(#arrow-filled)"), "#333"),
-            ArrowType::DottedArrow => (Some("5,5"), Some("url(#arrow-end)"), "#666"),
-            ArrowType::Circle => (None, Some("url(#arrow-circle)"), "#333"),
-            ArrowType::Cross => (None, Some("url(#arrow-cross)"), "#333"),
-        }
-    };
+    let (base_dasharray, base_marker, base_color): (Option<&str>, Option<&str>, &str) =
+        if is_back_edge {
+            (
+                Some("4,4"),
+                Some("url(#arrow-open)"),
+                &colors.cluster_stroke,
+            )
+        } else {
+            match arrow {
+                ArrowType::Line => (None, None, &colors.edge),
+                ArrowType::Arrow => (None, Some("url(#arrow-end)"), &colors.edge),
+                ArrowType::ThickArrow => (None, Some("url(#arrow-filled)"), &colors.edge),
+                ArrowType::DottedArrow => (Some("5,5"), Some("url(#arrow-end)"), &colors.edge),
+                ArrowType::Circle => (None, Some("url(#arrow-circle)"), &colors.edge),
+                ArrowType::Cross => (None, Some("url(#arrow-cross)"), &colors.edge),
+            }
+        };
 
     let stroke_width = match arrow {
         ArrowType::ThickArrow => 2.5,
@@ -1843,8 +1921,8 @@ fn render_edge(
                 .y(ly - label_height / 2.0 - 1.0)
                 .width(label_width)
                 .height(label_height)
-                .fill("#fff")
-                .stroke("#cbd5e1")
+                .fill(&colors.background)
+                .stroke(&colors.cluster_stroke)
                 .stroke_width(1.0)
                 .rx(6.0),
         );
@@ -1858,7 +1936,7 @@ fn render_edge(
                 .font_size(label_font_size)
                 .line_height(config.line_height)
                 .anchor(TextAnchor::Middle)
-                .fill("#666")
+                .fill(&colors.text)
                 .class("edge-label")
                 .build(),
         );

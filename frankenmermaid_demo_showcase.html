@@ -133,7 +133,7 @@
     }
 
     .gallery-stage {
-      min-height: 12rem;
+      min-height: 14rem;
     }
 
     .gallery-stage svg {
@@ -142,9 +142,27 @@
       max-height: none;
     }
 
+    .gallery-stage svg,
+    .spotlight-stage svg,
+    .stage svg {
+        display: block;
+        margin: 0 auto;
+    }
+
+    .spotlight-stage,
+    .stage,
+    .gallery-stage {
+        box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .spotlight-stage,
+    .gallery-stage {
+        position: relative;
+    }
+
     .diagram-wall {
       display: grid;
-      gap: 1.5rem;
+      gap: 1.25rem;
     }
 
     .spotlight-stage {
@@ -743,7 +761,7 @@
                 </button>
               </div>
 
-              <div id="spotlight-stage" class="spotlight-stage scrollbar-thin mt-5 overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900"></div>
+              <div id="spotlight-stage" class="spotlight-stage scrollbar-thin mt-5 overflow-auto rounded-[1.25rem] border border-slate-200/30 bg-[#f8fafc] p-5 text-slate-900"></div>
 
               <div class="mt-5 grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
                 <div class="rounded-[1.25rem] border border-white/10 bg-[#08101d] p-4">
@@ -893,7 +911,7 @@
                       pending
                     </div>
                   </div>
-                  <div id="fm-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900"></div>
+                  <div id="fm-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-[1.25rem] border border-slate-200/30 bg-[#f8fafc] p-5 text-slate-900"></div>
                 </div>
 
                 <div class="mermaid-card rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
@@ -906,7 +924,7 @@
                       ready
                     </div>
                   </div>
-                  <div id="mermaid-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900"></div>
+                  <div id="mermaid-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-[1.25rem] border border-slate-200/30 bg-[#f8fafc] p-5 text-slate-900"></div>
                 </div>
               </div>
 
@@ -1437,7 +1455,7 @@
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "loose",
-      theme: "default",
+      theme: "neutral",
       flowchart: {
         useMaxWidth: true
       }
@@ -1688,7 +1706,7 @@
                 </button>
               </div>
             </div>
-            <div class="gallery-stage scrollbar-thin overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900" data-gallery-render="${sample.id}">
+            <div class="gallery-stage scrollbar-thin overflow-auto rounded-[1.25rem] border border-slate-200/30 bg-[#f8fafc] p-5 text-slate-900" data-gallery-render="${sample.id}">
               <div class="space-y-3 p-2"><div class="shimmer-light h-6 w-3/4"></div><div class="shimmer-light h-40"></div><div class="shimmer-light h-4 w-1/2"></div></div>
             </div>
             <details class="rounded-[1.25rem] border border-white/10 bg-[#08101d]">

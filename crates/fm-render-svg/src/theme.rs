@@ -436,13 +436,13 @@ impl Theme {
         css.push_str(&self.font.to_css());
 
         let shadow_filter = if shadows {
-            "filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.04)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.02));"
+            "filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.10)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.06));"
         } else {
             ""
         };
 
         let hover_shadow_filter = if shadows {
-            "filter: drop-shadow(0 10px 15px rgba(0, 0, 0, 0.06)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.04));"
+            "filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.14)) drop-shadow(0 3px 8px rgba(0, 0, 0, 0.08));"
         } else {
             ""
         };
@@ -463,11 +463,12 @@ impl Theme {
   --fm-surface-shadow: rgba(15, 23, 42, 0.1);
 }}
 svg {{
+  shape-rendering: geometricPrecision;
   background: var(--fm-bg);
   background-image: linear-gradient(
     180deg,
     var(--fm-bg) 0%,
-    color-mix(in srgb, var(--fm-bg) 92%, var(--fm-node-stroke) 8%) 100%
+    color-mix(in srgb, var(--fm-bg) 95%, var(--fm-node-stroke) 5%) 100%
   );
 }}
 .fm-node {{
@@ -482,7 +483,7 @@ svg {{
 .fm-node polygon {{
   fill: var(--fm-node-fill);
   stroke: var(--fm-node-accent);
-  stroke-width: 1.5;
+  stroke-width: 1.6;
   vector-effect: non-scaling-stroke;
   shape-rendering: geometricPrecision;
   {}
@@ -507,7 +508,7 @@ svg {{
 .fm-node:hover polygon {{
   stroke: var(--fm-node-hover-accent);
   {}
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }}
 .fm-node-accent-1 {{
   --fm-node-accent: var(--fm-node-stroke);
@@ -572,8 +573,9 @@ svg {{
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
+  paint-order: stroke;
   transition: stroke 200ms ease, opacity 200ms ease, stroke-width 200ms ease;
-  cursor: crosshair;
+  cursor: default;
 }}
 .fm-edge:hover {{
   stroke: var(--fm-accent-1);
@@ -647,8 +649,8 @@ marker#arrow-cross path {{
 .fm-cluster {{
   fill: var(--fm-cluster-fill);
   stroke: var(--fm-cluster-stroke);
-  stroke-width: 1.5;
-  stroke-dasharray: 8 4;
+  stroke-width: 1.2;
+  stroke-dasharray: 6 3;
 }}
 .fm-cluster-label {{
   fill: var(--fm-cluster-label-color);
