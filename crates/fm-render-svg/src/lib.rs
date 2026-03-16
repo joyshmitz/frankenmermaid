@@ -133,9 +133,9 @@ impl Default for SvgRenderConfig {
                 "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
             ),
             font_size: 15.0,
-            avg_char_width: 8.0,
+            avg_char_width: 7.5,
             line_height: 1.5,
-            padding: 48.0,
+            padding: 40.0,
             shadows: true,
             shadow_offset_x: 2.0,
             shadow_offset_y: 2.0,
@@ -1823,7 +1823,7 @@ fn render_edge(
 
     let stroke_width = match arrow {
         ArrowType::ThickArrow => 2.5,
-        _ => 1.5,
+        _ => 1.8,
     };
 
     // Determine edge style class

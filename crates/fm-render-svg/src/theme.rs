@@ -208,7 +208,7 @@ impl ThemeColors {
                     "#4f46e5".into(), // Indigo-600
                     "#7c3aed".into(), // Violet-600
                     "#0d9488".into(), // Teal-600
-                    "#2563eb".into(), // Blue-600
+                    "#059669".into(), // Emerald-600
                     "#4338ca".into(), // Indigo-700
                 ],
             },
@@ -486,7 +486,6 @@ svg {{
   shape-rendering: geometricPrecision;
   {}
   transition: fill 200ms ease, stroke 200ms ease, filter 200ms ease, transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  paint-order: normal;
 }}
 .fm-node line {{
   stroke: var(--fm-node-accent);
@@ -602,7 +601,7 @@ svg {{
 .fm-edge-labeled > rect {{
   fill: var(--fm-edge-label-bg);
   stroke: var(--fm-edge-label-border);
-  stroke-width: 1.5;
+  stroke-width: 0.75;
   rx: 6px;
   ry: 6px;
 }}
@@ -658,8 +657,7 @@ marker#arrow-cross path {{
   fill: var(--fm-cluster-label-color);
   font-weight: 700;
   font-size: 0.85em;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }}
 .fm-cluster-c4 {{
   fill: var(--fm-cluster-c4-fill);
@@ -688,7 +686,6 @@ marker#arrow-cross path {{
 .fm-node:focus-visible {{
   outline: 2px solid var(--fm-accent-1);
   outline-offset: 3px;
-  border-radius: 4px;
 }}
 "#, shadow_filter, hover_shadow_filter)
         );
