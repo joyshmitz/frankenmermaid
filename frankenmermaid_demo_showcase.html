@@ -60,7 +60,6 @@
 
     .glass {
       background: linear-gradient(180deg, rgba(18, 32, 56, 0.88), rgba(11, 22, 40, 0.92));
-      backdrop-filter: blur(22px);
       border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
@@ -113,12 +112,37 @@
     .viz-card svg {
       width: 100%;
       height: auto;
-      max-height: 540px;
+      max-height: none;
     }
 
     .mermaid-card svg {
       max-width: 100%;
       height: auto;
+    }
+
+    .stage {
+      min-height: 40rem;
+    }
+
+    .gallery-stage {
+      min-height: 30rem;
+    }
+
+    .gallery-stage svg {
+      width: 100%;
+      height: auto;
+      max-height: none;
+    }
+
+    .diagram-wall {
+      display: grid;
+      gap: 1.5rem;
+    }
+
+    @media (min-width: 1024px) {
+      .diagram-wall {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     .scrollbar-thin::-webkit-scrollbar {
@@ -259,6 +283,24 @@
         </section>
 
         <section class="glass rounded-[2rem] p-6 shadow-panel sm:p-8">
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div class="max-w-3xl">
+              <p class="text-xs font-semibold uppercase tracking-[0.28em] text-mint">Rendered gallery</p>
+              <h2 class="mt-2 text-3xl font-black text-white">Large, readable examples of the actual output</h2>
+              <p class="mt-3 text-sm leading-6 text-slate-300">
+                The main page now leads with a proper render gallery. These cards use the live frankenmermaid WASM runtime so you can judge the diagrams themselves instead of squinting at tiny comparison boxes.
+              </p>
+            </div>
+            <div class="rounded-3xl border border-white/10 bg-white/5 px-5 py-4 text-sm leading-6 text-slate-300">
+              <div class="font-semibold text-white">Gallery controls</div>
+              <div class="mt-1">Each card can be sent straight into the editor below for deeper comparison and API inspection.</div>
+            </div>
+          </div>
+
+          <div id="gallery-grid" class="diagram-wall mt-8"></div>
+        </section>
+
+        <section class="glass rounded-[2rem] p-6 shadow-panel sm:p-8">
           <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div class="max-w-3xl">
               <p class="text-xs font-semibold uppercase tracking-[0.28em] text-cobalt">Live playground</p>
@@ -312,31 +354,31 @@
             </div>
 
             <div class="space-y-6">
-              <div class="grid gap-4 md:grid-cols-2">
+              <div class="space-y-4">
                 <div class="viz-card rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">frankenmermaid renderSvg()</div>
-                      <div class="mt-1 text-sm text-slate-300">Deterministic SVG from the Rust pipeline</div>
+                      <div class="mt-1 text-sm text-slate-300">Deterministic SVG from the Rust pipeline at a readable size</div>
                     </div>
                     <div id="fm-render-chip" class="rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]">
                       pending
                     </div>
                   </div>
-                  <div id="fm-svg" class="scrollbar-thin mt-4 max-h-[32rem] overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900"></div>
+                  <div id="fm-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900"></div>
                 </div>
 
                 <div class="mermaid-card rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Mermaid baseline</div>
-                      <div class="mt-1 text-sm text-slate-300">Reference browser renderer from CDN</div>
+                      <div class="mt-1 text-sm text-slate-300">Reference browser renderer from CDN for the same source</div>
                     </div>
                     <div id="mermaid-chip" class="rounded-full border border-mint/20 bg-mint/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-mint">
                       ready
                     </div>
                   </div>
-                  <div id="mermaid-svg" class="scrollbar-thin mt-4 max-h-[32rem] overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900"></div>
+                  <div id="mermaid-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900"></div>
                 </div>
               </div>
 
@@ -375,28 +417,25 @@
           </div>
 
           <div class="glass rounded-[2rem] p-6 shadow-panel sm:p-8">
-            <p class="text-xs font-semibold uppercase tracking-[0.28em] text-flare">What still blocks the perfect demo</p>
-            <h2 class="mt-2 text-2xl font-bold text-white">The current deployment gap is packaging, not browser UX.</h2>
+            <p class="text-xs font-semibold uppercase tracking-[0.28em] text-flare">Render notes</p>
+            <h2 class="mt-2 text-2xl font-bold text-white">How to read the current state of the project</h2>
             <div class="mt-6 space-y-4">
               <div class="rounded-3xl border border-white/10 bg-white/5 p-5">
-                <div class="text-sm font-semibold text-white">1. The WASM browser API exists in source</div>
+                <div class="text-sm font-semibold text-white">1. Flowcharts are the current strongest visual proof</div>
                 <p class="mt-2 text-sm leading-6 text-slate-300">
-                  The repo exposes a browser contract in <code>crates/fm-wasm/src/lib.rs</code>, including SVG, parse, detection, source span, capability,
-                  and canvas methods.
+                  They are the only family marked fully implemented in the capability matrix, so they are the clearest way to judge the renderer today.
                 </p>
               </div>
               <div class="rounded-3xl border border-white/10 bg-white/5 p-5">
-                <div class="text-sm font-semibold text-white">2. The generated browser package is not published</div>
+                <div class="text-sm font-semibold text-white">2. Partial families are still worth showing</div>
                 <p class="mt-2 text-sm leading-6 text-slate-300">
-                  There is no <code>pkg/frankenmermaid.js</code> or <code>pkg/frankenmermaid_bg.wasm</code> on the repo’s default branch, no tags, and no
-                  GitHub release assets. This page reports that directly.
+                  Sequence, class, state, ER, gantt, and journey are intentionally visible here because the point of the showcase is to reveal current quality, not hide it.
                 </p>
               </div>
               <div class="rounded-3xl border border-white/10 bg-white/5 p-5">
-                <div class="text-sm font-semibold text-white">3. Once published, this page will auto-upgrade</div>
+                <div class="text-sm font-semibold text-white">3. The lower editor is for inspection, not first impressions</div>
                 <p class="mt-2 text-sm leading-6 text-slate-300">
-                  The bootstrap logic already tries GitHub-backed artifact URLs. As soon as the built package is committed or released, the same file becomes
-                  a live browser demo without needing a local server.
+                  The gallery above is now the primary product surface. The editor below exists so you can inspect parse output, spans, canvas behavior, and Mermaid comparisons after you have already seen the renders at full size.
                 </p>
               </div>
             </div>
@@ -580,6 +619,7 @@
       runtimeSource: document.getElementById("runtime-source"),
       runtimeMode: document.getElementById("runtime-mode"),
       runtimeEndpoints: document.getElementById("runtime-endpoints"),
+      galleryGrid: document.getElementById("gallery-grid"),
       fmSvg: document.getElementById("fm-svg"),
       mermaidSvg: document.getElementById("mermaid-svg"),
       detectOutput: document.getElementById("detect-output"),
@@ -672,6 +712,81 @@
           </div>
         `;
         els.supportGrid.appendChild(card);
+      }
+    }
+
+    async function renderGallery() {
+      els.galleryGrid.innerHTML = "";
+
+      for (const sample of samples) {
+        const card = document.createElement("article");
+        card.className = "rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5";
+        card.innerHTML = `
+          <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <h3 class="text-xl font-bold text-white">${sample.label}</h3>
+                  <span class="pill ${badgeClass(sample.description.toLowerCase().includes("implemented") ? "implemented" : "partial")} rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]">${sample.description}</span>
+                </div>
+                <p class="mt-2 text-sm leading-6 text-slate-300">${sample.code.split("\n")[0]}</p>
+              </div>
+              <button
+                type="button"
+                data-gallery-sample="${sample.id}"
+                class="rounded-full border border-cobalt/30 bg-cobalt/15 px-4 py-2 text-sm font-semibold text-cobalt transition hover:bg-cobalt/25"
+              >
+                Open In Editor
+              </button>
+            </div>
+            <div class="gallery-stage scrollbar-thin overflow-auto rounded-[1.25rem] border border-white/10 bg-white p-4 text-slate-900" data-gallery-render="${sample.id}">
+              <div class="text-sm text-slate-500">Rendering ${sample.label}...</div>
+            </div>
+            <pre class="scrollbar-thin max-h-56 overflow-auto rounded-[1.25rem] border border-white/10 bg-[#08101d] p-4 text-xs leading-6 text-slate-300">${sample.code.replace(/</g, "&lt;")}</pre>
+          </div>
+        `;
+        els.galleryGrid.appendChild(card);
+      }
+
+      for (const button of els.galleryGrid.querySelectorAll("[data-gallery-sample]")) {
+        button.addEventListener("click", () => {
+          const sample = samples.find((entry) => entry.id === button.dataset.gallerySample);
+          if (!sample) {
+            return;
+          }
+          currentSample = sample;
+          els.input.value = sample.code;
+          updateActiveSample();
+          renderAll();
+          window.scrollTo({ top: els.input.getBoundingClientRect().top + window.scrollY - 96, behavior: "smooth" });
+        });
+      }
+
+      for (const sample of samples) {
+        const target = els.galleryGrid.querySelector(`[data-gallery-render="${sample.id}"]`);
+        if (!target) {
+          continue;
+        }
+
+        if (!frankenRuntime) {
+          target.innerHTML = `
+            <div class="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
+              frankenmermaid runtime unavailable for this gallery card.
+            </div>
+          `;
+          continue;
+        }
+
+        try {
+          const svg = await frankenRuntime.renderSvg(sample.code, { theme: "corporate" });
+          target.innerHTML = svg;
+        } catch (error) {
+          target.innerHTML = `
+            <div class="rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm leading-6 text-rose-200">
+              ${String(error)}
+            </div>
+          `;
+        }
       }
     }
 
@@ -950,6 +1065,7 @@
       renderCapabilityPanel(capabilityArtifact);
       els.input.value = currentSample.code;
       await loadFrankenRuntime();
+      await renderGallery();
       await renderAll();
 
       animate("header .glass", { opacity: [0, 1], y: [24, 0] }, { duration: 0.7, easing: [0.22, 1, 0.36, 1] });
@@ -962,6 +1078,7 @@
 
     els.retryRuntime.addEventListener("click", async () => {
       await loadFrankenRuntime();
+      await renderGallery();
       await renderAll();
     });
 
