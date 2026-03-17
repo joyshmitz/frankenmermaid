@@ -178,6 +178,8 @@ fn exact_keyword_match(lower: &str, original: &str) -> Option<DetectedType> {
             (DiagramType::C4Dynamic, 1.0)
         } else if original.starts_with("C4Deployment") {
             (DiagramType::C4Deployment, 1.0)
+        } else if lower.starts_with("kanban") {
+            (DiagramType::Kanban, 1.0)
         } else {
             return None;
         };
@@ -208,6 +210,7 @@ const DIAGRAM_KEYWORDS: &[(&str, DiagramType)] = &[
     ("quadrantchart", DiagramType::QuadrantChart),
     ("sankey", DiagramType::Sankey),
     ("xychart", DiagramType::XyChart),
+    ("kanban", DiagramType::Kanban),
 ];
 
 fn is_block_beta_header(line: &str) -> bool {

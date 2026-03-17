@@ -148,6 +148,8 @@ pub fn detect_type(input: &str) -> DiagramType {
         DiagramType::C4Dynamic
     } else if first_line.starts_with("C4Deployment") {
         DiagramType::C4Deployment
+    } else if lower.starts_with("kanban") {
+        DiagramType::Kanban
     } else {
         DiagramType::Unknown
     }
@@ -208,6 +210,7 @@ pub fn parse_mermaid_with_detection(
         DiagramType::QuadrantChart => parse_quadrant(content, &mut builder),
         DiagramType::GitGraph => parse_gitgraph(content, &mut builder),
         DiagramType::BlockBeta => parse_block_beta(content, &mut builder),
+        DiagramType::Kanban => parse_kanban(content, &mut builder),
         DiagramType::Unknown => {
             apply_unknown_contract(content, &mut builder, parse_mode);
         }
@@ -2012,6 +2015,135 @@ fn parse_journey_step(line: &str) -> Option<JourneyStep> {
         score,
         actors,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Kanban board parser
+// ---------------------------------------------------------------------------
+
+fn parse_kanban(input: &str, builder: &mut IrBuilder) {
+    let mut current_column: Option<usize> = None;
+    let mut current_column_subgraph: Option<usize> = None;
+    let mut card_count = 0_usize;
+
+    for (index, line) in input.lines().enumerate() {
+        let line_number = index + 1;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || is_comment(trimmed) {
+            continue;
+        }
+
+        if trimmed == "kanban" || trimmed.starts_with("kanban ") {
+            continue;
+        }
+
+        let span = span_for(line_number, line);
+
+        // Determine indentation level: 0 = column header, 1+ = card.
+        // Columns have zero or one level of indentation (leading spaces/tabs).
+        let leading_spaces = line.len() - line.trim_start().len();
+        let indent_level = if line.starts_with('\t') {
+            line.chars().take_while(|c| *c == '\t').count()
+        } else {
+            leading_spaces / 2
+        };
+
+        // Parse optional bracket syntax: id[Label] or just plain text.
+        let (item_id, item_label) = parse_kanban_item(trimmed);
+
+        // Columns are at indent level 0 or 1; cards are at indent level 2+.
+        let is_column_header = indent_level <= 1;
+        if is_column_header {
+            // This is a column header.
+            let column_key = format!("kanban-col-{}", normalize_compound_identifier(&item_id));
+            if column_key == "kanban-col-" {
+                builder.add_warning(format!(
+                    "Line {line_number}: kanban column name is empty: {trimmed}"
+                ));
+                continue;
+            }
+
+            let Some(cluster_index) = builder.ensure_cluster(&column_key, Some(&item_label), span)
+            else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid kanban column identifier: {trimmed}"
+                ));
+                current_column = None;
+                current_column_subgraph = None;
+                continue;
+            };
+            let Some(subgraph_index) = builder.ensure_subgraph(
+                &column_key,
+                Some(&item_label),
+                span,
+                None,
+                Some(cluster_index),
+            ) else {
+                builder.add_warning(format!(
+                    "Line {line_number}: invalid kanban column declaration: {trimmed}"
+                ));
+                current_column = None;
+                current_column_subgraph = None;
+                continue;
+            };
+            current_column = Some(cluster_index);
+            current_column_subgraph = Some(subgraph_index);
+        } else {
+            // This is a card within the current column.
+            let card_key = if item_id == item_label {
+                // No explicit ID; generate one from the label.
+                format!("kanban-card-{}", normalize_compound_identifier(&item_label))
+            } else {
+                item_id.clone()
+            };
+
+            if card_key.is_empty() {
+                builder.add_warning(format!(
+                    "Line {line_number}: kanban card identifier could not be derived: {trimmed}"
+                ));
+                continue;
+            }
+
+            let node_id =
+                builder.intern_node(&card_key, Some(&item_label), NodeShape::Rounded, span);
+            if let Some(nid) = node_id {
+                builder.add_class_to_node(&card_key, "kanban-card", span);
+                if let Some(cluster_idx) = current_column {
+                    builder.add_node_to_cluster(cluster_idx, nid);
+                }
+                if let Some(subgraph_idx) = current_column_subgraph {
+                    builder.add_node_to_subgraph(subgraph_idx, nid);
+                }
+                card_count += 1;
+            }
+        }
+    }
+
+    if card_count == 0 && current_column.is_none() {
+        builder.add_warning("No kanban columns or cards found");
+    }
+}
+
+/// Parse a kanban item that may have bracket syntax: `id[Label]` or plain text.
+fn parse_kanban_item(text: &str) -> (String, String) {
+    // Try to parse id[Label] syntax.
+    if let Some(bracket_start) = text.find('[')
+        && let Some(bracket_end) = text.rfind(']')
+        && bracket_end > bracket_start
+    {
+        let id = text[..bracket_start].trim().to_string();
+        let label = text[bracket_start + 1..bracket_end].trim().to_string();
+        if !id.is_empty() && !label.is_empty() {
+            return (id, label);
+        }
+        if !label.is_empty() {
+            return (normalize_compound_identifier(&label), label);
+        }
+    }
+    // Plain text: use normalized form as ID.
+    let label = text.to_string();
+    let id = normalize_compound_identifier(text);
+    (id, label)
 }
 
 fn parse_timeline(input: &str, builder: &mut IrBuilder) {
@@ -6732,5 +6864,72 @@ Rel_Back(db, app, "Responds")"#,
         };
         assert_eq!(parsed.ir.nodes[from_index].id, "app");
         assert_eq!(parsed.ir.nodes[to_index].id, "db");
+    }
+
+    // ── Kanban parser tests ────────────────────────────────────────────
+
+    #[test]
+    fn kanban_detection() {
+        assert_eq!(
+            detect_type("kanban\n  Todo\n    task1"),
+            DiagramType::Kanban
+        );
+    }
+
+    #[test]
+    fn kanban_basic_columns_and_cards() {
+        let input =
+            "kanban\n  Todo\n    task1[Design]\n    task2[Implement]\n  Done\n    task3[Deploy]";
+        let parsed = parse_mermaid(input);
+        assert_eq!(parsed.ir.diagram_type, DiagramType::Kanban);
+        // 3 cards as nodes.
+        assert_eq!(parsed.ir.nodes.len(), 3, "Should have 3 card nodes");
+        // 2 columns as clusters.
+        assert!(
+            parsed.ir.clusters.len() >= 2,
+            "Should have at least 2 clusters"
+        );
+        // Cards should have kanban-card class.
+        assert!(
+            parsed.ir.nodes[0]
+                .classes
+                .contains(&"kanban-card".to_string()),
+            "Cards should have kanban-card class"
+        );
+    }
+
+    #[test]
+    fn kanban_plain_text_cards() {
+        let input = "kanban\n  Backlog\n    Design mockups\n    Write tests";
+        let parsed = parse_mermaid(input);
+        assert_eq!(parsed.ir.diagram_type, DiagramType::Kanban);
+        assert_eq!(parsed.ir.nodes.len(), 2, "Should have 2 card nodes");
+    }
+
+    #[test]
+    fn kanban_empty_board() {
+        let input = "kanban";
+        let parsed = parse_mermaid(input);
+        assert_eq!(parsed.ir.diagram_type, DiagramType::Kanban);
+        assert_eq!(parsed.ir.nodes.len(), 0);
+        assert!(
+            !parsed.warnings.is_empty(),
+            "Should warn about empty kanban"
+        );
+    }
+
+    #[test]
+    fn kanban_bracket_id_syntax() {
+        let input = "kanban\n  Todo\n    t1[First Task]\n    t2[Second Task]";
+        let parsed = parse_mermaid(input);
+        assert_eq!(parsed.ir.nodes.len(), 2);
+        assert_eq!(parsed.ir.nodes[0].id, "t1");
+        assert_eq!(parsed.ir.nodes[1].id, "t2");
+        // Labels should be the bracket contents.
+        let label0 = parsed.ir.nodes[0]
+            .label
+            .and_then(|lid| parsed.ir.labels.get(lid.0))
+            .map(|l| l.text.as_str());
+        assert_eq!(label0, Some("First Task"));
     }
 }

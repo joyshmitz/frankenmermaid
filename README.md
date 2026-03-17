@@ -145,6 +145,7 @@ Typography, spacing, theming, accessibility, and responsive behavior are part of
 | `xyChart` | Unsupported |
 | `requirementDiagram` | Partial |
 | `packet-beta` | Partial |
+| `kanban` | Partial |
 <!-- END GENERATED: supported-diagram-types -->
 
 ## Installation

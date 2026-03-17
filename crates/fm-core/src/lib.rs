@@ -177,6 +177,7 @@ pub enum DiagramType {
     C4Component,
     C4Dynamic,
     C4Deployment,
+    Kanban,
     #[default]
     Unknown,
 }
@@ -208,6 +209,7 @@ impl DiagramType {
             Self::C4Component => "C4Component",
             Self::C4Dynamic => "C4Dynamic",
             Self::C4Deployment => "C4Deployment",
+            Self::Kanban => "kanban",
             Self::Unknown => "unknown",
         }
     }
@@ -237,7 +239,8 @@ impl DiagramType {
             | Self::C4Component
             | Self::C4Dynamic
             | Self::C4Deployment
-            | Self::XyChart => MermaidSupportLevel::Partial,
+            | Self::XyChart
+            | Self::Kanban => MermaidSupportLevel::Partial,
             Self::Unknown => MermaidSupportLevel::Unsupported,
         }
     }
@@ -264,7 +267,8 @@ impl DiagramType {
             | Self::C4Component
             | Self::C4Dynamic
             | Self::C4Deployment
-            | Self::XyChart => "basic",
+            | Self::XyChart
+            | Self::Kanban => "basic",
             Self::Unknown => "unknown",
         }
     }

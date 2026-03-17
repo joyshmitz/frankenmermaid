@@ -21,6 +21,7 @@ pub enum LayoutAlgorithm {
     Sankey,
     Kanban,
     Grid,
+    Sequence,
 }
 
 impl LayoutAlgorithm {
@@ -37,6 +38,7 @@ impl LayoutAlgorithm {
             Self::Sankey => "sankey",
             Self::Kanban => "kanban",
             Self::Grid => "grid",
+            Self::Sequence => "sequence",
         }
     }
 }
@@ -953,6 +955,7 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
         LayoutAlgorithm::Sankey => layout_diagram_sankey_traced(ir),
         LayoutAlgorithm::Kanban => layout_diagram_kanban_traced(ir),
         LayoutAlgorithm::Grid => layout_diagram_grid_traced(ir),
+        LayoutAlgorithm::Sequence => layout_diagram_sequence_traced(ir),
         LayoutAlgorithm::Auto => unreachable!("dispatch must resolve auto to a concrete layout"),
     };
     traced.trace.dispatch = guarded_dispatch;
@@ -1005,8 +1008,9 @@ fn preferred_layout_algorithm(ir: &MermaidDiagramIr) -> LayoutAlgorithm {
         DiagramType::Timeline => LayoutAlgorithm::Timeline,
         DiagramType::Gantt => LayoutAlgorithm::Gantt,
         DiagramType::Sankey => LayoutAlgorithm::Sankey,
-        DiagramType::Journey => LayoutAlgorithm::Kanban,
+        DiagramType::Journey | DiagramType::Kanban => LayoutAlgorithm::Kanban,
         DiagramType::BlockBeta => LayoutAlgorithm::Grid,
+        DiagramType::Sequence => LayoutAlgorithm::Sequence,
         _ => LayoutAlgorithm::Sugiyama,
     }
 }
@@ -1019,8 +1023,11 @@ fn algorithm_available_for_diagram(diagram_type: DiagramType, algorithm: LayoutA
         LayoutAlgorithm::Timeline => matches!(diagram_type, DiagramType::Timeline),
         LayoutAlgorithm::Gantt => matches!(diagram_type, DiagramType::Gantt),
         LayoutAlgorithm::Sankey => matches!(diagram_type, DiagramType::Sankey),
-        LayoutAlgorithm::Kanban => matches!(diagram_type, DiagramType::Journey),
+        LayoutAlgorithm::Kanban => {
+            matches!(diagram_type, DiagramType::Journey | DiagramType::Kanban)
+        }
         LayoutAlgorithm::Grid => matches!(diagram_type, DiagramType::BlockBeta),
+        LayoutAlgorithm::Sequence => matches!(diagram_type, DiagramType::Sequence),
     }
 }
 
@@ -1101,7 +1108,8 @@ fn estimate_layout_cost(ir: &MermaidDiagramIr, algorithm: LayoutAlgorithm) -> La
         LayoutAlgorithm::Timeline
         | LayoutAlgorithm::Gantt
         | LayoutAlgorithm::Kanban
-        | LayoutAlgorithm::Grid => LayoutCostEstimate {
+        | LayoutAlgorithm::Grid
+        | LayoutAlgorithm::Sequence => LayoutCostEstimate {
             time_ms: nodes
                 .saturating_mul(3)
                 .saturating_add(edges.saturating_mul(2))
@@ -1155,8 +1163,13 @@ fn fallback_candidates(ir: &MermaidDiagramIr, selected: LayoutAlgorithm) -> Vec<
             LayoutAlgorithm::Tree,
             LayoutAlgorithm::Sugiyama,
         ],
-        DiagramType::Journey => [
+        DiagramType::Journey | DiagramType::Kanban => [
             LayoutAlgorithm::Kanban,
+            LayoutAlgorithm::Grid,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        DiagramType::Sequence => [
+            LayoutAlgorithm::Sequence,
             LayoutAlgorithm::Grid,
             LayoutAlgorithm::Sugiyama,
         ],
@@ -1973,6 +1986,271 @@ pub fn layout_diagram_timeline_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         })
         .collect();
     traced
+}
+
+// ---------------------------------------------------------------------------
+// Sequence diagram layout
+// ---------------------------------------------------------------------------
+
+/// Lay out a sequence diagram with participants arranged horizontally and
+/// messages stacked vertically in declaration order.
+#[must_use]
+pub fn layout_diagram_sequence(ir: &MermaidDiagramIr) -> DiagramLayout {
+    layout_diagram_sequence_traced(ir).layout
+}
+
+#[must_use]
+pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
+    let node_count = ir.nodes.len();
+    let node_sizes = compute_node_sizes(ir);
+    let mut trace = LayoutTrace::default();
+    push_snapshot(
+        &mut trace,
+        "sequence_layout",
+        node_count,
+        ir.edges.len(),
+        0,
+        0,
+    );
+
+    if node_count == 0 {
+        return TracedLayout {
+            layout: DiagramLayout {
+                nodes: Vec::new(),
+                clusters: Vec::new(),
+                cycle_clusters: Vec::new(),
+                edges: Vec::new(),
+                bounds: LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 0.0,
+                    height: 0.0,
+                },
+                stats: LayoutStats::default(),
+                extensions: LayoutExtensions::default(),
+            },
+            trace,
+        };
+    }
+
+    let spacing = LayoutSpacing::default();
+
+    // ── Phase 1: identify participants (declaration order) ──────────────
+    // Participants are the nodes; edges are messages between them.
+    // Preserve the declaration order from the parser which already sorted
+    // participants by first appearance.
+    let participant_gap = spacing.node_spacing + 80.0;
+    let message_gap = spacing.rank_spacing.max(56.0);
+    let header_y = 0.0_f32;
+
+    // Build participant index → horizontal position mapping.
+    // Each participant is centered at (participant_order * gap, header_y).
+    let mut rank_by_node = vec![0_usize; node_count];
+    let mut order_by_node = vec![0_usize; node_count];
+    let mut centers = vec![(0.0_f32, 0.0_f32); node_count];
+
+    // Compute cumulative x positions accounting for individual node widths.
+    let mut x_cursor = 0.0_f32;
+    let mut participant_x_centers: Vec<f32> = Vec::with_capacity(node_count);
+    for (participant_order, (width, _height)) in node_sizes.iter().copied().enumerate() {
+        let half_width = width / 2.0;
+        let cx = x_cursor + half_width;
+        participant_x_centers.push(cx);
+        centers[participant_order] = (cx, header_y);
+        rank_by_node[participant_order] = 0;
+        order_by_node[participant_order] = participant_order;
+        x_cursor = cx + half_width + participant_gap;
+        let _ = participant_order; // suppress unused
+    }
+
+    // ── Phase 2: compute message (edge) row positions ──────────────────
+    // Each edge occupies a vertical row below the participant header.
+    // The y-position increases with each message in declaration order.
+    // Edges reference node indices for from/to; the x-coordinate of each
+    // endpoint is determined by the participant's center x.
+    //
+    // For self-messages (from == to), we add extra vertical space.
+    let first_message_y =
+        header_y + node_sizes.iter().map(|(_, h)| *h).fold(0.0_f32, f32::max) + message_gap;
+
+    let mut message_y_positions: Vec<f32> = Vec::with_capacity(ir.edges.len());
+    let mut y_cursor = first_message_y;
+    for edge in &ir.edges {
+        message_y_positions.push(y_cursor);
+        let is_self = match (
+            endpoint_node_index(ir, edge.from),
+            endpoint_node_index(ir, edge.to),
+        ) {
+            (Some(s), Some(t)) => s == t,
+            _ => false,
+        };
+        // Self-messages need more vertical space for the loop.
+        let row_height = if is_self {
+            message_gap * 1.5
+        } else {
+            message_gap
+        };
+        y_cursor += row_height;
+    }
+
+    // Total diagram height: extend lifelines past the last message.
+    let diagram_bottom = y_cursor + message_gap * 0.5;
+
+    // ── Phase 3: build layout nodes (participant boxes at the top) ──────
+    let nodes: Vec<LayoutNodeBox> = (0..node_count)
+        .map(|participant_order| {
+            let (width, height) = node_sizes[participant_order];
+            let cx = participant_x_centers[participant_order];
+            LayoutNodeBox {
+                node_index: participant_order,
+                node_id: ir.nodes[participant_order].id.clone(),
+                rank: 0,
+                order: participant_order,
+                span: ir.nodes[participant_order].span_primary,
+                bounds: LayoutRect {
+                    x: cx - width / 2.0,
+                    y: header_y,
+                    width,
+                    height,
+                },
+            }
+        })
+        .collect();
+
+    // ── Phase 4: build edge paths ──────────────────────────────────────
+    // Each message is a horizontal arrow from sender lifeline to receiver
+    // lifeline at the corresponding y-position.
+    let edges: Vec<LayoutEdgePath> = ir
+        .edges
+        .iter()
+        .enumerate()
+        .map(|(edge_index, edge)| {
+            let y = message_y_positions[edge_index];
+            let source_index = endpoint_node_index(ir, edge.from).unwrap_or(0);
+            let target_index = endpoint_node_index(ir, edge.to).unwrap_or(0);
+            let source_x = participant_x_centers
+                .get(source_index)
+                .copied()
+                .unwrap_or(0.0);
+            let target_x = participant_x_centers
+                .get(target_index)
+                .copied()
+                .unwrap_or(0.0);
+            let is_self_loop = source_index == target_index;
+
+            let points = if is_self_loop {
+                // Self-message: draw a loop to the right and back.
+                let loop_width = 40.0;
+                let loop_height = message_gap * 0.6;
+                vec![
+                    LayoutPoint { x: source_x, y },
+                    LayoutPoint {
+                        x: source_x + loop_width,
+                        y,
+                    },
+                    LayoutPoint {
+                        x: source_x + loop_width,
+                        y: y + loop_height,
+                    },
+                    LayoutPoint {
+                        x: source_x,
+                        y: y + loop_height,
+                    },
+                ]
+            } else {
+                vec![
+                    LayoutPoint { x: source_x, y },
+                    LayoutPoint { x: target_x, y },
+                ]
+            };
+
+            LayoutEdgePath {
+                edge_index,
+                span: edge.span,
+                points,
+                reversed: false,
+                is_self_loop,
+                parallel_offset: 0.0,
+            }
+        })
+        .collect();
+
+    // ── Phase 5: compute bounds and extensions ─────────────────────────
+    let total_width = if node_count > 0 {
+        let last_cx = participant_x_centers[node_count - 1];
+        let last_half_w = node_sizes[node_count - 1].0 / 2.0;
+        last_cx + last_half_w
+    } else {
+        0.0
+    };
+
+    let bounds = LayoutRect {
+        x: 0.0,
+        y: 0.0,
+        width: total_width,
+        height: diagram_bottom,
+    };
+
+    push_snapshot(
+        &mut trace,
+        "sequence_post_processing",
+        node_count,
+        ir.edges.len(),
+        0,
+        0,
+    );
+
+    let (total_edge_length, reversed_edge_total_length) = compute_edge_length_metrics(&edges);
+
+    let stats = LayoutStats {
+        node_count,
+        edge_count: ir.edges.len(),
+        crossing_count: 0,
+        crossing_count_before_refinement: 0,
+        reversed_edges: 0,
+        cycle_count: 0,
+        cycle_node_count: 0,
+        max_cycle_size: 0,
+        collapsed_clusters: 0,
+        reversed_edge_total_length,
+        total_edge_length,
+        phase_iterations: trace.snapshots.len(),
+    };
+
+    // Build lifeline bands: one vertical band per participant from header bottom
+    // to diagram bottom, useful for renderers that draw dashed lifelines.
+    let lifeline_bands: Vec<LayoutBand> = (0..node_count)
+        .map(|participant_order| {
+            let cx = participant_x_centers[participant_order];
+            let (_, header_height) = node_sizes[participant_order];
+            LayoutBand {
+                kind: LayoutBandKind::Lane,
+                label: layout_label_text(ir, participant_order).to_string(),
+                bounds: LayoutRect {
+                    x: cx - 1.0,
+                    y: header_y + header_height,
+                    width: 2.0,
+                    height: diagram_bottom - (header_y + header_height),
+                },
+            }
+        })
+        .collect();
+
+    TracedLayout {
+        layout: DiagramLayout {
+            nodes,
+            clusters: Vec::new(),
+            cycle_clusters: Vec::new(),
+            edges,
+            bounds,
+            stats,
+            extensions: LayoutExtensions {
+                bands: lifeline_bands,
+                axis_ticks: Vec::new(),
+            },
+        },
+        trace,
+    }
 }
 
 #[must_use]
@@ -5713,10 +5991,10 @@ mod tests {
         CycleStrategy, LayoutAlgorithm, LayoutGuardrails, LayoutPoint, RenderClip, RenderItem,
         RenderSource, build_layout_guard_report, build_render_scene, layout, layout_diagram,
         layout_diagram_force, layout_diagram_force_traced, layout_diagram_gantt,
-        layout_diagram_grid, layout_diagram_radial, layout_diagram_sankey, layout_diagram_timeline,
-        layout_diagram_traced, layout_diagram_traced_with_algorithm,
-        layout_diagram_traced_with_algorithm_and_guardrails, layout_diagram_tree,
-        layout_diagram_with_cycle_strategy, route_edge_points,
+        layout_diagram_grid, layout_diagram_radial, layout_diagram_sankey, layout_diagram_sequence,
+        layout_diagram_sequence_traced, layout_diagram_timeline, layout_diagram_traced,
+        layout_diagram_traced_with_algorithm, layout_diagram_traced_with_algorithm_and_guardrails,
+        layout_diagram_tree, layout_diagram_with_cycle_strategy, route_edge_points,
     };
     use fm_core::{
         ArrowType, DiagramType, GraphDirection, IrCluster, IrClusterId, IrEdge, IrEndpoint,
@@ -7976,6 +8254,187 @@ mod tests {
             prop_assert!(layout.stats.reversed_edge_total_length >= 0.0);
             prop_assert!(layout.bounds.width >= 0.0);
             prop_assert!(layout.bounds.height >= 0.0);
+        }
+    }
+
+    // ── Sequence diagram layout tests ──────────────────────────────────
+
+    fn sequence_ir(participants: &[&str], messages: &[(usize, usize)]) -> MermaidDiagramIr {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.direction = GraphDirection::LR;
+        for (index, name) in participants.iter().enumerate() {
+            ir.labels.push(IrLabel {
+                text: name.to_string(),
+                ..IrLabel::default()
+            });
+            ir.nodes.push(IrNode {
+                id: name.to_string(),
+                label: Some(IrLabelId(index)),
+                ..IrNode::default()
+            });
+        }
+        for (from, to) in messages {
+            ir.edges.push(IrEdge {
+                from: IrEndpoint::Node(IrNodeId(*from)),
+                to: IrEndpoint::Node(IrNodeId(*to)),
+                arrow: ArrowType::Arrow,
+                ..IrEdge::default()
+            });
+        }
+        ir
+    }
+
+    #[test]
+    fn sequence_layout_empty_diagram() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        let layout = layout_diagram_sequence(&ir);
+        assert!(layout.nodes.is_empty());
+        assert!(layout.edges.is_empty());
+        assert_eq!(layout.bounds.width, 0.0);
+        assert_eq!(layout.bounds.height, 0.0);
+    }
+
+    #[test]
+    fn sequence_layout_single_participant() {
+        let ir = sequence_ir(&["Alice"], &[]);
+        let layout = layout_diagram_sequence(&ir);
+        assert_eq!(layout.nodes.len(), 1);
+        assert_eq!(layout.nodes[0].node_id, "Alice");
+        assert_eq!(layout.nodes[0].rank, 0);
+        assert!(layout.bounds.width > 0.0);
+        assert!(layout.bounds.height > 0.0);
+    }
+
+    #[test]
+    fn sequence_layout_participants_arranged_horizontally() {
+        let ir = sequence_ir(&["Alice", "Bob", "Carol"], &[]);
+        let layout = layout_diagram_sequence(&ir);
+        assert_eq!(layout.nodes.len(), 3);
+        // Participants should be left-to-right in declaration order.
+        let x0 = layout.nodes[0].bounds.x;
+        let x1 = layout.nodes[1].bounds.x;
+        let x2 = layout.nodes[2].bounds.x;
+        assert!(x0 < x1, "Alice should be left of Bob");
+        assert!(x1 < x2, "Bob should be left of Carol");
+        // All participants should be at the same y level (rank 0).
+        let y0 = layout.nodes[0].bounds.y;
+        let y1 = layout.nodes[1].bounds.y;
+        let y2 = layout.nodes[2].bounds.y;
+        assert_eq!(y0, y1);
+        assert_eq!(y1, y2);
+    }
+
+    #[test]
+    fn sequence_layout_messages_stacked_vertically() {
+        let ir = sequence_ir(&["Alice", "Bob"], &[(0, 1), (1, 0)]);
+        let layout = layout_diagram_sequence(&ir);
+        assert_eq!(layout.edges.len(), 2);
+        // First message y < second message y (stacked top to bottom).
+        let y0 = layout.edges[0].points[0].y;
+        let y1 = layout.edges[1].points[0].y;
+        assert!(
+            y0 < y1,
+            "Messages should stack vertically: {y0} should be < {y1}"
+        );
+    }
+
+    #[test]
+    fn sequence_layout_message_endpoints_at_participant_centers() {
+        let ir = sequence_ir(&["Alice", "Bob"], &[(0, 1)]);
+        let layout = layout_diagram_sequence(&ir);
+        assert_eq!(layout.edges.len(), 1);
+        let edge = &layout.edges[0];
+        let alice_cx = layout.nodes[0].bounds.center().x;
+        let bob_cx = layout.nodes[1].bounds.center().x;
+        assert!(
+            (edge.points[0].x - alice_cx).abs() < 1.0,
+            "Source x should be at Alice center"
+        );
+        assert!(
+            (edge.points[1].x - bob_cx).abs() < 1.0,
+            "Target x should be at Bob center"
+        );
+    }
+
+    #[test]
+    fn sequence_layout_self_message_loop() {
+        let ir = sequence_ir(&["Alice", "Bob"], &[(0, 0)]);
+        let layout = layout_diagram_sequence(&ir);
+        assert_eq!(layout.edges.len(), 1);
+        let edge = &layout.edges[0];
+        assert!(edge.is_self_loop);
+        // Self-loop should have 4 points forming a rectangular loop.
+        assert_eq!(edge.points.len(), 4);
+        // The loop should extend to the right and back.
+        assert!(edge.points[1].x > edge.points[0].x);
+        assert!((edge.points[3].x - edge.points[0].x).abs() < 1.0);
+    }
+
+    #[test]
+    fn sequence_layout_lifeline_bands() {
+        let ir = sequence_ir(&["Alice", "Bob"], &[(0, 1)]);
+        let layout = layout_diagram_sequence(&ir);
+        // Should have one lifeline band per participant.
+        assert_eq!(layout.extensions.bands.len(), 2);
+        assert_eq!(layout.extensions.bands[0].label, "Alice");
+        assert_eq!(layout.extensions.bands[1].label, "Bob");
+        // Lifeline bands should extend below the participant header.
+        for band in &layout.extensions.bands {
+            assert!(band.bounds.height > 0.0, "Lifeline should have height");
+        }
+    }
+
+    #[test]
+    fn sequence_layout_auto_dispatch_selects_sequence() {
+        let ir = sequence_ir(&["Alice", "Bob"], &[(0, 1)]);
+        let traced = layout_diagram_traced(&ir);
+        assert_eq!(
+            traced.trace.dispatch.selected,
+            LayoutAlgorithm::Sequence,
+            "Auto dispatch should select Sequence for sequence diagrams"
+        );
+    }
+
+    #[test]
+    fn sequence_layout_deterministic() {
+        let ir = sequence_ir(&["Alice", "Bob", "Carol"], &[(0, 1), (1, 2), (2, 0)]);
+        let layout1 = layout_diagram_sequence(&ir);
+        let layout2 = layout_diagram_sequence(&ir);
+        assert_eq!(layout1.nodes.len(), layout2.nodes.len());
+        for (n1, n2) in layout1.nodes.iter().zip(layout2.nodes.iter()) {
+            assert_eq!(n1.bounds, n2.bounds, "Layouts must be deterministic");
+        }
+        for (e1, e2) in layout1.edges.iter().zip(layout2.edges.iter()) {
+            assert_eq!(e1.points, e2.points, "Edge paths must be deterministic");
+        }
+    }
+
+    #[test]
+    fn sequence_layout_traced_has_snapshots() {
+        let ir = sequence_ir(&["Alice", "Bob"], &[(0, 1)]);
+        let traced = layout_diagram_sequence_traced(&ir);
+        assert!(
+            traced.trace.snapshots.len() >= 2,
+            "Should have at least layout + post_processing snapshots"
+        );
+    }
+
+    #[test]
+    fn sequence_layout_messages_below_header() {
+        let ir = sequence_ir(&["Alice", "Bob"], &[(0, 1)]);
+        let layout = layout_diagram_sequence(&ir);
+        let header_bottom = layout
+            .nodes
+            .iter()
+            .map(|n| n.bounds.y + n.bounds.height)
+            .fold(0.0_f32, f32::max);
+        for edge in &layout.edges {
+            assert!(
+                edge.points[0].y > header_bottom,
+                "Message y={} should be below header bottom={}",
+                edge.points[0].y,
+                header_bottom
+            );
         }
     }
 }
