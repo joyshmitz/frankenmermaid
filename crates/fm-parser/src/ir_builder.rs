@@ -259,6 +259,26 @@ impl IrBuilder {
             .stereotype = Some(stereotype);
     }
 
+    pub(crate) fn begin_state_cluster(&mut self, name: &str, span: Span) {
+        // Create the state node if it doesn't exist
+        let _ = self.intern_node(name, None, NodeShape::Rounded, span);
+        // Start a cluster for nested states
+        let cluster_id = IrClusterId(self.ir.clusters.len());
+        let label_id = self.intern_label(name.to_string(), span);
+        self.ir.clusters.push(IrCluster {
+            id: cluster_id,
+            title: Some(label_id),
+            members: Vec::new(),
+            grid_span: 1,
+            span,
+        });
+    }
+
+    pub(crate) fn end_state_cluster(&mut self) {
+        // Cluster was already pushed; nothing to close for now.
+        // Future: track cluster stack for proper nesting.
+    }
+
     pub(crate) fn begin_fragment(&mut self, kind: FragmentKind, label: String) {
         let start_edge = self.ir.edges.len();
         self.fragment_stack

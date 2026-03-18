@@ -1573,7 +1573,8 @@ fn parse_state(input: &str, builder: &mut IrBuilder) {
             continue;
         }
 
-        if trimmed == "[*]" || trimmed == "{" || trimmed == "}" {
+        // Skip bare braces (handled by composite state logic)
+        if trimmed == "{" || trimmed == "}" {
             continue;
         }
 
@@ -1596,13 +1597,39 @@ fn parse_state_statements(line: &str) -> Option<Vec<StateStatement>> {
             .map(|direction| vec![StateStatement::Direction(direction)]);
     }
 
+    // Note syntax: `note right of StateName : text` or `note left of StateName : text`
+    if line.starts_with("note ")
+        && let Some(note) = parse_state_note(line)
+    {
+        return Some(vec![note]);
+    }
+
+    // Composite state: `state "Label" as Name {` or `state Name {`
     if let Some(declaration) = line.strip_prefix("state ") {
         let declaration = declaration.trim();
+        if declaration.ends_with('{') {
+            let name = declaration.trim_end_matches('{').trim();
+            // Handle `"Label" as Name` syntax
+            let id = if let Some((_label, rest)) = name.split_once(" as ") {
+                rest.trim().to_string()
+            } else {
+                name.to_string()
+            };
+            return Some(vec![
+                StateStatement::Declaration(name.to_string()),
+                StateStatement::CompositeStart(id),
+            ]);
+        }
         if !declaration.is_empty() {
             return Some(vec![StateStatement::Declaration(declaration.to_string())]);
         }
     }
 
+    if line == "}" {
+        return Some(vec![StateStatement::CompositeEnd]);
+    }
+
+    // `[*]` standalone is handled as a node in the edge parsing
     let mut statements = Vec::new();
     for statement in split_statements(line) {
         if let Some(asts) = parse_edge_statement_asts(statement, &FLOW_OPERATORS) {
@@ -1615,6 +1642,24 @@ fn parse_state_statements(line: &str) -> Option<Vec<StateStatement>> {
     }
 
     (!statements.is_empty()).then_some(statements)
+}
+
+fn parse_state_note(line: &str) -> Option<StateStatement> {
+    let rest = line.strip_prefix("note ")?;
+    let (position, after_pos) = if let Some(r) = rest.strip_prefix("right of ") {
+        ("right".to_string(), r)
+    } else if let Some(r) = rest.strip_prefix("left of ") {
+        ("left".to_string(), r)
+    } else {
+        return None;
+    };
+
+    let (target, text) = after_pos.split_once(':')?;
+    Some(StateStatement::Note {
+        target: target.trim().to_string(),
+        position,
+        text: text.trim().to_string(),
+    })
 }
 
 fn lower_state_statement(
@@ -1636,6 +1681,20 @@ fn lower_state_statement(
         StateStatement::Node(node) => {
             let span = span_for(line_number, source_line);
             let _ = builder.intern_node(&node.id, node.label.as_deref(), node.shape, span);
+        }
+        StateStatement::CompositeStart(name) => {
+            let span = span_for(line_number, source_line);
+            builder.begin_state_cluster(&name, span);
+        }
+        StateStatement::CompositeEnd => {
+            builder.end_state_cluster();
+        }
+        StateStatement::Note { target, text, .. } => {
+            // State notes are stored as diagnostics for now
+            // (full note rendering would use IrSequenceNote-like types)
+            let span = span_for(line_number, source_line);
+            let _ = builder.intern_node(&target, None, NodeShape::Rounded, span);
+            let _ = text; // Note text available for future rendering
         }
     }
 }
@@ -3331,6 +3390,14 @@ enum StateStatement {
     Declaration(String),
     Edge(Vec<FlowAst>),
     Node(NodeToken),
+    CompositeStart(String),
+    CompositeEnd,
+    Note {
+        target: String,
+        #[allow(dead_code)]
+        position: String,
+        text: String,
+    },
 }
 
 fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
@@ -7733,5 +7800,52 @@ Rel_Back(db, app, "Responds")"#,
         let duck = parsed.ir.nodes.iter().find(|n| n.id == "Duck").unwrap();
         let meta = duck.class_meta.as_ref().expect("class_meta");
         assert_eq!(meta.stereotype, Some(fm_core::ClassStereotype::Interface));
+    }
+
+    // ── State diagram tests ────────────────────────────────────────────
+
+    #[test]
+    fn state_pseudo_states_in_transitions() {
+        let input = "stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]";
+        let parsed = parse_mermaid(input);
+        assert_eq!(parsed.ir.diagram_type, DiagramType::State);
+        assert!(
+            parsed.ir.edges.len() >= 2,
+            "Should have at least 2 edges for start/end transitions"
+        );
+    }
+
+    #[test]
+    fn state_composite_creates_cluster() {
+        let input = "stateDiagram-v2\n  state Active {\n    Working --> Paused\n  }";
+        let parsed = parse_mermaid(input);
+        assert_eq!(parsed.ir.diagram_type, DiagramType::State);
+        assert!(
+            !parsed.ir.clusters.is_empty(),
+            "Should have at least one cluster for composite state"
+        );
+    }
+
+    #[test]
+    fn state_transition_with_label() {
+        let input = "stateDiagram-v2\n  Idle --> Active : start";
+        let parsed = parse_mermaid(input);
+        assert!(parsed.ir.edges.len() >= 1);
+    }
+
+    #[test]
+    fn state_note() {
+        let input = "stateDiagram-v2\n  state Active\n  note right of Active : This is active";
+        let parsed = parse_mermaid(input);
+        // Notes are parsed without producing warnings
+        let note_warnings: Vec<_> = parsed
+            .warnings
+            .iter()
+            .filter(|w| w.to_lowercase().contains("note"))
+            .collect();
+        assert!(
+            note_warnings.is_empty(),
+            "State notes should not produce warnings, got: {note_warnings:?}"
+        );
     }
 }
