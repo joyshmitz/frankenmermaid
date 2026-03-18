@@ -86,13 +86,13 @@ fm-cli render diagrams/process.mmd --format svg --theme dark --output out/proces
    Every layout phase uses stable tie-breaking. Node ordering, rank assignment, coordinate computation, and edge routing all produce identical results for identical input. CI snapshot tests rely on this.
 
 3. **Layout Quality Beats Minimal Correctness**
-   Four cycle-breaking strategies. Barycenter + transpose crossing minimization. Orthogonal edge routing with bend minimization. Specialized algorithms for sequence, gantt, timeline, sankey, radial, and grid diagrams. The layout engine doesn't just place nodes — it optimizes.
+   Four cycle-breaking strategies. Barycenter + transpose crossing minimization. Orthogonal edge routing with bend minimization. Specialized algorithms for sequence, gantt, timeline, sankey, radial, and grid diagrams.
 
 4. **One IR, Many Outputs**
    A shared `MermaidDiagramIr` feeds SVG, terminal, Canvas, and WASM APIs. Parse once, render everywhere. Layout statistics and diagnostics travel through the entire pipeline.
 
 5. **Polish Is Core Product Surface**
-   Typography, spacing, theming, accessibility, node gradients, drop shadows, responsive sizing — these aren't extras. They're part of correctness.
+   Typography, spacing, theming, accessibility, node gradients, drop shadows, and responsive sizing are all part of correctness.
 
 ## How frankenmermaid Compares
 
@@ -420,44 +420,45 @@ A --> B
 ### Pipeline
 
 ```
-     Mermaid / DOT text
-              |
-              v
-  +-----------------------+
-  | fm-parser             |
-  | - type detection      |     25 diagram types recognized
-  | - fuzzy matching      |     Levenshtein + content heuristics
-  | - recovery + warnings |     Best-effort parse, never crashes
-  +-----------------------+
-              |
-              v
-  +-----------------------+
-  | fm-core               |
-  | MermaidDiagramIr      |     Nodes, edges, clusters, labels,
-  |                       |     subgraphs, ports, diagnostics
-  +-----------------------+
-              |
-              v
-  +-----------------------+
-  | fm-layout             |
-  | - auto algorithm      |     Picks best of 10 algorithms
-  | - cycle strategy      |     4 strategies for cycle-breaking
-  | - crossing minimize   |     Barycenter + transpose refinement
-  +-----------------------+
-              |
-              v
-  +--DiagramLayout + stats--+
-  |  nodes, edges, clusters |
-  |  bounds, cycle info     |
-  +---------+-------+-------+
-            |       |       |
-            v       v       v
-  +-------+ +-----+ +---------+
-  |  SVG  | | Term| | Canvas  |
-  +-------+ +-----+ +---------+
-      |                  |
-      v                  v
-  SVG / PNG        WASM + browser
+              Mermaid / DOT text
+                      |
+                      v
+        +---------------------------+
+        | fm-parser                 |
+        | - type detection          |  25 diagram types
+        | - fuzzy matching          |  Levenshtein + heuristics
+        | - recovery + warnings     |  best-effort, never crashes
+        +---------------------------+
+                      |
+                      v
+        +---------------------------+
+        | fm-core                   |
+        | MermaidDiagramIr          |  nodes, edges, clusters,
+        |                           |  labels, subgraphs, ports
+        +---------------------------+
+                      |
+                      v
+        +---------------------------+
+        | fm-layout                 |
+        | - auto algorithm select   |  10 algorithms available
+        | - cycle strategy          |  4 cycle-breaking modes
+        | - crossing minimization   |  barycenter + transpose
+        +---------------------------+
+                      |
+                      v
+        +---------------------------+
+        | DiagramLayout + stats     |
+        | nodes, edges, clusters    |
+        | bounds, cycle info        |
+        +--------+--------+--------+
+                 |        |        |
+                 v        v        v
+           +---------+ +------+ +--------+
+           |   SVG   | | Term | | Canvas |
+           +---------+ +------+ +--------+
+               |                     |
+               v                     v
+          SVG / PNG           WASM + browser
 ```
 
 ### Feature Flags
@@ -478,30 +479,30 @@ The parser uses a **five-tier detection pipeline** to identify diagram types, th
 
 ```
 Input text
-    │
-    ▼
-┌─────────────────────────────────────┐
-│ 1. DOT Format Detection             │  confidence: 0.95
-│    digraph/graph keyword + braces   │  Graphviz interop
-├─────────────────────────────────────┤
-│ 2. Exact Keyword Match              │  confidence: 1.0
-│    "flowchart", "sequenceDiagram",  │  25 keywords recognized
-│    "classDiagram", "gantt", etc.    │
-├─────────────────────────────────────┤
-│ 3. Fuzzy Keyword Match              │  confidence: 0.70–0.85
-│    Levenshtein distance 1–2         │  Catches typos like
-│    "flowchrt" → "flowchart"         │  "seqeunceDiagram"
-├─────────────────────────────────────┤
-│ 4. Content Heuristics               │  confidence: 0.60–0.80
-│    Arrow patterns: -->  ->>  ||--o{ │  Symbol fingerprinting
-│    Keywords: participant, state      │
-├─────────────────────────────────────┤
-│ 5. Fallback                         │  confidence: 0.30
-│    Default to Flowchart + warning   │  Never returns "unknown"
-└─────────────────────────────────────┘
+    |
+    v
++-----------------------------------------------+
+| 1. DOT Format Detection          conf: 0.95   |
+|    digraph/graph keyword + braces              |
++-----------------------------------------------+
+| 2. Exact Keyword Match           conf: 1.0    |
+|    "flowchart", "sequenceDiagram",             |
+|    "classDiagram", "gantt", etc.               |
++-----------------------------------------------+
+| 3. Fuzzy Keyword Match           conf: 0.70+  |
+|    Levenshtein distance 1-2                    |
+|    "flowchrt" -> "flowchart"                   |
++-----------------------------------------------+
+| 4. Content Heuristics            conf: 0.60+  |
+|    Arrow patterns: -->  ->>  ||--o{            |
+|    Keywords: participant, state                 |
++-----------------------------------------------+
+| 5. Fallback                      conf: 0.30   |
+|    Default to Flowchart + warning              |
++-----------------------------------------------+
 ```
 
-Each tier is tried in order. The first match wins. The confidence score tells downstream consumers how certain the detection was — tooling can surface low-confidence detections as warnings.
+Each tier is tried in order; the first match wins. The confidence score tells downstream consumers how certain the detection was, so tooling can surface low-confidence detections as warnings.
 
 ### Fuzzy Matching
 
@@ -542,7 +543,7 @@ The result is that even heavily malformed input produces a best-effort IR with d
 
 ## How the Layout Engine Works
 
-The layout engine takes a parsed `MermaidDiagramIr` and produces a `DiagramLayout` — a collection of positioned node boxes, routed edge paths, and cluster boundaries. Different diagram types get different algorithms, but the output shape is always the same.
+The layout engine takes a parsed `MermaidDiagramIr` and produces a `DiagramLayout`: positioned node boxes, routed edge paths, and cluster boundaries. Different diagram types get different algorithms, but the output shape is always the same.
 
 ### Algorithm Auto-Selection
 
@@ -565,32 +566,38 @@ When `algorithm = "auto"` (the default), the engine maps diagram types to their 
 
 The Sugiyama algorithm is the workhorse for most graph diagram types. It transforms an arbitrary directed graph into a clean layered layout through seven phases:
 
-**Phase 1 — Cycle Removal**
+**Phase 1: Cycle Removal**
 
 Directed graphs with cycles can't be laid out in layers (every edge must point "downward"). The engine breaks cycles by temporarily reversing selected edges. Four strategies are available:
 
 | Strategy | How It Works | When to Use |
 |----------|--------------|-------------|
 | **Greedy** | Repeatedly remove sink/source nodes, reverse remaining edges | Fast default. Good enough for most graphs |
-| **DFS back-edge** | Run DFS, reverse back-edges found during traversal | Predictable — the same DFS order gives the same result |
+| **DFS back-edge** | Run DFS, reverse back-edges found during traversal | Predictable; the same DFS order gives the same result |
 | **MFAS approximation** | Approximate minimum feedback arc set via heuristic ordering | Minimizes the number of reversed edges |
 | **Cycle-aware** | Full SCC (strongly connected component) detection with optional cluster collapse | Best visual quality. Cycle clusters rendered as grouped boxes |
 
 The cycle-aware strategy additionally computes `cycle_count`, `cycle_node_count`, `max_cycle_size`, and `reversed_edge_total_length` metrics that are available in the layout stats.
 
-**Phase 2 — Rank Assignment**
+Under the hood, cycle detection uses **Tarjan's strongly connected components** algorithm with index/lowlink tracking and on-stack bit flags to distinguish back-edges from cross-edges. The individual strategies then work differently:
+
+- **Greedy**: Repeatedly removes sinks (out-degree 0) and sources (in-degree 0). Remaining nodes are ordered by `max(out_degree - in_degree)`. Edges that violate the resulting ordering are reversed.
+- **DFS back-edge**: Standard DFS with three-color marking (unvisited → visiting → visited). Edges to nodes in the "visiting" state are back-edges and get reversed. Linear O(V+E).
+- **MFAS**: Operates per SCC. Sorts nodes by `(out_degree - in_degree)` descending, then reverses edges that violate the resulting position order. Falls back to DFS if no improvement found.
+
+**Phase 2: Rank Assignment**
 
 Each node is assigned an integer rank (layer) using a longest-path heuristic. Ranks are computed in topological order so that every non-reversed edge goes from a lower rank to a higher rank. This determines the vertical (or horizontal, depending on direction) position of each node.
 
-**Phase 3 — Crossing Minimization (Barycenter)**
+**Phase 3: Crossing Minimization (Barycenter)**
 
 The ordering of nodes within each rank is optimized to minimize edge crossings. The algorithm performs 4 bidirectional sweeps:
 
-1. For each rank, compute each node's **barycenter** — the weighted average position of its connected neighbors in the adjacent rank.
+1. For each rank, compute each node's **barycenter**, the weighted average position of its connected neighbors in the adjacent rank.
 2. Sort the rank's nodes by barycenter value, breaking ties by stable node index.
 3. Sweep top-to-bottom, then bottom-to-top (bidirectional).
 
-**Phase 4 — Crossing Refinement (Transpose + Sift)**
+**Phase 4: Crossing Refinement (Transpose + Sift)**
 
 After barycenter ordering, two local-search refinements further reduce crossings:
 
@@ -599,11 +606,13 @@ After barycenter ordering, two local-search refinements further reduce crossings
 
 The layout stats record `crossing_count_before_refinement` and final `crossing_count` so you can see how much the refinement improved things.
 
-**Phase 5 — Coordinate Assignment**
+The crossing count itself is computed using a **merge-sort inversion counting** algorithm. For each pair of adjacent ranks, edges are sorted by source position and their target positions are extracted. The number of inversions in the target sequence equals the number of crossings. This runs in O(m log m) per rank pair, where m is the number of edges between the two ranks.
+
+**Phase 5: Coordinate Assignment**
 
 Nodes are positioned in 2D space using their rank (vertical position) and order (horizontal position within rank), plus configurable spacing (`node_spacing` default 80px, `rank_spacing` default 120px).
 
-**Phase 6 — Edge Routing**
+**Phase 6: Edge Routing**
 
 Edges are routed as orthogonal (Manhattan-style) paths with horizontal and vertical segments. Special cases:
 
@@ -611,7 +620,7 @@ Edges are routed as orthogonal (Manhattan-style) paths with horizontal and verti
 - **Parallel edges**: When multiple edges connect the same pair of nodes, each gets an incremental lateral offset so they're visually distinguishable.
 - **Reversed edges**: Edges that were reversed for cycle-breaking are flagged (`reversed: true`) so renderers can draw them with dashed or highlighted styling.
 
-**Phase 7 — Post-Processing**
+**Phase 7: Post-Processing**
 
 Cluster boundaries are computed to enclose their member nodes with configurable padding (default 52px). All coordinates are normalized to non-negative values. Edge length metrics (`total_edge_length`, `reversed_edge_total_length`) are computed for quality analysis.
 
@@ -678,7 +687,7 @@ The renderer supports 21 distinct node shapes, each implemented as a pure-geomet
 
 **Drop Shadows** use an SVG `<filter>` with configurable offset (default 2px), blur radius (default 6px), and opacity (default 0.15). The shadow color defaults to a dark slate (`#0f172a`) but adapts to the active theme.
 
-**Glow Effects** add a colored blur behind highlighted elements — blur radius 6px, opacity 0.35, default color `#3b82f6` (blue). Used for interactive highlighting or emphasis.
+**Glow Effects** add a colored blur behind highlighted elements (blur radius 6px, opacity 0.35, default color `#3b82f6`). Used for interactive highlighting or emphasis.
 
 **Cluster Backgrounds** are drawn as semi-transparent filled rectangles (default opacity 0.08) behind their member nodes, with a 10px rounded corner radius and the cluster title above.
 
@@ -709,7 +718,7 @@ The SVG renderer includes built-in accessibility features:
 - ARIA labels on node and edge groups
 - `describe_diagram()`, `describe_node()`, and `describe_edge()` functions that generate human-readable descriptions
 - Print-optimized CSS rules (accessible via `accessibility_css()`)
-- Source span tracking — optional `data-fm-source-span` attributes linking SVG elements back to their source line/column
+- Source span tracking: optional `data-fm-source-span` attributes linking SVG elements back to their source line/column
 
 ## How Terminal Rendering Works
 
@@ -726,7 +735,7 @@ The key insight is that Unicode characters can represent more than one "pixel" p
 | **HalfBlock** | 1×2 per cell | Half blocks ▀ ▄ █ (4 patterns) | Wide terminal compatibility |
 | **CellOnly** | 1×1 per cell | Full block █ or space (2 patterns) | Maximum compatibility, lowest resolution |
 
-In **Braille mode**, each terminal cell represents an 8-dot braille pattern where each dot maps to a sub-pixel. The 8 dots are arranged in a 2-wide × 4-tall grid, giving 8 sub-pixels per cell — the highest resolution achievable in a standard terminal. The renderer draws into a boolean pixel buffer using Bresenham's line algorithm and midpoint circle algorithm, then encodes the buffer into braille code points starting from U+2800.
+In **Braille mode**, each terminal cell represents an 8-dot braille pattern where each dot maps to a sub-pixel. The 8 dots are arranged in a 2-wide × 4-tall grid, giving 8 sub-pixels per cell, the highest resolution achievable in a standard terminal. The renderer draws into a boolean pixel buffer using Bresenham's line algorithm and midpoint circle algorithm, then encodes the buffer into braille code points starting from U+2800.
 
 ### Rendering Tiers
 
@@ -755,7 +764,7 @@ Output shows a side-by-side comparison with color-coded change markers, plus agg
 
 ### Minimap
 
-For large diagrams that exceed the terminal viewport, the renderer can produce a scaled minimap — a compressed overview showing the overall structure:
+For large diagrams that exceed the terminal viewport, the renderer can produce a scaled minimap, a compressed overview showing the overall structure:
 
 ```
 ┌──────────────────┐
@@ -802,7 +811,7 @@ MermaidDiagramIr {
 
 **Span tracking**: Every node, edge, label, and cluster carries a `Span` with byte offset, line, and column positions pointing back to the original input. This enables precise error reporting ("line 7, column 12: unknown node shape") and powers the source-span attributes in SVG output for click-to-source tooling.
 
-**Implicit nodes**: Nodes referenced only in edges (never explicitly declared) are auto-created with `implicit: true`. This lets the parser accept terse input like `A --> B` without requiring `A[A]` and `B[B]` declarations first — matching mermaid-js behavior.
+**Implicit nodes**: Nodes referenced only in edges (never explicitly declared) are auto-created with `implicit: true`. This lets the parser accept terse input like `A --> B` without requiring `A[A]` and `B[B]` declarations first, matching mermaid-js behavior.
 
 **Semantic edge kinds**: Edges carry an `IrEdgeKind` that encodes diagram-specific semantics beyond just the arrow type:
 
@@ -851,7 +860,7 @@ strip = true          # Remove debug symbols
 opt-level = 3         # Maximum performance for the layout engine
 ```
 
-The layout crate gets `opt-level = 3` (maximum speed) instead of `opt-level = "z"` (minimum size) because layout is the computational bottleneck — the crossing minimization and coordinate assignment phases dominate pipeline latency. Every other crate prioritizes small binary size for fast WASM delivery.
+The layout crate gets `opt-level = 3` (maximum speed) instead of `opt-level = "z"` (minimum size) because layout is the computational bottleneck; crossing minimization and coordinate assignment dominate pipeline latency. Every other crate prioritizes small binary size for fast WASM delivery.
 
 ## Force-Directed Layout
 
@@ -901,9 +910,9 @@ The tree layout uses a modified Reingold-Tilford algorithm:
 
 1. **Root selection**: All nodes with in-degree 0. If there are multiple roots, they're treated as siblings of a virtual root.
 2. **Depth assignment**: BFS from roots assigns each node to a level.
-3. **Subtree span computation**: Bottom-up recursive calculation — each node's span is `max(own_width, sum_of_children_spans)`.
+3. **Subtree span computation**: Bottom-up recursive calculation. Each node's span is `max(own_width, sum_of_children_spans)`.
 4. **Coordinate assignment**: Children are centered under their parent. Siblings are spaced by `node_spacing`.
-5. **Direction support**: TB (top-to-bottom, default), LR, RL, BT — the depth axis and breadth axis swap roles.
+5. **Direction support**: TB (top-to-bottom, default), LR, RL, BT. The depth axis and breadth axis swap roles depending on direction.
 
 ### Radial Layout (Leaf-Weighted Angle Allocation)
 
@@ -1088,13 +1097,490 @@ block-beta
 
 The `:N` suffix after a block declaration sets `grid_span = N` on the node. The grid layout then computes the block's width as `base_width × N + spacing × (N-1)`, effectively merging N adjacent cells.
 
+## Node Sizing Model
+
+The layout engine needs to know how much space each node occupies before it can position anything. Since frankenmermaid doesn't have access to a browser font renderer at layout time, it uses a heuristic model.
+
+### Sizing Formula
+
+```
+node_width  = max(label_width + 72.0, 100.0)
+node_height = max(label_height + 44.0, 52.0)
+```
+
+The 72px horizontal padding (36px per side) and 44px vertical padding (22px per side) give labels breathing room inside node shapes. The minimums (100px wide, 52px tall) ensure even empty or single-character nodes are large enough to be visually meaningful and clickable.
+
+Label dimensions come from the font metrics system (see "Font Metrics and Text Measurement" above). Shape does not affect the bounding box; a diamond and a rectangle with the same label get the same allocated space. The shape is drawn within the bounding box at render time.
+
+### Spacing Constants
+
+| Constant | Default | Purpose |
+|----------|---------|---------|
+| `node_spacing` | 80px | Horizontal gap between adjacent nodes in the same rank |
+| `rank_spacing` | 120px | Vertical gap between ranks (layers) |
+| `cluster_padding` | 52px | Padding inside cluster/subgraph boundaries (all 4 sides) |
+
+These are configurable via `LayoutSpacing` but the defaults are tuned for readable diagrams at typical screen sizes.
+
+## Security Model
+
+frankenmermaid processes untrusted input (user-provided diagram text) and produces output that may be embedded in web pages (SVG). The security model addresses injection attacks at multiple layers.
+
+### XML/SVG Injection Prevention
+
+All text content passes through escape functions before being embedded in SVG:
+
+| Context | Escapes | Why |
+|---------|---------|-----|
+| XML attributes | `& < > " '` → `&amp; &lt; &gt; &quot; &#39;` | Prevents attribute breakout |
+| XML text content | `& <` → `&amp; &lt;` | Prevents element injection. `>` is intentionally NOT escaped to preserve CSS child combinators in embedded stylesheets |
+| CSS tokens | Strip everything except `[a-z0-9_-]` | Prevents CSS injection via class names |
+
+SVG elements are constructed programmatically (not string-concatenated), so there is no path for injecting arbitrary SVG elements through diagram input.
+
+### Link Sanitization
+
+Links are disabled by default (`enable_links: false` in `MermaidConfig`). When enabled, the `MermaidSanitizeMode` controls behavior:
+
+| Mode | Behavior |
+|------|----------|
+| **Strict** (default) | Links must pass URL scheme validation. `javascript:`, `vbscript:`, `data:`, `file:`, `blob:` schemes are blocked. Only `http:`, `https:`, and relative URLs are allowed. |
+| **Lenient** | All URL schemes are permitted. Use only in trusted environments. |
+
+The `MermaidLinkMode` further restricts which links are rendered:
+
+| Mode | Effect |
+|------|--------|
+| `Off` | No links rendered regardless of `enable_links` |
+| `Local` | Only relative URLs and same-origin links |
+| `External` | Only absolute URLs |
+| `All` | Both local and external |
+
+### Input Limits
+
+The `MermaidConfig` enforces input size limits to prevent denial-of-service via pathological diagrams:
+
+| Limit | Default | Effect When Exceeded |
+|-------|---------|---------------------|
+| `max_nodes` | 200 | Degradation warning, reduced visual fidelity |
+| `max_edges` | 400 | Degradation warning, simplified edge routing |
+| `max_label_chars` | 48 | Labels truncated with "..." |
+| `max_label_lines` | 3 | Multi-line labels capped |
+| `max_input_bytes` | 5,000,000 | Parse refused |
+
+## Determinism Guarantees
+
+Deterministic output is an explicit design goal. Here are the concrete engineering choices that make it work.
+
+### Ordered Data Structures
+
+The codebase uses `BTreeMap` and `BTreeSet` everywhere, never `HashMap` or `HashSet`. Hash maps iterate in arbitrary (seed-dependent) order, which would make layout output depend on the hash seed. B-tree maps iterate in key order, which is deterministic.
+
+### Stable Node Ordering
+
+Before any layout phase that depends on node order, nodes are sorted by a stable priority function:
+
+```
+Primary: node ID (string comparison)
+Secondary: node index (declaration order)
+```
+
+This means two diagrams with the same nodes and edges always produce the same layout, regardless of the order nodes were declared.
+
+### Floating-Point Discipline
+
+IEEE 754 arithmetic is deterministic for identical inputs on the same platform. The codebase avoids operations that could introduce platform-dependent results:
+
+- No use of `f32::sin`/`cos` in layout-critical paths (these can differ across libm implementations)
+- Explicit drift correction: after allocating angular spans in radial layout, the last span is adjusted to exactly fill the remaining range, preventing accumulated rounding errors from producing gaps
+- Epsilon-based comparisons (`0.001`) for collinearity tests, avoiding exact float equality
+
+### Verification
+
+The test suite includes explicit determinism checks:
+
+```rust
+#[test]
+fn traced_layout_is_deterministic() {
+    let ir = sample_ir();
+    let first = layout_diagram_traced(&ir);
+    let second = layout_diagram_traced(&ir);
+    assert_eq!(first, second); // Bit-for-bit equality
+}
+```
+
+Property-based tests verify determinism across random graph shapes (up to 20 nodes × 5 directions = 100 combinations per test run).
+
+## The Diff Engine
+
+The terminal renderer includes a structural diff engine for comparing two diagram versions.
+
+### How Diffing Works
+
+1. **Parse both diagrams** independently into `MermaidDiagramIr`
+2. **Match nodes** by ID using a `BTreeMap<&str, (usize, &IrNode)>` lookup
+3. **Classify each node** as Added (only in new), Removed (only in old), Changed (both but different), or Unchanged
+4. **Match edges** by `(from_id, to_id)` key pair using `BTreeMap`
+5. **Classify each edge** similarly
+
+### Change Detection
+
+For nodes classified as "Changed", the engine identifies exactly what changed:
+
+| Change Type | Detected When |
+|-------------|---------------|
+| `LabelChanged` | Node text differs between old and new |
+| `ShapeChanged` | Node shape (rect → diamond, etc.) differs |
+| `ClassesChanged` | Applied CSS classes differ |
+| `MembersChanged` | ER entity attributes differ |
+
+For edges:
+
+| Change Type | Detected When |
+|-------------|---------------|
+| `ArrowChanged` | Arrow type (solid → dashed, etc.) differs |
+| `LabelChanged` | Edge label text differs |
+
+### Output Formats
+
+```bash
+# Side-by-side terminal diff with ANSI colors
+fm-cli diff old.mmd new.mmd --format terminal
+
+# Machine-readable JSON
+fm-cli diff old.mmd new.mmd --format json
+
+# Summary counts only
+fm-cli diff old.mmd new.mmd --format summary
+
+# Plain text (no colors)
+fm-cli diff old.mmd new.mmd --format plain
+```
+
+The terminal format uses color coding: green for added, red for removed, yellow for changed, gray for unchanged.
+
+## The Validate Pipeline
+
+The `fm-cli validate` command runs 4 diagnostic collection stages and produces a sorted, deduplicated report.
+
+### Validation Stages
+
+| Stage | What It Checks |
+|-------|----------------|
+| **Parse** | Parser warnings, init directive errors, structured diagnostics from IR, unstructured recovery warnings |
+| **Structural** | Unknown diagram type, empty diagram (no nodes and no edges) |
+| **Layout** | Algorithm capability unavailable for diagram type, guardrail fallback applied, cycles detected and edges reversed |
+| **Render** | SVG envelope validation (output starts with `<svg` and ends with `</svg>`) |
+
+### Fail Threshold
+
+The `--fail-on` flag controls which severity level causes a non-zero exit code:
+
+```bash
+fm-cli validate input.mmd --fail-on warning   # Exit 1 if any warnings
+fm-cli validate input.mmd --fail-on error      # Exit 1 only on errors (default)
+fm-cli validate input.mmd --fail-on hint       # Exit 1 on anything
+fm-cli validate input.mmd --fail-on none       # Always exit 0
+```
+
+### Diagnostic Sorting
+
+Diagnostics are sorted by 6 keys for consistent output:
+
+1. Severity (errors first, then warnings, info, hints)
+2. Source line number
+3. Source column number
+4. Validation stage name
+5. Error code
+6. Message text
+
+## Property-Based Testing
+
+frankenmermaid uses [proptest](https://github.com/proptest-rs/proptest) to verify invariants that must hold for ALL inputs, not just hand-picked test cases. Each test run generates 48-64 random inputs and checks that invariants are never violated.
+
+### Layout Invariants
+
+**Determinism**: For any random chain graph (1-20 nodes, any of 5 directions), `layout(graph) == layout(graph)`. Running layout twice on the same input produces bit-identical output.
+
+**Non-overlapping**: No two nodes in the output have overlapping bounding boxes (within floating-point tolerance).
+
+**Non-negative stats**: `total_edge_length >= 0.0` and `reversed_edge_total_length >= 0.0` and `bounds.width >= 0.0` and `bounds.height >= 0.0` for any input.
+
+### SVG Render Invariants
+
+**Totality**: `render_svg(ir)` always produces valid SVG (starts with `<svg`, ends with `</svg>`) for any IR, including empty diagrams.
+
+**Count accuracy**: The SVG output contains `data-nodes="N"` and `data-edges="M"` attributes matching the actual node and edge counts in the IR.
+
+### Terminal Render Invariants
+
+**Bounds enforcement**: `render_term(ir, cols, rows)` always produces output where `output.width <= cols` and `output.height <= rows`, regardless of diagram size. The renderer scales down rather than overflow.
+
+### Parser Invariants
+
+**Totality**: `parse(input)` never panics for any input string (tested with random strings up to 256 characters including non-ASCII, control characters, and adversarial patterns).
+
+**Confidence bounds**: The confidence score is always in `[0.0, 1.0]`.
+
+**Serde roundtrip**: `deserialize(serialize(ir)) == ir`. The IR survives JSON serialization and deserialization without data loss.
+
+## Scaling Characteristics
+
+The engine is designed for diagrams in the 1-500 node range (typical documentation diagrams). Here's how the major phases scale:
+
+| Phase | Complexity | 10 nodes | 100 nodes | 1000 nodes |
+|-------|-----------|----------|-----------|------------|
+| Parsing | O(n) | <1ms | <1ms | ~5ms |
+| Cycle removal | O(V+E) | <1ms | <1ms | ~2ms |
+| Rank assignment | O(V+E) | <1ms | <1ms | ~3ms |
+| Crossing minimization | O(E × sweeps) | <1ms | ~5ms | ~200ms |
+| Coordinate assignment | O(V) | <1ms | <1ms | ~1ms |
+| Edge routing | O(E) | <1ms | <1ms | ~5ms |
+| SVG rendering | O(V+E) | <1ms | ~2ms | ~15ms |
+| **Total pipeline** | | **<5ms** | **~10ms** | **~230ms** |
+
+The crossing minimization phase dominates for large graphs because it performs multiple sweeps over all edges. The layout guardrails (250ms budget) automatically fall back to simpler algorithms when this phase threatens to exceed the budget.
+
+For very large diagrams (1000+ nodes), the force-directed layout with Barnes-Hut optimization may be a better choice than Sugiyama, since its O(n log n) force computation avoids the quadratic crossing count.
+
+## The Render Scene (Target-Agnostic IR)
+
+Between layout and the final render backends (SVG, terminal, Canvas), there is an intermediate **render scene** that abstracts away backend specifics. This allows new render targets to be added without touching layout code.
+
+### Scene Structure
+
+```
+RenderScene
+├── bounds: RenderRect
+└── root: RenderGroup (id="diagram-root")
+    ├── transform: identity matrix
+    ├── clip: RenderClip::Rect(bounds)
+    └── children: [RenderItem]
+        ├── Cluster layer (backgrounds + titles)
+        ├── Edge layer (paths with arrowheads)
+        ├── Node layer (shapes with fills/strokes)
+        └── Label layer (text elements)
+```
+
+Each `RenderItem` is one of:
+- **Group**: Container with optional transform (6-component affine matrix `[a,b,c,d,e,f]`) and clip region
+- **Path**: SVG-style path commands (`MoveTo`, `LineTo`, `BezierTo`, `ArcTo`, `Close`) with fill/stroke
+- **Text**: Positioned text with font metrics, alignment, and optional rotation
+
+Every render item carries a `RenderSource` tag indicating what it represents (Node, Edge, Cluster, Label), enabling backends to apply type-specific styling without parsing the geometry.
+
+## Init Directives and Configuration Merging
+
+frankenmermaid supports Mermaid-compatible inline configuration via `%%{init: {...}}%%` directives at the start of a diagram.
+
+### Supported Init Variables
+
+| Variable | Type | Effect |
+|----------|------|--------|
+| `theme` | string | Selects theme preset (default, dark, forest, neutral, etc.) |
+| `themeVariables.primaryColor` | color | Overrides primary node fill color |
+| `themeVariables.lineColor` | color | Overrides edge/line color |
+| `themeVariables.clusterBkg` | color | Overrides cluster background |
+| `flowchart.rankDir` / `flowchart.direction` | LR/TB/RL/BT | Sets graph direction |
+| `flowchart.curve` | basis/linear/step | Edge curve interpolation style |
+| `sequence.mirrorActors` | bool | Show actors at bottom too |
+| `securityLevel` | strict/loose | Controls link/script sanitization |
+
+### Config Merge Order
+
+Configuration is resolved in priority order (highest wins):
+
+1. **Per-call overrides** (CLI flags like `--theme dark`)
+2. **Inline `%%{init}%%` directive** in the diagram text
+3. **Config file** (`frankenmermaid.toml` via `--config`)
+4. **Built-in defaults**
+
+This means a diagram with `%%{init: {"theme":"dark"}}%%` will use the dark theme even if the config file says `theme = "corporate"`, but a CLI flag `--theme forest` overrides both.
+
+## The Parser IR Builder
+
+The parser doesn't construct the `MermaidDiagramIr` directly. It uses an `IrBuilder` that provides deduplication, normalization, and recovery services.
+
+### Node Interning
+
+When the parser encounters a node reference (e.g., `A` in `A --> B`), it calls `intern_node("A", ...)`. The builder:
+
+1. Checks `node_index_by_id` (a `BTreeMap<String, IrNodeId>`) for an existing node with that ID.
+2. **If found**: Returns the existing `IrNodeId`. If the new reference provides a label or shape that the existing node lacks, updates the existing node in-place. This is how `A --> B` followed by `A[Start]` correctly assigns the label "Start" to node A.
+3. **If not found**: Creates a new `IrNode`, appends it to `ir.nodes`, registers in the dedup map, and returns the new ID.
+
+This interning approach means parsers don't need to worry about whether a node was already declared. References and declarations are unified automatically.
+
+### Cluster and Subgraph Construction
+
+Clusters (visual grouping boxes) and subgraphs (hierarchical nesting) are created via `ensure_cluster()` and `ensure_subgraph()`, which maintain bidirectional consistency: every update to `ir.clusters` is mirrored in `ir.graph.clusters`, and subgraph parent/child relationships are maintained on both sides.
+
+### Label Interning
+
+Labels are stored in a shared `Vec<IrLabel>` and referenced by `IrLabelId`. The `intern_label()` method creates the label entry and returns the ID. This avoids string duplication when the same text appears on multiple elements.
+
+### Dangling Edge Recovery
+
+When an edge references a node that was never declared (common in terse input), the builder auto-creates a placeholder node with `implicit: true`. After parsing completes, `apply_semantic_recovery()` emits diagnostic warnings for each auto-created node:
+
+```
+Warning [recovery]: Node "UndeclaredNode" was referenced in an edge but never
+declared. A placeholder node was created automatically. Consider adding an
+explicit declaration.
+```
+
+## The Diagnostic System
+
+Diagnostics are first-class structured objects designed to be consumed by both humans and tooling.
+
+### Diagnostic Fields
+
+```rust
+Diagnostic {
+    severity: Hint | Info | Warning | Error,
+    category: Lexer | Parser | Semantic | Recovery | Inference | Compatibility,
+    message: "Human-readable description",
+    span: Some(Span { start: Position { line, col, byte }, end: ... }),
+    suggestion: Some("Did you mean 'flowchart'?"),
+    expected: vec!["-->", "->>", "---"],     // For parse errors
+    found: Some("==>"),                       // What was actually found
+    related: vec![RelatedDiagnostic { ... }], // Multi-location context
+}
+```
+
+### Structured Output Format
+
+For automation, diagnostics can be serialized as `StructuredDiagnostic`:
+
+```json
+{
+  "error_code": "mermaid/diag/recovery",
+  "severity": "warning",
+  "message": "Node 'X' auto-created as placeholder",
+  "source_line": 7,
+  "source_column": 12,
+  "rule_id": "implicit-node",
+  "confidence": 0.85,
+  "remediation_hint": "Add explicit node declaration: X[Label]"
+}
+```
+
+### Diagnostic Categories
+
+| Category | When Emitted | Example |
+|----------|-------------|---------|
+| **Lexer** | Tokenization problems | Invalid character in identifier |
+| **Parser** | Syntax errors | Expected `-->` but found `==>` |
+| **Semantic** | Valid syntax, questionable intent | Duplicate node definition with conflicting labels |
+| **Recovery** | Parser took corrective action | Auto-created placeholder node for dangling edge |
+| **Inference** | Intent was inferred from ambiguous input | Fuzzy-matched `flowchrt` to `flowchart` |
+| **Compatibility** | Behavior differs from mermaid-js | Feature works but produces different visual output |
+
+## MermaidConfig: Runtime Behavior Controls
+
+The `MermaidConfig` struct controls parser, layout, and rendering behavior. Key fields and their defaults:
+
+### Input Limits
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `max_nodes` | 200 | Maximum node count before degradation warnings |
+| `max_edges` | 400 | Maximum edge count before degradation warnings |
+| `max_label_chars` | 48 | Truncate labels beyond this length |
+| `max_label_lines` | 3 | Maximum lines in wrapped labels |
+
+### Layout Budgets
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `layout_iteration_budget` | 200 | Maximum crossing-minimization iterations |
+| `route_budget` | 4,000 | Maximum edge routing operations |
+
+### Security
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `sanitize_mode` | Strict | Controls URL/script sanitization. Strict blocks `javascript:`, `vbscript:`, `data:`, `file:`, `blob:` schemes |
+| `enable_links` | false | Whether `click` directives produce clickable elements |
+| `link_mode` | Off | Off / Local / External / All; controls which URLs are allowed |
+
+### Rendering
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `glyph_mode` | Unicode | Unicode / Ascii / Block; character set for terminal rendering |
+| `wrap_mode` | WordChar | WordChar / Word / Char; text wrapping strategy |
+| `edge_bundling` | false | Merge parallel edges into bundles (min count: 3) |
+| `enable_styles` | true | Whether style/classDef directives are processed |
+
+### Degradation Control
+
+When input exceeds `max_nodes` or `max_edges`, the engine produces a `MermaidGuardReport` describing the degradation plan: which visual features to reduce (e.g., disable shadows, simplify edges, use compact tier) to maintain performance. This is a graceful degradation path, not a hard failure.
+
+## The Golden Test System
+
+Golden tests verify rendering stability: the same input must produce byte-identical SVG output across commits. This catches unintentional visual regressions.
+
+### How It Works
+
+1. **Input files** (`tests/golden/*.mmd`) contain representative Mermaid diagrams
+2. **Golden snapshots** (`tests/golden/*.svg`) contain the expected SVG output
+3. The test harness parses, lays out, and renders each input
+4. The rendered SVG is normalized (line endings, trailing newline)
+5. An **FNV-1a hash** of the rendered output is compared to the hash of the golden file
+6. If hashes differ, the test fails with a diff
+
+### Test Cases
+
+| Case | What It Validates |
+|------|-------------------|
+| `flowchart_simple` | Basic 4-node graph with edges |
+| `flowchart_cycle` | Graph with cycles (tests cycle-breaking stability) |
+| `sequence_basic` | Sequence diagram with participants and messages |
+| `class_basic` | Class diagram with inheritance |
+| `state_basic` | State diagram with transitions |
+| `gantt_basic` | Gantt chart with sections and tasks |
+| `pie_basic` | Pie chart with slices |
+| `malformed_recovery` | Intentionally broken input (tests graceful degradation) |
+
+### Blessing New Snapshots
+
+When you intentionally change rendering (e.g., improve layout quality), update the golden files:
+
+```bash
+BLESS=1 cargo test -p fm-cli --test golden_svg_test
+```
+
+This overwrites the `.svg` files with the new output. The test then passes because the hashes match. Always review the diff before committing blessed snapshots.
+
+### Evidence Logging
+
+Each golden test emits structured JSON evidence:
+
+```json
+{
+  "scenario_id": "flowchart_simple",
+  "input_hash": "660b25ea28c56e64",
+  "surface": "cli-integration",
+  "renderer": "svg",
+  "parse_ms": 0, "layout_ms": 0, "render_ms": 0,
+  "node_count": 4, "edge_count": 4,
+  "layout_width": 672.2, "layout_height": 317.0,
+  "output_artifact_hash": "fa91f6d45178a254",
+  "degradation_tier": "full",
+  "pass_fail_reason": "matched-golden"
+}
+```
+
+This makes test results auditable and debuggable without re-running.
+
 ## Quality and Testing
 
 - **200+ unit tests** across parser, core, layout, and render crates
 - **Integration tests** for full parse → layout → render pipeline round-trips
 - **Golden SVG snapshots** for regression safety (8 diagram types, blessed with `BLESS=1`)
 - **Property-based tests** (proptest) for parser and layout invariants
-- **Determinism checks** — same input verified to produce identical output across runs
+- **Determinism checks**: same input verified to produce identical output across runs
 - **Clippy pedantic + nursery** lints enabled workspace-wide with `-D warnings`
 - **Zero unsafe code** enforced via `#![forbid(unsafe_code)]`
 
@@ -1174,7 +1660,7 @@ If fuzzy matching picked the wrong type, add the explicit keyword header (e.g., 
 
 ## Limitations
 
-- **XyChart** is the only diagram type marked unsupported — it parses but lacks dedicated layout and rendering. Tracked for implementation.
+- **XyChart** is the only diagram type marked unsupported. It parses but lacks dedicated layout and rendering. Tracked for implementation.
 - **Sequence diagram advanced features** (activation boxes, interaction fragments, notes) are not yet implemented. Basic participant/message flow works.
 - **classDef / style directives** are parsed but not yet applied to rendered output. Styling support is in progress.
 - **Very large SVGs** (10k+ nodes) can be heavy for browsers. Use the Canvas2D backend via WASM for interactive exploration of large graphs.
@@ -1212,7 +1698,7 @@ Yes. Deterministic tie-breaking and stable pipeline behavior are explicit design
 
 ### What is `legacy_mermaid_code/` in this repo?
 
-A syntax and behavior reference corpus (including mermaid-js source/docs). It is not a port target — used only for edge-case validation.
+A syntax and behavior reference corpus (including mermaid-js source/docs). Not a port target; used only for edge-case validation.
 
 ### How does the layout algorithm get chosen?
 
@@ -1247,7 +1733,7 @@ Directed graphs with cycles can't be drawn in layers. The engine temporarily rev
 
 ### What happens with very large diagrams?
 
-The layout guardrails kick in automatically. Before running layout, the engine estimates the computational cost based on node count, edge count, and the selected algorithm. If the estimate exceeds the time budget (default 250ms), it falls back to a cheaper algorithm — for example, Tree instead of Sugiyama. The fallback chain ensures that even 10,000-node graphs produce output in bounded time, at the cost of potentially lower visual quality.
+The layout guardrails kick in automatically. Before running layout, the engine estimates the computational cost based on node count, edge count, and the selected algorithm. If the estimate exceeds the time budget (default 250ms), it falls back to a cheaper algorithm (for example, Tree instead of Sugiyama). The fallback chain ensures that even 10,000-node graphs produce output in bounded time, at the cost of potentially lower visual quality.
 
 ### Can I use the IR directly for tooling?
 
@@ -1255,15 +1741,15 @@ Yes. `fm-cli parse --format json` emits the full intermediate representation as 
 
 ### How does the braille terminal rendering work?
 
-Each terminal cell represents a 2x4 grid of sub-pixels using Unicode braille characters (U+2800–U+28FF). The renderer draws into a boolean pixel buffer using Bresenham's line algorithm, then encodes 8-pixel blocks into single braille code points. This gives an effective resolution of 2× the terminal width and 4× the terminal height — enough to render smooth diagonal lines and curves in a standard terminal.
+Each terminal cell represents a 2x4 grid of sub-pixels using Unicode braille characters (U+2800-U+28FF). The renderer draws into a boolean pixel buffer using Bresenham's line algorithm, then encodes 8-pixel blocks into single braille code points. This gives an effective resolution of 2x the terminal width and 4x the terminal height, enough for smooth diagonal lines and curves.
 
 ### Why Rust instead of JavaScript?
 
-Three reasons: (1) Determinism — Rust's lack of garbage collection pauses and its deterministic floating-point behavior make output stability achievable. (2) Performance — the layout engine does O(n² log n) work for crossing minimization; Rust runs this 10-50x faster than equivalent JS. (3) WASM — Rust compiles to compact WASM with no runtime dependencies, so the same code runs natively for CLI and in-browser via npm.
+Three reasons. (1) Determinism: Rust's lack of garbage collection pauses and its deterministic floating-point behavior make output stability achievable. (2) Performance: the layout engine does O(n^2 log n) work for crossing minimization; Rust runs this 10-50x faster than equivalent JS. (3) WASM: Rust compiles to compact WASM with no runtime dependencies, so the same code runs natively for CLI and in-browser via npm.
 
 ### How does DOT format support work?
 
-The DOT bridge parser (`dot_parser.rs`) recognizes Graphviz `digraph` and `graph` declarations, extracts nodes and edges with their attributes, and converts them to `MermaidDiagramIr` with `DiagramType::Flowchart`. This means DOT files get the same layout algorithms, SVG themes, and terminal rendering as native Mermaid input. It's not a complete Graphviz reimplementation — it covers the structural subset (nodes, edges, subgraphs, labels) rather than visual attribute passthrough.
+The DOT bridge parser (`dot_parser.rs`) recognizes Graphviz `digraph` and `graph` declarations, extracts nodes and edges with their attributes, and converts them to `MermaidDiagramIr` with `DiagramType::Flowchart`. DOT files get the same layout algorithms, SVG themes, and terminal rendering as native Mermaid input. This covers the structural subset (nodes, edges, subgraphs, labels) rather than full Graphviz visual attribute passthrough.
 
 ## About Contributions
 
