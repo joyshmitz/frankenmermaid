@@ -30,7 +30,7 @@ use fm_parser::{detect_type_with_confidence, parse_evidence_json, parse_with_mod
 use fm_render_svg::{SvgRenderConfig, ThemePreset, render_svg_with_layout};
 use fm_render_term::{
     TermRenderConfig, diff_diagrams, render_diff_plain, render_diff_summary,
-    render_diff_terminal_with_config, render_term_with_config,
+    render_diff_terminal_with_config, render_term_with_layout_and_config,
 };
 use serde::Serialize;
 use tracing::{debug, info, warn};
@@ -857,7 +857,7 @@ fn render_format(
             warn_if_unknown_theme(theme);
             let (cols, rows) = terminal_size(width, height);
             let config = TermRenderConfig::rich();
-            let result = render_term_with_config(ir, &config, cols, rows);
+            let result = render_term_with_layout_and_config(ir, layout, &config, cols, rows);
             Ok((
                 result.output.into_bytes(),
                 Some(result.width as u32),
@@ -870,7 +870,7 @@ fn render_format(
             let (cols, rows) = terminal_size(width, height);
             let mut config = TermRenderConfig::compact();
             config.glyph_mode = fm_core::MermaidGlyphMode::Ascii;
-            let result = render_term_with_config(ir, &config, cols, rows);
+            let result = render_term_with_layout_and_config(ir, layout, &config, cols, rows);
             Ok((
                 result.output.into_bytes(),
                 Some(result.width as u32),
@@ -1696,6 +1696,38 @@ mod validate_tests {
                 .iter()
                 .any(|diag| diag.payload.severity == "warning")
         );
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::{OutputFormat, render_format};
+    use fm_layout::layout_diagram;
+    use fm_parser::parse;
+
+    #[test]
+    fn term_render_uses_precomputed_layout() {
+        let parsed = parse("flowchart LR\nA[Start]-->B[End]");
+        let layout = layout_diagram(&parsed.ir);
+        let mut empty_layout = layout.clone();
+        empty_layout.nodes.clear();
+        empty_layout.edges.clear();
+        empty_layout.clusters.clear();
+        empty_layout.cycle_clusters.clear();
+
+        let (rendered, _, _) = render_format(
+            &parsed.ir,
+            &empty_layout,
+            OutputFormat::Term,
+            "default",
+            Some(80),
+            Some(24),
+        )
+        .expect("terminal render should succeed");
+
+        let output = String::from_utf8(rendered).expect("terminal output should be UTF-8");
+        assert!(!output.contains("Start"));
+        assert!(!output.contains("End"));
     }
 }
 

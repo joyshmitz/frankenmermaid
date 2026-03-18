@@ -60,9 +60,13 @@ pub use minimap::{
     Viewport, minimap_cell_to_layout_point, render_minimap, render_minimap_ascii,
     render_minimap_colored, viewport_to_minimap_rect,
 };
-pub use renderer::{TermRenderResult, TermRenderer, render_diagram, render_diagram_with_config};
+pub use renderer::{
+    TermRenderResult, TermRenderer, render_diagram, render_diagram_with_config,
+    render_diagram_with_layout_and_config,
+};
 
 use fm_core::MermaidDiagramIr;
+use fm_layout::DiagramLayout;
 
 /// Render a diagram to terminal output with default settings.
 ///
@@ -113,6 +117,18 @@ pub fn render_term_with_config(
     rows: usize,
 ) -> TermRenderResult {
     render_diagram_with_config(ir, config, cols, rows)
+}
+
+/// Render a diagram with custom configuration using a pre-computed layout.
+#[must_use]
+pub fn render_term_with_layout_and_config(
+    ir: &MermaidDiagramIr,
+    layout: &DiagramLayout,
+    config: &TermRenderConfig,
+    cols: usize,
+    rows: usize,
+) -> TermRenderResult {
+    renderer::render_diagram_with_layout_and_config(ir, layout, config, cols, rows)
 }
 
 /// Get layout statistics for a diagram without full rendering.

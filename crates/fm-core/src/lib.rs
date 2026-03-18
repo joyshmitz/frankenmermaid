@@ -2096,6 +2096,18 @@ impl MermaidStageBudgetLedger {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MermaidBudgetEvent {
+    pub kind: String,
+    pub stage: Option<String>,
+    pub allocated_ms: Option<u64>,
+    pub used_ms: Option<u64>,
+    pub remaining_ms: Option<u64>,
+    pub remaining_total_ms: u64,
+    pub exceeded: bool,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MermaidBudgetLedger {
     pub arbitration_policy: String,
     pub total_budget_ms: u64,
@@ -2106,6 +2118,7 @@ pub struct MermaidBudgetLedger {
     pub layout: MermaidStageBudgetLedger,
     pub render: MermaidStageBudgetLedger,
     pub notes: Vec<String>,
+    pub events: Vec<MermaidBudgetEvent>,
 }
 
 impl Default for MermaidBudgetLedger {
@@ -2135,7 +2148,7 @@ impl MermaidBudgetLedger {
                 "telemetry unavailable; broker used conservative global budget defaults",
             ));
         }
-        Self {
+        let mut ledger = Self {
             arbitration_policy: String::from("parse_first_then_layout_heavy_then_render_tail"),
             total_budget_ms,
             remaining_total_ms: total_budget_ms,
@@ -2145,22 +2158,92 @@ impl MermaidBudgetLedger {
             layout: MermaidStageBudgetLedger::new("layout", layout_budget_ms),
             render: MermaidStageBudgetLedger::new("render", render_budget_ms),
             notes,
+            events: Vec::new(),
+        };
+        ledger.push_stage_event(
+            "allocate",
+            "parse",
+            ledger.parse.allocated_ms,
+            ledger.parse.used_ms,
+            ledger.parse.remaining_ms,
+            ledger.parse.exceeded,
+            None,
+        );
+        ledger.push_stage_event(
+            "allocate",
+            "layout",
+            ledger.layout.allocated_ms,
+            ledger.layout.used_ms,
+            ledger.layout.remaining_ms,
+            ledger.layout.exceeded,
+            None,
+        );
+        ledger.push_stage_event(
+            "allocate",
+            "render",
+            ledger.render.allocated_ms,
+            ledger.render.used_ms,
+            ledger.render.remaining_ms,
+            ledger.render.exceeded,
+            None,
+        );
+        if pressure.conservative_fallback {
+            ledger.events.push(MermaidBudgetEvent {
+                kind: String::from("policy_note"),
+                stage: None,
+                allocated_ms: None,
+                used_ms: None,
+                remaining_ms: None,
+                remaining_total_ms: ledger.snapshot_remaining_total_ms(),
+                exceeded: false,
+                note: Some(String::from(
+                    "telemetry unavailable; broker used conservative global budget defaults",
+                )),
+            });
         }
+        ledger
     }
 
     pub fn record_parse(&mut self, used_ms: u64) {
         self.parse.consume(used_ms);
+        self.push_stage_event(
+            "consume",
+            "parse",
+            self.parse.allocated_ms,
+            self.parse.used_ms,
+            self.parse.remaining_ms,
+            self.parse.exceeded,
+            None,
+        );
         self.rebalance_after_parse();
         self.finish_stage_accounting();
     }
 
     pub fn record_layout(&mut self, used_ms: u64) {
         self.layout.consume(used_ms);
+        self.push_stage_event(
+            "consume",
+            "layout",
+            self.layout.allocated_ms,
+            self.layout.used_ms,
+            self.layout.remaining_ms,
+            self.layout.exceeded,
+            None,
+        );
         self.finish_stage_accounting();
     }
 
     pub fn record_render(&mut self, used_ms: u64) {
         self.render.consume(used_ms);
+        self.push_stage_event(
+            "consume",
+            "render",
+            self.render.allocated_ms,
+            self.render.used_ms,
+            self.render.remaining_ms,
+            self.render.exceeded,
+            None,
+        );
         self.finish_stage_accounting();
     }
 
@@ -2195,6 +2278,28 @@ impl MermaidBudgetLedger {
         self.layout.remaining_ms = layout_budget_ms;
         self.render.allocated_ms = render_budget_ms;
         self.render.remaining_ms = render_budget_ms;
+        self.push_stage_event(
+            "rebalance",
+            "layout",
+            self.layout.allocated_ms,
+            self.layout.used_ms,
+            self.layout.remaining_ms,
+            self.layout.exceeded,
+            Some(String::from(
+                "layout share increased after parse arbitration",
+            )),
+        );
+        self.push_stage_event(
+            "rebalance",
+            "render",
+            self.render.allocated_ms,
+            self.render.used_ms,
+            self.render.remaining_ms,
+            self.render.exceeded,
+            Some(String::from(
+                "render tail budget recalculated after parse arbitration",
+            )),
+        );
     }
 
     fn finish_stage_accounting(&mut self) {
@@ -2205,6 +2310,54 @@ impl MermaidBudgetLedger {
             .saturating_add(self.render.used_ms);
         self.remaining_total_ms = self.total_budget_ms.saturating_sub(used_total);
         self.exhausted = used_total > self.total_budget_ms;
+        self.events.push(MermaidBudgetEvent {
+            kind: String::from("accounting"),
+            stage: None,
+            allocated_ms: None,
+            used_ms: Some(used_total),
+            remaining_ms: None,
+            remaining_total_ms: self.snapshot_remaining_total_ms(),
+            exceeded: self.exhausted,
+            note: Some(if self.exhausted {
+                String::from("global budget exhausted")
+            } else {
+                String::from("global budget accounting updated")
+            }),
+        });
+    }
+
+    fn push_stage_event(
+        &mut self,
+        kind: &str,
+        stage: &str,
+        allocated_ms: u64,
+        used_ms: u64,
+        remaining_ms: u64,
+        exceeded: bool,
+        note: Option<String>,
+    ) {
+        self.events.push(MermaidBudgetEvent {
+            kind: kind.to_string(),
+            stage: Some(stage.to_string()),
+            allocated_ms: Some(allocated_ms),
+            used_ms: Some(used_ms),
+            remaining_ms: Some(remaining_ms),
+            remaining_total_ms: self.snapshot_remaining_total_ms(),
+            exceeded,
+            note,
+        });
+    }
+
+    fn snapshot_remaining_total_ms(&self) -> u64 {
+        self.total_budget_ms
+            .saturating_sub(self.current_used_total_ms())
+    }
+
+    fn current_used_total_ms(&self) -> u64 {
+        self.parse
+            .used_ms
+            .saturating_add(self.layout.used_ms)
+            .saturating_add(self.render.used_ms)
     }
 }
 
@@ -3552,6 +3705,54 @@ mod tests {
         broker.record_layout(40);
         broker.record_render(20);
         assert!(broker.exhausted);
+        assert!(broker.events.iter().any(|event| {
+            event.kind == "rebalance" && event.stage.as_deref() == Some("layout")
+        }));
+        assert!(broker.events.iter().any(|event| {
+            event.kind == "accounting" && event.note.as_deref() == Some("global budget exhausted")
+        }));
+    }
+
+    #[test]
+    fn budget_broker_events_capture_remaining_total_at_event_time() {
+        let pressure = MermaidNativePressureSignals::default().into_report();
+        let mut broker = crate::MermaidBudgetLedger::new(&pressure);
+
+        assert_eq!(broker.events.len(), 4);
+        assert!(
+            broker
+                .events
+                .iter()
+                .take(3)
+                .all(|event| event.kind == "allocate" && event.remaining_total_ms == 120)
+        );
+        assert_eq!(broker.events[3].kind, "policy_note");
+        assert_eq!(broker.events[3].remaining_total_ms, 120);
+
+        broker.record_parse(24);
+
+        let parse_consume = broker
+            .events
+            .iter()
+            .find(|event| event.kind == "consume" && event.stage.as_deref() == Some("parse"))
+            .expect("parse consume event should be emitted");
+        assert_eq!(parse_consume.used_ms, Some(24));
+        assert_eq!(parse_consume.remaining_total_ms, 96);
+
+        let layout_rebalance = broker
+            .events
+            .iter()
+            .find(|event| event.kind == "rebalance" && event.stage.as_deref() == Some("layout"))
+            .expect("layout rebalance event should be emitted");
+        assert_eq!(layout_rebalance.remaining_total_ms, 96);
+
+        let accounting = broker
+            .events
+            .iter()
+            .find(|event| event.kind == "accounting")
+            .expect("accounting event should be emitted");
+        assert_eq!(accounting.used_ms, Some(24));
+        assert_eq!(accounting.remaining_total_ms, 96);
     }
 
     #[test]

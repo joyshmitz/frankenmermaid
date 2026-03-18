@@ -435,6 +435,15 @@ fn merge_pressure_config(
     merged
 }
 
+fn apply_budget_svg_simplifications(
+    config: &mut SvgRenderConfig,
+    budget_broker: &MermaidBudgetLedger,
+) {
+    if budget_broker.should_simplify_render() {
+        config.shadows = false;
+    }
+}
+
 #[must_use]
 pub fn render(input: &str) -> WasmRenderOutput {
     let runtime = read_runtime_config();
@@ -469,7 +478,7 @@ pub fn render(input: &str) -> WasmRenderOutput {
     let source_spans = collect_source_spans(&parsed.ir, &traced_layout.layout);
     let mut svg_config = runtime.svg.clone();
     svg_config.include_source_spans = true;
-    svg_config.shadows = !budget_broker.should_simplify_render();
+    apply_budget_svg_simplifications(&mut svg_config, &budget_broker);
     let render_start = Instant::now();
     let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config);
     budget_broker
@@ -537,7 +546,7 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
     let mut svg_config =
         merge_svg_config(&runtime.svg, &overrides.svg, overrides.theme.as_deref())?;
     svg_config.include_source_spans = true;
-    svg_config.shadows = !budget_broker.should_simplify_render();
+    apply_budget_svg_simplifications(&mut svg_config, &budget_broker);
     let render_start = Instant::now();
     let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config);
     budget_broker
@@ -855,7 +864,7 @@ impl Diagram {
         guard.observability = observability;
         let mut render_svg_config = next_svg.clone();
         render_svg_config.include_source_spans = true;
-        render_svg_config.shadows = !budget_broker.should_simplify_render();
+        apply_budget_svg_simplifications(&mut render_svg_config, &budget_broker);
         let render_start = Instant::now();
         let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &render_svg_config);
 
@@ -939,8 +948,8 @@ impl Diagram {
 #[cfg(test)]
 mod tests {
     use super::{
-        PressureConfigOverrides, SvgConfigOverrides, ThemePreset, collect_source_spans,
-        merge_pressure_config, merge_svg_config, render,
+        PressureConfigOverrides, SvgConfigOverrides, ThemePreset, apply_budget_svg_simplifications,
+        collect_source_spans, merge_pressure_config, merge_svg_config, render,
     };
     use fm_core::{MermaidPressureTier, MermaidWasmPressureSignals};
     use fm_layout::layout_diagram_traced;
@@ -1005,6 +1014,35 @@ mod tests {
         assert_eq!(merged.worker_saturation_permille, Some(910));
         let report = merged.into_report();
         assert_eq!(report.tier, MermaidPressureTier::Critical);
+    }
+
+    #[test]
+    fn budget_simplification_respects_explicit_shadow_disable() {
+        let mut config = SvgRenderConfig {
+            shadows: false,
+            ..SvgRenderConfig::default()
+        };
+        let budget_broker =
+            fm_core::MermaidBudgetLedger::new(&MermaidWasmPressureSignals::default().into_report());
+        apply_budget_svg_simplifications(&mut config, &budget_broker);
+        assert!(!config.shadows);
+    }
+
+    #[test]
+    fn budget_simplification_disables_shadows_under_pressure() {
+        let mut config = SvgRenderConfig {
+            shadows: true,
+            ..SvgRenderConfig::default()
+        };
+        let pressure = MermaidWasmPressureSignals {
+            frame_budget_ms: Some(16),
+            frame_time_ms: Some(24),
+            worker_saturation_permille: Some(900),
+            ..MermaidWasmPressureSignals::default()
+        };
+        let budget_broker = fm_core::MermaidBudgetLedger::new(&pressure.into_report());
+        apply_budget_svg_simplifications(&mut config, &budget_broker);
+        assert!(!config.shadows);
     }
 
     #[cfg(target_arch = "wasm32")]

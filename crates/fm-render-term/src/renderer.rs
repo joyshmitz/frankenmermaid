@@ -846,6 +846,20 @@ pub fn render_diagram_with_config(
     renderer.render(ir)
 }
 
+/// Render an IR diagram to terminal output using a pre-computed layout.
+#[must_use]
+pub fn render_diagram_with_layout_and_config(
+    ir: &MermaidDiagramIr,
+    layout: &DiagramLayout,
+    config: &TermRenderConfig,
+    cols: usize,
+    rows: usize,
+) -> TermRenderResult {
+    let resolved = ResolvedConfig::resolve(config, cols, rows);
+    let renderer = TermRenderer::new(resolved);
+    renderer.render_layout(ir, layout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
