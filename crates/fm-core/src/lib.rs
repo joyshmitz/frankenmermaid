@@ -2060,6 +2060,110 @@ impl StructuredDiagnostic {
     }
 }
 
+// ── Sequence-diagram metadata ──────────────────────────────────────────
+
+/// Position of a note relative to participant lifelines.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum NotePosition {
+    LeftOf,
+    RightOf,
+    Over,
+}
+
+/// Kind of interaction fragment (combined fragment) in a sequence diagram.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum FragmentKind {
+    Loop,
+    Alt,
+    Opt,
+    Par,
+    Critical,
+    Break,
+    Rect,
+}
+
+/// Lifecycle event kind for participant creation/destruction.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum LifecycleEventKind {
+    Create,
+    Destroy,
+}
+
+/// An activation bar on a participant lifeline.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IrActivation {
+    pub participant: IrNodeId,
+    pub start_edge: usize,
+    pub end_edge: usize,
+    pub depth: usize,
+}
+
+/// A note attached to one or more participant lifelines.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IrSequenceNote {
+    pub position: NotePosition,
+    pub participants: Vec<IrNodeId>,
+    pub text: String,
+}
+
+/// One alternative section inside an `Alt` fragment.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FragmentAlternative {
+    pub label: String,
+    pub start_edge: usize,
+    pub end_edge: usize,
+}
+
+/// A combined-fragment (interaction operand) spanning a range of messages.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IrSequenceFragment {
+    pub kind: FragmentKind,
+    pub label: String,
+    pub start_edge: usize,
+    pub end_edge: usize,
+    pub alternatives: Vec<FragmentAlternative>,
+    pub children: Vec<usize>,
+}
+
+/// A named group of participants (rendered as a box around lifelines).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IrParticipantGroup {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    pub participants: Vec<IrNodeId>,
+}
+
+/// A participant creation or destruction event at a specific message index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IrLifecycleEvent {
+    pub kind: LifecycleEventKind,
+    pub participant: IrNodeId,
+    pub at_edge: usize,
+}
+
+/// Sequence-diagram-specific metadata that extends the generic IR.
+///
+/// Captures all advanced sequence constructs (activations, notes, fragments,
+/// participant groups, lifecycle events, autonumbering) that do not fit in the
+/// generic node/edge model.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrSequenceMeta {
+    pub autonumber: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub activations: Vec<IrActivation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<IrSequenceNote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fragments: Vec<IrSequenceFragment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub participant_groups: Vec<IrParticipantGroup>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lifecycle_events: Vec<IrLifecycleEvent>,
+}
+
+// ── Main IR container ──────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct MermaidDiagramIr {
     pub diagram_type: DiagramType,
@@ -2072,6 +2176,8 @@ pub struct MermaidDiagramIr {
     pub labels: Vec<IrLabel>,
     pub constraints: Vec<IrConstraint>,
     pub meta: MermaidDiagramMeta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sequence_meta: Option<IrSequenceMeta>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -2098,6 +2204,7 @@ impl MermaidDiagramIr {
                 theme_overrides: MermaidThemeOverrides::default(),
                 guard: MermaidGuardReport::default(),
             },
+            sequence_meta: None,
             diagnostics: Vec::new(),
         }
     }
@@ -2266,15 +2373,17 @@ mod tests {
 
     use super::{
         ArrowType, Diagnostic, DiagnosticCategory, DiagnosticSeverity, DiagramPalettePreset,
-        DiagramType, GraphDirection, IrAttributeKey, IrCluster, IrClusterId, IrEdge, IrEdgeKind,
-        IrEndpoint, IrEntityAttribute, IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel,
-        IrLabelId, IrNode, IrNodeId, IrNodeKind, IrPort, IrPortId, IrPortSideHint, IrSubgraph,
-        IrSubgraphId, MermaidConfig, MermaidDiagramIr, MermaidError, MermaidErrorCode,
+        DiagramType, FragmentAlternative, FragmentKind, GraphDirection, IrActivation,
+        IrAttributeKey, IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute,
+        IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel, IrLabelId, IrLifecycleEvent, IrNode,
+        IrNodeId, IrNodeKind, IrParticipantGroup, IrPort, IrPortId, IrPortSideHint,
+        IrSequenceFragment, IrSequenceMeta, IrSequenceNote, IrSubgraph, IrSubgraphId,
+        LifecycleEventKind, MermaidConfig, MermaidDiagramIr, MermaidError, MermaidErrorCode,
         MermaidFallbackAction, MermaidFallbackPolicy, MermaidSanitizeMode, MermaidSupportLevel,
-        MermaidWarningCode, NodeShape, Position, Span, StructuredDiagnostic, capability_matrix,
-        capability_matrix_json_pretty, capability_readme_supported_diagram_types_markdown,
-        capability_readme_surface_markdown, documented_diagram_types,
-        parse_mermaid_js_config_value, to_init_parse,
+        MermaidWarningCode, NodeShape, NotePosition, Position, Span, StructuredDiagnostic,
+        capability_matrix, capability_matrix_json_pretty,
+        capability_readme_supported_diagram_types_markdown, capability_readme_surface_markdown,
+        documented_diagram_types, parse_mermaid_js_config_value, to_init_parse,
     };
 
     fn sample_span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -3548,5 +3657,135 @@ mod tests {
             .unwrap_or_else(|| panic!("missing end marker for {block_name}"));
 
         readme[body_start..end].trim().to_string()
+    }
+
+    // ── IrSequenceMeta tests ───────────────────────────────────────────
+
+    #[test]
+    fn sequence_meta_default_is_empty() {
+        let meta = IrSequenceMeta::default();
+        assert!(!meta.autonumber);
+        assert!(meta.activations.is_empty());
+        assert!(meta.notes.is_empty());
+        assert!(meta.fragments.is_empty());
+        assert!(meta.participant_groups.is_empty());
+        assert!(meta.lifecycle_events.is_empty());
+    }
+
+    #[test]
+    fn sequence_meta_serde_round_trip() {
+        let meta = IrSequenceMeta {
+            autonumber: true,
+            activations: vec![IrActivation {
+                participant: IrNodeId(0),
+                start_edge: 1,
+                end_edge: 3,
+                depth: 0,
+            }],
+            notes: vec![IrSequenceNote {
+                position: NotePosition::RightOf,
+                participants: vec![IrNodeId(0)],
+                text: "important".to_string(),
+            }],
+            fragments: vec![IrSequenceFragment {
+                kind: FragmentKind::Alt,
+                label: "condition".to_string(),
+                start_edge: 0,
+                end_edge: 4,
+                alternatives: vec![FragmentAlternative {
+                    label: "else".to_string(),
+                    start_edge: 2,
+                    end_edge: 4,
+                }],
+                children: vec![],
+            }],
+            participant_groups: vec![IrParticipantGroup {
+                label: "Backend".to_string(),
+                color: Some("#aaf".to_string()),
+                participants: vec![IrNodeId(1), IrNodeId(2)],
+            }],
+            lifecycle_events: vec![IrLifecycleEvent {
+                kind: LifecycleEventKind::Create,
+                participant: IrNodeId(3),
+                at_edge: 5,
+            }],
+        };
+
+        let json = serde_json::to_string(&meta).expect("serialize");
+        let deser: IrSequenceMeta = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(meta, deser);
+    }
+
+    #[test]
+    fn sequence_meta_empty_vecs_skipped_in_json() {
+        let meta = IrSequenceMeta::default();
+        let json = serde_json::to_string(&meta).expect("serialize");
+        // Empty vecs should be skipped, only autonumber present
+        assert!(!json.contains("activations"));
+        assert!(!json.contains("notes"));
+        assert!(!json.contains("fragments"));
+        assert!(!json.contains("participant_groups"));
+        assert!(!json.contains("lifecycle_events"));
+    }
+
+    #[test]
+    fn ir_with_sequence_meta_round_trip() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.sequence_meta = Some(IrSequenceMeta {
+            autonumber: true,
+            ..Default::default()
+        });
+
+        let json = serde_json::to_string(&ir).expect("serialize");
+        assert!(json.contains("sequence_meta"));
+        let deser: MermaidDiagramIr = serde_json::from_str(&json).expect("deserialize");
+        assert!(deser.sequence_meta.is_some());
+        assert!(deser.sequence_meta.as_ref().unwrap().autonumber);
+    }
+
+    #[test]
+    fn ir_without_sequence_meta_omits_field() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        let json = serde_json::to_string(&ir).expect("serialize");
+        assert!(!json.contains("sequence_meta"));
+    }
+
+    #[test]
+    fn fragment_kind_variants() {
+        for kind in [
+            FragmentKind::Loop,
+            FragmentKind::Alt,
+            FragmentKind::Opt,
+            FragmentKind::Par,
+            FragmentKind::Critical,
+            FragmentKind::Break,
+            FragmentKind::Rect,
+        ] {
+            let json = serde_json::to_string(&kind).expect("serialize");
+            let deser: FragmentKind = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(kind, deser);
+        }
+    }
+
+    #[test]
+    fn note_position_variants() {
+        for pos in [
+            NotePosition::LeftOf,
+            NotePosition::RightOf,
+            NotePosition::Over,
+        ] {
+            let json = serde_json::to_string(&pos).expect("serialize");
+            let deser: NotePosition = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(pos, deser);
+        }
+    }
+
+    #[test]
+    fn lifecycle_event_kind_variants() {
+        for kind in [LifecycleEventKind::Create, LifecycleEventKind::Destroy] {
+            let json = serde_json::to_string(&kind).expect("serialize");
+            let deser: LifecycleEventKind = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(kind, deser);
+        }
     }
 }

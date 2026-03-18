@@ -83,6 +83,28 @@ enum SequenceStatement {
     Participant(String),
     Actor(String),
     Message(String),
+    Autonumber,
+    Note {
+        position: fm_core::NotePosition,
+        participants: Vec<String>,
+        text: String,
+    },
+    Activate(String),
+    Deactivate(String),
+    BoxStart {
+        label: String,
+        color: Option<String>,
+    },
+    CreateParticipant(String),
+    Destroy(String),
+    FragmentStart {
+        kind: fm_core::FragmentKind,
+        label: String,
+    },
+    FragmentElse {
+        label: String,
+    },
+    FragmentEnd,
 }
 
 #[derive(Debug, Clone)]
@@ -1065,6 +1087,85 @@ fn parse_sequence(input: &str, builder: &mut IrBuilder) {
 }
 
 fn parse_sequence_statement(line: &str) -> Option<SequenceStatement> {
+    if line == "autonumber" {
+        return Some(SequenceStatement::Autonumber);
+    }
+
+    if let Some(note) = parse_sequence_note(line) {
+        return Some(note);
+    }
+
+    if let Some(rest) = line.strip_prefix("activate ") {
+        let name = rest.trim();
+        if !name.is_empty() {
+            return Some(SequenceStatement::Activate(name.to_string()));
+        }
+    }
+
+    if let Some(rest) = line.strip_prefix("deactivate ") {
+        let name = rest.trim();
+        if !name.is_empty() {
+            return Some(SequenceStatement::Deactivate(name.to_string()));
+        }
+    }
+
+    if line == "end" {
+        // `end` closes both box groups and fragments; the builder
+        // will dispatch appropriately based on which is open.
+        return Some(SequenceStatement::FragmentEnd);
+    }
+
+    // Fragment start keywords
+    if let Some(frag) = parse_sequence_fragment_start(line) {
+        return Some(frag);
+    }
+
+    // Fragment else/and/option dividers
+    if let Some(rest) = line.strip_prefix("else") {
+        let label = rest.trim().to_string();
+        return Some(SequenceStatement::FragmentElse { label });
+    }
+    if let Some(rest) = line.strip_prefix("and") {
+        let label = rest.trim().to_string();
+        return Some(SequenceStatement::FragmentElse { label });
+    }
+    if let Some(rest) = line.strip_prefix("option") {
+        let label = rest.trim().to_string();
+        return Some(SequenceStatement::FragmentElse { label });
+    }
+
+    if let Some(rest) = line.strip_prefix("box ") {
+        let rest = rest.trim();
+        return Some(parse_sequence_box_start(rest));
+    }
+    if line == "box" {
+        return Some(SequenceStatement::BoxStart {
+            label: String::new(),
+            color: None,
+        });
+    }
+
+    if let Some(rest) = line.strip_prefix("create participant ") {
+        let name = rest.trim();
+        if !name.is_empty() {
+            return Some(SequenceStatement::CreateParticipant(name.to_string()));
+        }
+    }
+
+    if let Some(rest) = line.strip_prefix("create actor ") {
+        let name = rest.trim();
+        if !name.is_empty() {
+            return Some(SequenceStatement::CreateParticipant(name.to_string()));
+        }
+    }
+
+    if let Some(rest) = line.strip_prefix("destroy ") {
+        let name = rest.trim();
+        if !name.is_empty() {
+            return Some(SequenceStatement::Destroy(name.to_string()));
+        }
+    }
+
     if let Some(rest) = line.strip_prefix("participant ") {
         return Some(SequenceStatement::Participant(rest.trim().to_string()));
     }
@@ -1076,6 +1177,100 @@ fn parse_sequence_statement(line: &str) -> Option<SequenceStatement> {
     parse_sequence_message_ast(line).map(SequenceStatement::Message)
 }
 
+/// Parse `Note left of Alice: text`, `Note right of Bob: text`,
+/// `Note over Alice: text`, `Note over Alice,Bob: text`.
+fn parse_sequence_note(line: &str) -> Option<SequenceStatement> {
+    let rest = line.strip_prefix("Note ")?;
+
+    let (position, after_kw) = if let Some(r) = rest.strip_prefix("left of ") {
+        (fm_core::NotePosition::LeftOf, r)
+    } else if let Some(r) = rest.strip_prefix("right of ") {
+        (fm_core::NotePosition::RightOf, r)
+    } else if let Some(r) = rest.strip_prefix("over ") {
+        (fm_core::NotePosition::Over, r)
+    } else {
+        return None;
+    };
+
+    // Split at colon to get participants and text
+    let (participants_str, text) = after_kw.split_once(':')?;
+    let participants: Vec<String> = participants_str
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if participants.is_empty() {
+        return None;
+    }
+
+    // Replace <br/> and <br> with newlines in note text
+    let text = text
+        .trim()
+        .replace("<br/>", "\n")
+        .replace("<br>", "\n")
+        .replace("<br />", "\n");
+
+    Some(SequenceStatement::Note {
+        position,
+        participants,
+        text,
+    })
+}
+
+/// Parse `box [color] Label` into a BoxStart statement.
+/// Color can be a CSS color name, hex (#abc), rgb(), etc.
+fn parse_sequence_box_start(rest: &str) -> SequenceStatement {
+    // Try to detect a leading color token
+    let (color, label) =
+        if rest.starts_with('#') || rest.starts_with("rgb") || rest.starts_with("hsl") {
+            // Color value followed by label
+            if let Some(space_idx) = rest.find(' ') {
+                (
+                    Some(rest[..space_idx].to_string()),
+                    rest[space_idx..].trim().to_string(),
+                )
+            } else {
+                // Just a color, no label
+                (Some(rest.to_string()), String::new())
+            }
+        } else {
+            // No explicit color, entire string is the label
+            (None, rest.to_string())
+        };
+
+    SequenceStatement::BoxStart { label, color }
+}
+
+/// Parse fragment start keywords: loop, alt, opt, par, critical, break, rect.
+fn parse_sequence_fragment_start(line: &str) -> Option<SequenceStatement> {
+    let (kind, rest) = if let Some(r) = line.strip_prefix("loop") {
+        (fm_core::FragmentKind::Loop, r)
+    } else if let Some(r) = line.strip_prefix("alt") {
+        (fm_core::FragmentKind::Alt, r)
+    } else if let Some(r) = line.strip_prefix("opt") {
+        (fm_core::FragmentKind::Opt, r)
+    } else if let Some(r) = line.strip_prefix("par") {
+        (fm_core::FragmentKind::Par, r)
+    } else if let Some(r) = line.strip_prefix("critical") {
+        (fm_core::FragmentKind::Critical, r)
+    } else if let Some(r) = line.strip_prefix("break") {
+        (fm_core::FragmentKind::Break, r)
+    } else if let Some(r) = line.strip_prefix("rect") {
+        (fm_core::FragmentKind::Rect, r)
+    } else {
+        return None;
+    };
+
+    // Ensure keyword boundary (not a prefix of a longer word)
+    if !rest.is_empty() && !rest.starts_with(' ') {
+        return None;
+    }
+
+    let label = rest.trim().to_string();
+    Some(SequenceStatement::FragmentStart { kind, label })
+}
+
 fn lower_sequence_statement(
     statement: SequenceStatement,
     line_number: usize,
@@ -1083,24 +1278,75 @@ fn lower_sequence_statement(
     builder: &mut IrBuilder,
 ) {
     match statement {
-        SequenceStatement::Participant(declaration) => {
-            if !register_participant(&declaration, line_number, source_line, builder) {
+        SequenceStatement::Participant(declaration) | SequenceStatement::Actor(declaration) => {
+            if register_participant(&declaration, line_number, source_line, builder) {
+                // Track in current box group if one is open
+                let id = declaration
+                    .split_once(" as ")
+                    .map_or(declaration.as_str(), |(left, _)| left)
+                    .trim();
+                builder.track_participant_in_group(id);
+            } else {
                 builder.add_warning(format!(
                     "Line {line_number}: unable to parse participant declaration: {}",
                     source_line.trim()
                 ));
             }
         }
-        SequenceStatement::Actor(declaration) => {
-            if !register_participant(&declaration, line_number, source_line, builder) {
-                builder.add_warning(format!(
-                    "Line {line_number}: unable to parse actor declaration: {}",
-                    source_line.trim()
-                ));
-            }
-        }
         SequenceStatement::Message(statement) => {
             let _ = lower_sequence_message(&statement, line_number, source_line, builder);
+        }
+        SequenceStatement::Autonumber => {
+            builder.enable_autonumber();
+        }
+        SequenceStatement::Note {
+            position,
+            participants,
+            text,
+        } => {
+            builder.add_sequence_note(position, &participants, text);
+        }
+        SequenceStatement::Activate(name) => {
+            builder.activate_participant(&name);
+        }
+        SequenceStatement::Deactivate(name) => {
+            builder.deactivate_participant(&name);
+        }
+        SequenceStatement::BoxStart { label, color } => {
+            builder.begin_participant_group(label, color);
+        }
+        SequenceStatement::CreateParticipant(declaration) => {
+            let span = span_for(line_number, source_line);
+            if register_participant(&declaration, line_number, source_line, builder) {
+                // Extract the actual id from the declaration (handles "Name as Alias")
+                let id = declaration
+                    .split_once(" as ")
+                    .map_or(declaration.as_str(), |(left, _)| left)
+                    .trim();
+                builder.add_lifecycle_create(id);
+            } else {
+                builder.add_warning(format!(
+                    "Line {line_number}: unable to parse create participant: {}",
+                    source_line.trim()
+                ));
+                let _ = span; // suppress unused warning
+            }
+        }
+        SequenceStatement::Destroy(name) => {
+            builder.add_lifecycle_destroy(&name);
+        }
+        SequenceStatement::FragmentStart { kind, label } => {
+            builder.begin_fragment(kind, label);
+        }
+        SequenceStatement::FragmentElse { label } => {
+            builder.add_fragment_alternative(label);
+        }
+        SequenceStatement::FragmentEnd => {
+            // `end` can close either a fragment or a box group;
+            // try fragment first, fall back to box group.
+            if !builder.end_fragment() {
+                builder.end_participant_group();
+            }
         }
     }
 }
@@ -3892,8 +4138,18 @@ fn lower_sequence_message(
         (right, None)
     };
 
+    // Check for +/- activation modifiers on target
+    let (target_clean, activate_target, deactivate_target) =
+        if let Some(stripped) = target_raw.strip_prefix('+') {
+            (stripped, true, false)
+        } else if let Some(stripped) = target_raw.strip_prefix('-') {
+            (stripped, false, true)
+        } else {
+            (target_raw, false, false)
+        };
+
     let from_id = normalize_identifier(left);
-    let to_id = normalize_identifier(target_raw);
+    let to_id = normalize_identifier(target_clean);
     if from_id.is_empty() || to_id.is_empty() {
         return false;
     }
@@ -3903,12 +4159,18 @@ fn lower_sequence_message(
     let left_label = clean_label(Some(left)).filter(|l| l != &from_id);
     let from = builder.intern_node(&from_id, left_label.as_deref(), NodeShape::Rect, span);
 
-    let right_label = clean_label(Some(target_raw)).filter(|l| l != &to_id);
+    let right_label = clean_label(Some(target_clean)).filter(|l| l != &to_id);
     let to = builder.intern_node(&to_id, right_label.as_deref(), NodeShape::Rect, span);
 
     match (from, to) {
         (Some(from_node), Some(to_node)) => {
             builder.push_edge(from_node, to_node, arrow, message_label.as_deref(), span);
+            if activate_target {
+                builder.activate_participant(&to_id);
+            }
+            if deactivate_target {
+                builder.deactivate_participant(&to_id);
+            }
             true
         }
         _ => false,
@@ -6931,5 +7193,356 @@ Rel_Back(db, app, "Responds")"#,
             .and_then(|lid| parsed.ir.labels.get(lid.0))
             .map(|l| l.text.as_str());
         assert_eq!(label0, Some("First Task"));
+    }
+
+    // ── Sequence autonumber tests ──────────────────────────────────────
+
+    #[test]
+    fn sequence_autonumber_sets_meta() {
+        let input = "sequenceDiagram\n  autonumber\n  Alice->>Bob: Hello\n  Bob->>Alice: Hi";
+        let parsed = parse_mermaid(input);
+        assert_eq!(parsed.ir.diagram_type, DiagramType::Sequence);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert!(meta.autonumber, "autonumber should be true");
+    }
+
+    #[test]
+    fn sequence_without_autonumber_has_no_meta() {
+        let input = "sequenceDiagram\n  Alice->>Bob: Hello";
+        let parsed = parse_mermaid(input);
+        assert_eq!(parsed.ir.diagram_type, DiagramType::Sequence);
+        // Without autonumber, sequence_meta is None
+        assert!(parsed.ir.sequence_meta.is_none());
+    }
+
+    #[test]
+    fn sequence_autonumber_does_not_produce_warning() {
+        let input = "sequenceDiagram\n  autonumber\n  Alice->>Bob: Hello";
+        let parsed = parse_mermaid(input);
+        // autonumber should not generate unsupported syntax warnings
+        let autonumber_warnings: Vec<_> = parsed
+            .warnings
+            .iter()
+            .filter(|w| w.contains("autonumber"))
+            .collect();
+        assert!(
+            autonumber_warnings.is_empty(),
+            "autonumber should not produce warnings, got: {autonumber_warnings:?}"
+        );
+    }
+
+    // ── Sequence note tests ────────────────────────────────────────────
+
+    #[test]
+    fn sequence_note_left_of() {
+        let input = "sequenceDiagram\n  participant Alice\n  Note left of Alice: Important";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.notes.len(), 1);
+        assert_eq!(meta.notes[0].position, fm_core::NotePosition::LeftOf);
+        assert_eq!(meta.notes[0].text, "Important");
+        assert_eq!(meta.notes[0].participants.len(), 1);
+    }
+
+    #[test]
+    fn sequence_note_right_of() {
+        let input = "sequenceDiagram\n  participant Bob\n  Note right of Bob: Side note";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.notes.len(), 1);
+        assert_eq!(meta.notes[0].position, fm_core::NotePosition::RightOf);
+        assert_eq!(meta.notes[0].text, "Side note");
+    }
+
+    #[test]
+    fn sequence_note_over_single() {
+        let input = "sequenceDiagram\n  participant Alice\n  Note over Alice: Centered";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.notes.len(), 1);
+        assert_eq!(meta.notes[0].position, fm_core::NotePosition::Over);
+        assert_eq!(meta.notes[0].participants.len(), 1);
+    }
+
+    #[test]
+    fn sequence_note_over_span() {
+        let input =
+            "sequenceDiagram\n  participant Alice\n  participant Bob\n  Note over Alice,Bob: Span";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.notes.len(), 1);
+        assert_eq!(meta.notes[0].participants.len(), 2);
+        assert_eq!(meta.notes[0].text, "Span");
+    }
+
+    #[test]
+    fn sequence_note_multiline_br() {
+        let input = "sequenceDiagram\n  participant Alice\n  Note over Alice: Line 1<br/>Line 2";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.notes[0].text, "Line 1\nLine 2");
+    }
+
+    #[test]
+    fn sequence_note_does_not_produce_warning() {
+        let input = "sequenceDiagram\n  participant Alice\n  Note left of Alice: Test";
+        let parsed = parse_mermaid(input);
+        let note_warnings: Vec<_> = parsed
+            .warnings
+            .iter()
+            .filter(|w| w.to_lowercase().contains("note"))
+            .collect();
+        assert!(
+            note_warnings.is_empty(),
+            "Note should not produce warnings, got: {note_warnings:?}"
+        );
+    }
+
+    // ── Sequence activation tests ──────────────────────────────────────
+
+    #[test]
+    fn sequence_activate_deactivate_standalone() {
+        let input = "sequenceDiagram\n  participant Alice\n  participant Bob\n  Alice->>Bob: Request\n  activate Bob\n  Bob->>Alice: Response\n  deactivate Bob";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.activations.len(), 1);
+        assert_eq!(meta.activations[0].depth, 0);
+    }
+
+    #[test]
+    fn sequence_activate_plus_minus_syntax() {
+        let input = "sequenceDiagram\n  participant Alice\n  participant Bob\n  Alice->>+Bob: Request\n  Bob-->>-Alice: Response";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(
+            meta.activations.len(),
+            1,
+            "Should have one activation from +/- syntax"
+        );
+    }
+
+    #[test]
+    fn sequence_nested_activations() {
+        let input = "sequenceDiagram\n  participant Alice\n  participant Bob\n  Alice->>+Bob: First\n  Alice->>+Bob: Second\n  Bob-->>-Alice: Reply2\n  Bob-->>-Alice: Reply1";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.activations.len(), 2, "Should have two activations");
+    }
+
+    #[test]
+    fn sequence_activation_no_warnings() {
+        let input = "sequenceDiagram\n  participant Alice\n  participant Bob\n  activate Bob\n  Bob->>Alice: Hi\n  deactivate Bob";
+        let parsed = parse_mermaid(input);
+        let act_warnings: Vec<_> = parsed
+            .warnings
+            .iter()
+            .filter(|w| w.contains("activate") || w.contains("deactivate"))
+            .collect();
+        assert!(
+            act_warnings.is_empty(),
+            "activate/deactivate should not produce warnings, got: {act_warnings:?}"
+        );
+    }
+
+    // ── Sequence box grouping tests ────────────────────────────────────
+
+    #[test]
+    fn sequence_box_grouping() {
+        let input = "sequenceDiagram\n  box Blue Team\n    participant Alice\n    participant Bob\n  end\n  Alice->>Bob: Hello";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.participant_groups.len(), 1);
+        assert_eq!(meta.participant_groups[0].label, "Blue Team");
+        assert_eq!(meta.participant_groups[0].participants.len(), 2);
+    }
+
+    #[test]
+    fn sequence_box_with_color() {
+        let input = "sequenceDiagram\n  box #aaf Backend\n    participant API\n    participant DB\n  end\n  API->>DB: Query";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.participant_groups.len(), 1);
+        assert_eq!(meta.participant_groups[0].color, Some("#aaf".to_string()));
+        assert_eq!(meta.participant_groups[0].label, "Backend");
+    }
+
+    #[test]
+    fn sequence_box_no_warnings() {
+        let input =
+            "sequenceDiagram\n  box Team\n    participant Alice\n  end\n  Alice->>Alice: Self";
+        let parsed = parse_mermaid(input);
+        let box_warnings: Vec<_> = parsed
+            .warnings
+            .iter()
+            .filter(|w| w.to_lowercase().contains("box") || w.to_lowercase().contains("end"))
+            .collect();
+        assert!(
+            box_warnings.is_empty(),
+            "box/end should not produce warnings, got: {box_warnings:?}"
+        );
+    }
+
+    // ── Sequence create/destroy tests ──────────────────────────────────
+
+    #[test]
+    fn sequence_create_participant() {
+        let input = "sequenceDiagram\n  participant Alice\n  Alice->>Bob: Hello\n  create participant Carol\n  Bob->>Carol: Welcome";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        let creates: Vec<_> = meta
+            .lifecycle_events
+            .iter()
+            .filter(|e| e.kind == fm_core::LifecycleEventKind::Create)
+            .collect();
+        assert_eq!(creates.len(), 1, "Should have one create event");
+    }
+
+    #[test]
+    fn sequence_destroy_participant() {
+        let input = "sequenceDiagram\n  participant Alice\n  participant Bob\n  Alice->>Bob: Bye\n  destroy Bob";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        let destroys: Vec<_> = meta
+            .lifecycle_events
+            .iter()
+            .filter(|e| e.kind == fm_core::LifecycleEventKind::Destroy)
+            .collect();
+        assert_eq!(destroys.len(), 1, "Should have one destroy event");
+    }
+
+    // ── Sequence fragment tests ────────────────────────────────────────
+
+    #[test]
+    fn sequence_loop_fragment() {
+        let input = "sequenceDiagram\n  participant Alice\n  participant Bob\n  loop Every minute\n    Alice->>Bob: Heartbeat\n  end";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.fragments.len(), 1);
+        assert_eq!(meta.fragments[0].kind, fm_core::FragmentKind::Loop);
+        assert_eq!(meta.fragments[0].label, "Every minute");
+    }
+
+    #[test]
+    fn sequence_alt_else_fragment() {
+        let input = "sequenceDiagram\n  participant Alice\n  participant Bob\n  alt Success\n    Bob->>Alice: 200 OK\n  else Failure\n    Bob->>Alice: 500 Error\n  end";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.fragments.len(), 1);
+        assert_eq!(meta.fragments[0].kind, fm_core::FragmentKind::Alt);
+        assert_eq!(meta.fragments[0].label, "Success");
+        assert_eq!(
+            meta.fragments[0].alternatives.len(),
+            1,
+            "Should have one else alternative"
+        );
+        assert_eq!(meta.fragments[0].alternatives[0].label, "Failure");
+    }
+
+    #[test]
+    fn sequence_opt_fragment() {
+        let input = "sequenceDiagram\n  participant Alice\n  participant Carol\n  opt Optional\n    Alice->>Carol: Forward\n  end";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.fragments.len(), 1);
+        assert_eq!(meta.fragments[0].kind, fm_core::FragmentKind::Opt);
+    }
+
+    #[test]
+    fn sequence_nested_fragments() {
+        let input = "sequenceDiagram\n  participant A\n  participant B\n  loop Outer\n    A->>B: M1\n    alt Inner\n      B->>A: R1\n    end\n  end";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(
+            meta.fragments.len(),
+            2,
+            "Should have two fragments (inner + outer)"
+        );
+        // The inner (alt) is at index 0 (closed first), outer (loop) at index 1
+        assert_eq!(meta.fragments[0].kind, fm_core::FragmentKind::Alt);
+        assert_eq!(meta.fragments[1].kind, fm_core::FragmentKind::Loop);
+        // The outer should reference the inner as a child
+        assert_eq!(meta.fragments[1].children, vec![0]);
+    }
+
+    #[test]
+    fn sequence_rect_fragment() {
+        let input = "sequenceDiagram\n  participant A\n  participant B\n  rect rgb(200, 220, 240)\n    A->>B: Highlighted\n  end";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.fragments.len(), 1);
+        assert_eq!(meta.fragments[0].kind, fm_core::FragmentKind::Rect);
+        assert_eq!(meta.fragments[0].label, "rgb(200, 220, 240)");
+    }
+
+    #[test]
+    fn sequence_fragment_no_warnings() {
+        let input =
+            "sequenceDiagram\n  participant A\n  participant B\n  loop Test\n    A->>B: Hi\n  end";
+        let parsed = parse_mermaid(input);
+        let frag_warnings: Vec<_> = parsed
+            .warnings
+            .iter()
+            .filter(|w| {
+                w.to_lowercase().contains("loop") || w.to_lowercase().contains("unsupported")
+            })
+            .collect();
+        assert!(
+            frag_warnings.is_empty(),
+            "Fragments should not produce warnings, got: {frag_warnings:?}"
+        );
     }
 }

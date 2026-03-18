@@ -1863,7 +1863,14 @@ fn render_edge(
         && let Some(label) = ir.labels.get(label_id.0)
         && edge_path.points.len() >= 2
     {
-        let label_text = truncate_label(&label.text, detail.edge_label_max_chars);
+        let base_label = truncate_label(&label.text, detail.edge_label_max_chars);
+
+        // Prepend autonumber when enabled for sequence diagrams
+        let label_text = if ir.sequence_meta.as_ref().is_some_and(|m| m.autonumber) {
+            format!("{} {base_label}", edge_index + 1)
+        } else {
+            base_label
+        };
 
         // Position label at geometric midpoint of edge
         let (lx, ly) = if edge_path.points.len() == 4 {

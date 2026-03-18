@@ -1,12 +1,23 @@
 use fm_core::{
-    ArrowType, Diagnostic, DiagnosticCategory, DiagramType, GraphDirection, IrAttributeKey,
-    IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute, IrGraphCluster,
-    IrGraphEdge, IrGraphNode, IrLabel, IrLabelId, IrNode, IrNodeId, IrNodeKind, IrSubgraph,
-    IrSubgraphId, MermaidDiagramIr, MermaidError, MermaidParseMode, MermaidWarning,
-    MermaidWarningCode, NodeShape, Span,
+    ArrowType, Diagnostic, DiagnosticCategory, DiagramType, FragmentAlternative, FragmentKind,
+    GraphDirection, IrActivation, IrAttributeKey, IrCluster, IrClusterId, IrEdge, IrEdgeKind,
+    IrEndpoint, IrEntityAttribute, IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel, IrLabelId,
+    IrLifecycleEvent, IrNode, IrNodeId, IrNodeKind, IrParticipantGroup, IrSequenceFragment,
+    IrSequenceMeta, IrSequenceNote, IrSubgraph, IrSubgraphId, LifecycleEventKind, MermaidDiagramIr,
+    MermaidError, MermaidParseMode, MermaidWarning, MermaidWarningCode, NodeShape, NotePosition,
+    Span,
 };
 
 use crate::ParseResult;
+
+/// Open fragment entry: (kind, label, start_edge, alternatives, child_fragment_indices).
+type OpenFragment = (
+    FragmentKind,
+    String,
+    usize,
+    Vec<FragmentAlternative>,
+    Vec<usize>,
+);
 
 pub(crate) struct IrBuilder {
     ir: MermaidDiagramIr,
@@ -14,6 +25,12 @@ pub(crate) struct IrBuilder {
     warnings: Vec<String>,
     /// Track nodes that were auto-created (for dangling edge recovery)
     auto_created_nodes: Vec<IrNodeId>,
+    /// Stack of open activations per participant name: (node_id, start_edge_index, depth)
+    activation_stacks: std::collections::BTreeMap<String, Vec<(IrNodeId, usize)>>,
+    /// Currently open participant group (label, color, collected participant names)
+    current_participant_group: Option<(String, Option<String>, Vec<String>)>,
+    /// Stack of open fragments
+    fragment_stack: Vec<OpenFragment>,
 }
 
 impl IrBuilder {
@@ -23,6 +40,9 @@ impl IrBuilder {
             node_index_by_id: std::collections::BTreeMap::new(),
             warnings: Vec::new(),
             auto_created_nodes: Vec::new(),
+            activation_stacks: std::collections::BTreeMap::new(),
+            current_participant_group: None,
+            fragment_stack: Vec::new(),
         }
     }
 
@@ -68,6 +88,190 @@ impl IrBuilder {
 
     pub(crate) fn set_init_sequence_mirror_actors(&mut self, mirror_actors: bool) {
         self.ir.meta.init.config.sequence_mirror_actors = Some(mirror_actors);
+    }
+
+    pub(crate) fn enable_autonumber(&mut self) {
+        self.ir
+            .sequence_meta
+            .get_or_insert_with(IrSequenceMeta::default)
+            .autonumber = true;
+    }
+
+    pub(crate) fn add_sequence_note(
+        &mut self,
+        position: NotePosition,
+        participant_names: &[String],
+        text: String,
+    ) {
+        // Resolve participant names to node IDs
+        let participants: Vec<IrNodeId> = participant_names
+            .iter()
+            .filter_map(|name| self.node_index_by_id.get(name).copied())
+            .collect();
+
+        self.ir
+            .sequence_meta
+            .get_or_insert_with(IrSequenceMeta::default)
+            .notes
+            .push(IrSequenceNote {
+                position,
+                participants,
+                text,
+            });
+    }
+
+    pub(crate) fn activate_participant(&mut self, name: &str) {
+        let Some(&node_id) = self.node_index_by_id.get(name) else {
+            return;
+        };
+        let edge_index = self.ir.edges.len().saturating_sub(1);
+        self.activation_stacks
+            .entry(name.to_string())
+            .or_default()
+            .push((node_id, edge_index));
+    }
+
+    pub(crate) fn deactivate_participant(&mut self, name: &str) {
+        let Some(stack) = self.activation_stacks.get_mut(name) else {
+            return;
+        };
+        let Some((node_id, start_edge)) = stack.pop() else {
+            return;
+        };
+        let end_edge = self.ir.edges.len().saturating_sub(1);
+        let depth = stack.len(); // remaining stack depth = nesting level
+
+        self.ir
+            .sequence_meta
+            .get_or_insert_with(IrSequenceMeta::default)
+            .activations
+            .push(IrActivation {
+                participant: node_id,
+                start_edge,
+                end_edge,
+                depth,
+            });
+    }
+
+    pub(crate) fn begin_participant_group(&mut self, label: String, color: Option<String>) {
+        // If there's already an open group, auto-close it
+        self.end_participant_group();
+        self.current_participant_group = Some((label, color, Vec::new()));
+    }
+
+    pub(crate) fn end_participant_group(&mut self) {
+        if let Some((label, color, names)) = self.current_participant_group.take() {
+            let participants: Vec<IrNodeId> = names
+                .iter()
+                .filter_map(|name| self.node_index_by_id.get(name).copied())
+                .collect();
+
+            if !participants.is_empty() {
+                self.ir
+                    .sequence_meta
+                    .get_or_insert_with(IrSequenceMeta::default)
+                    .participant_groups
+                    .push(IrParticipantGroup {
+                        label,
+                        color,
+                        participants,
+                    });
+            }
+        }
+    }
+
+    /// Record that a participant declared inside a box group should be tracked.
+    pub(crate) fn track_participant_in_group(&mut self, name: &str) {
+        if let Some((_, _, ref mut names)) = self.current_participant_group {
+            names.push(name.to_string());
+        }
+    }
+
+    pub(crate) fn add_lifecycle_create(&mut self, name: &str) {
+        let Some(&node_id) = self.node_index_by_id.get(name) else {
+            return;
+        };
+        let at_edge = self.ir.edges.len();
+        self.ir
+            .sequence_meta
+            .get_or_insert_with(IrSequenceMeta::default)
+            .lifecycle_events
+            .push(IrLifecycleEvent {
+                kind: LifecycleEventKind::Create,
+                participant: node_id,
+                at_edge,
+            });
+    }
+
+    pub(crate) fn add_lifecycle_destroy(&mut self, name: &str) {
+        let Some(&node_id) = self.node_index_by_id.get(name) else {
+            return;
+        };
+        let at_edge = self.ir.edges.len().saturating_sub(1);
+        self.ir
+            .sequence_meta
+            .get_or_insert_with(IrSequenceMeta::default)
+            .lifecycle_events
+            .push(IrLifecycleEvent {
+                kind: LifecycleEventKind::Destroy,
+                participant: node_id,
+                at_edge,
+            });
+    }
+
+    pub(crate) fn begin_fragment(&mut self, kind: FragmentKind, label: String) {
+        let start_edge = self.ir.edges.len();
+        self.fragment_stack
+            .push((kind, label, start_edge, Vec::new(), Vec::new()));
+    }
+
+    pub(crate) fn add_fragment_alternative(&mut self, label: String) {
+        if let Some((_, _, _, alternatives, _)) = self.fragment_stack.last_mut() {
+            let start_edge = self.ir.edges.len();
+            // Close the previous section's end_edge
+            // The alternative starts at the current edge index
+            alternatives.push(FragmentAlternative {
+                label,
+                start_edge,
+                end_edge: start_edge, // will be updated when the next else/end arrives
+            });
+        }
+    }
+
+    /// Close the innermost open fragment. Returns true if a fragment was closed.
+    pub(crate) fn end_fragment(&mut self) -> bool {
+        let Some((kind, label, start_edge, mut alternatives, children)) = self.fragment_stack.pop()
+        else {
+            return false;
+        };
+
+        let end_edge = self.ir.edges.len().saturating_sub(1);
+
+        // Update the end_edge of the last alternative
+        if let Some(last_alt) = alternatives.last_mut() {
+            last_alt.end_edge = end_edge;
+        }
+
+        let meta = self
+            .ir
+            .sequence_meta
+            .get_or_insert_with(IrSequenceMeta::default);
+        let fragment_index = meta.fragments.len();
+        meta.fragments.push(IrSequenceFragment {
+            kind,
+            label,
+            start_edge,
+            end_edge,
+            alternatives,
+            children,
+        });
+
+        // Register as a child of the parent fragment, if any
+        if let Some((_, _, _, _, parent_children)) = self.fragment_stack.last_mut() {
+            parent_children.push(fragment_index);
+        }
+
+        true
     }
 
     pub(crate) fn add_init_warning(&mut self, message: impl Into<String>, span: Span) {
@@ -143,6 +347,11 @@ impl IrBuilder {
         confidence: f32,
         detection_method: crate::DetectionMethod,
     ) -> ParseResult {
+        // Close any remaining open fragments, activations, and participant groups
+        while self.end_fragment() {}
+        self.flush_open_activations();
+        self.end_participant_group();
+
         // Apply semantic recovery
         self.apply_semantic_recovery();
 
@@ -151,6 +360,26 @@ impl IrBuilder {
             warnings: self.warnings,
             confidence,
             detection_method,
+        }
+    }
+
+    /// Close any remaining open activations (auto-close at end of diagram).
+    fn flush_open_activations(&mut self) {
+        let end_edge = self.ir.edges.len().saturating_sub(1);
+        let stacks = std::mem::take(&mut self.activation_stacks);
+        for (_name, stack) in stacks {
+            for (idx, (node_id, start_edge)) in stack.into_iter().enumerate() {
+                self.ir
+                    .sequence_meta
+                    .get_or_insert_with(IrSequenceMeta::default)
+                    .activations
+                    .push(IrActivation {
+                        participant: node_id,
+                        start_edge,
+                        end_edge,
+                        depth: idx,
+                    });
+            }
         }
     }
 
