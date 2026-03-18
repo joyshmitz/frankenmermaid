@@ -5078,16 +5078,6 @@ fn bk_horizontal_compaction(
     let mut sink: Vec<usize> = (0..node_count).collect();
     let mut shift = vec![f32::INFINITY; node_count];
 
-    // Build position-in-rank and rank-nodes lookup.
-    let mut pos_in_rank: Vec<usize> = vec![0; node_count];
-    for nodes in ordering_by_rank.values() {
-        for (pos, &node) in nodes.iter().enumerate() {
-            if node < node_count {
-                pos_in_rank[node] = pos;
-            }
-        }
-    }
-
     // Build predecessor-in-rank lookup: for each node, its left neighbour in the same rank.
     let mut pred_in_rank: Vec<Option<usize>> = vec![None; node_count];
     for nodes in ordering_by_rank.values() {
