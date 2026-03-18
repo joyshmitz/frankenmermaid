@@ -8525,6 +8525,114 @@ mod tests {
             prop_assert!(layout.bounds.width >= 0.0);
             prop_assert!(layout.bounds.height >= 0.0);
         }
+
+        #[test]
+        fn prop_branching_graph_layout_never_panics(
+            branch_count in 1usize..8,
+            depth in 1usize..6,
+            direction_token in 0usize..4,
+        ) {
+            let direction = match direction_token {
+                0 => GraphDirection::TB,
+                1 => GraphDirection::LR,
+                2 => GraphDirection::RL,
+                _ => GraphDirection::BT,
+            };
+            let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+            ir.direction = direction;
+
+            // Create root node.
+            ir.nodes.push(IrNode { id: "root".to_string(), ..IrNode::default() });
+            // Create branches.
+            for b in 0..branch_count {
+                let mut parent_index = 0;
+                for d in 0..depth {
+                    let node_id = format!("b{b}_d{d}");
+                    let node_index = ir.nodes.len();
+                    ir.nodes.push(IrNode { id: node_id, ..IrNode::default() });
+                    ir.edges.push(IrEdge {
+                        from: IrEndpoint::Node(IrNodeId(parent_index)),
+                        to: IrEndpoint::Node(IrNodeId(node_index)),
+                        arrow: ArrowType::Arrow,
+                        ..IrEdge::default()
+                    });
+                    parent_index = node_index;
+                }
+            }
+
+            let layout = layout_diagram(&ir);
+            prop_assert!(layout.nodes.len() == ir.nodes.len());
+            // All coordinates must be finite.
+            for node in &layout.nodes {
+                prop_assert!(node.bounds.x.is_finite());
+                prop_assert!(node.bounds.y.is_finite());
+                prop_assert!(node.bounds.width > 0.0);
+                prop_assert!(node.bounds.height > 0.0);
+            }
+        }
+
+        #[test]
+        fn prop_random_edges_layout_is_deterministic(
+            node_count in 2usize..15,
+            edge_seed in 0u64..1000,
+        ) {
+            let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+            ir.direction = GraphDirection::TB;
+            for i in 0..node_count {
+                ir.nodes.push(IrNode { id: format!("N{i}"), ..IrNode::default() });
+            }
+            // Create edges based on seed for reproducibility.
+            let mut val = edge_seed;
+            let edge_count = node_count.min(10);
+            for _ in 0..edge_count {
+                val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let from = (val as usize) % node_count;
+                val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let to = (val as usize) % node_count;
+                if from != to {
+                    ir.edges.push(IrEdge {
+                        from: IrEndpoint::Node(IrNodeId(from)),
+                        to: IrEndpoint::Node(IrNodeId(to)),
+                        arrow: ArrowType::Arrow,
+                        ..IrEdge::default()
+                    });
+                }
+            }
+
+            let first = layout_diagram(&ir);
+            let second = layout_diagram(&ir);
+            for (n1, n2) in first.nodes.iter().zip(second.nodes.iter()) {
+                prop_assert_eq!(n1.bounds, n2.bounds, "Node {} differs", n1.node_id);
+            }
+        }
+
+        #[test]
+        fn prop_layout_bounds_contain_all_nodes(node_count in 1usize..20) {
+            let ir = chain_ir(node_count, GraphDirection::TB);
+            let layout = layout_diagram(&ir);
+            for node in &layout.nodes {
+                prop_assert!(
+                    node.bounds.x >= layout.bounds.x - 1.0,
+                    "Node {} x={:.1} outside bounds x={:.1}",
+                    node.node_id, node.bounds.x, layout.bounds.x
+                );
+                prop_assert!(
+                    node.bounds.y >= layout.bounds.y - 1.0,
+                    "Node {} y={:.1} outside bounds y={:.1}",
+                    node.node_id, node.bounds.y, layout.bounds.y
+                );
+                prop_assert!(
+                    node.bounds.x + node.bounds.width <= layout.bounds.x + layout.bounds.width + 1.0,
+                    "Node {} right edge outside bounds"
+                    , node.node_id
+                );
+                prop_assert!(
+                    node.bounds.y + node.bounds.height <= layout.bounds.y + layout.bounds.height + 1.0,
+                    "Node {} bottom edge outside bounds",
+                    node.node_id
+                );
+            }
+        }
     }
 
     // ── Sequence diagram layout tests ──────────────────────────────────

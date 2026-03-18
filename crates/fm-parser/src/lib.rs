@@ -716,5 +716,68 @@ mod tests {
             prop_assert_eq!(first.confidence, second.confidence);
             prop_assert_eq!(first.warnings, second.warnings);
         }
+
+        #[test]
+        fn prop_flowchart_with_random_edges_never_panics(
+            node_count in 1usize..10,
+            edge_seed in 0u64..500,
+        ) {
+            let mut input = String::from("flowchart LR\n");
+            for i in 0..node_count {
+                input.push_str(&format!("  N{i}[Node {i}]\n"));
+            }
+            let mut val = edge_seed;
+            for _ in 0..node_count {
+                val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let from = (val as usize) % node_count;
+                val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let to = (val as usize) % node_count;
+                if from != to {
+                    input.push_str(&format!("  N{from} --> N{to}\n"));
+                }
+            }
+
+            let result = parse(&input);
+            prop_assert_eq!(result.ir.diagram_type, DiagramType::Flowchart);
+            prop_assert!(result.ir.nodes.len() >= node_count);
+        }
+
+        #[test]
+        fn prop_parse_ir_is_deterministic(input in ".{0,128}") {
+            let r1 = parse(&input);
+            let r2 = parse(&input);
+            prop_assert_eq!(r1.ir, r2.ir);
+            prop_assert_eq!(r1.confidence, r2.confidence);
+        }
+
+        #[test]
+        fn prop_parse_node_count_matches_edge_endpoints(
+            node_count in 2usize..8,
+        ) {
+            let mut input = String::from("flowchart TB\n");
+            for i in 0..node_count {
+                input.push_str(&format!("  N{i} --> N{}\n", (i + 1) % node_count));
+            }
+            let result = parse(&input);
+            // All edge endpoints should reference existing nodes.
+            for edge in &result.ir.edges {
+                if let fm_core::IrEndpoint::Node(id) = edge.from {
+                    prop_assert!(
+                        id.0 < result.ir.nodes.len(),
+                        "Edge source {} out of range (nodes={})",
+                        id.0,
+                        result.ir.nodes.len()
+                    );
+                }
+                if let fm_core::IrEndpoint::Node(id) = edge.to {
+                    prop_assert!(
+                        id.0 < result.ir.nodes.len(),
+                        "Edge target {} out of range (nodes={})",
+                        id.0,
+                        result.ir.nodes.len()
+                    );
+                }
+            }
+        }
     }
 }

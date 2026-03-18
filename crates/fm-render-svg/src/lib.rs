@@ -2610,5 +2610,52 @@ mod tests {
             prop_assert!(svg.contains(&expected_nodes_attr));
             prop_assert!(svg.contains(&expected_edges_attr));
         }
+
+        #[test]
+        fn prop_svg_output_is_deterministic(node_count in 1usize..15) {
+            let ir = create_linear_ir(node_count);
+            let svg1 = render_svg(&ir);
+            let svg2 = render_svg(&ir);
+            prop_assert_eq!(svg1, svg2, "SVG output should be byte-identical for same input");
+        }
+
+        #[test]
+        fn prop_svg_all_themes_render_without_panic(theme_token in 0usize..4) {
+            let theme = match theme_token {
+                0 => ThemePreset::Default,
+                1 => ThemePreset::Dark,
+                2 => ThemePreset::Forest,
+                _ => ThemePreset::Neutral,
+            };
+            let ir = create_linear_ir(5);
+            let config = SvgRenderConfig {
+                theme,
+                ..Default::default()
+            };
+            let svg = render_svg_with_config(&ir, &config);
+            prop_assert!(svg.starts_with("<svg"));
+            prop_assert!(svg.ends_with("</svg>"));
+        }
+
+        #[test]
+        fn prop_svg_contains_viewbox(node_count in 1usize..10) {
+            let ir = create_linear_ir(node_count);
+            let svg = render_svg(&ir);
+            prop_assert!(svg.contains("viewBox="), "SVG should contain viewBox attribute");
+        }
+
+        #[test]
+        fn prop_svg_render_never_contains_nan(node_count in 0usize..15) {
+            let ir = create_linear_ir(node_count);
+            let svg = render_svg(&ir);
+            prop_assert!(
+                !svg.contains("NaN"),
+                "SVG output should never contain NaN values"
+            );
+            prop_assert!(
+                !svg.contains("Infinity"),
+                "SVG output should never contain Infinity values"
+            );
+        }
     }
 }
