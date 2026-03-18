@@ -6262,6 +6262,7 @@ pub fn build_layout_guard_report_with_pressure(
         guard_reason: Some(guard.reason.to_string()),
         observability: fm_core::MermaidObservabilityIds::default(),
         pressure,
+        budget_broker: fm_core::MermaidBudgetLedger::default(),
         degradation: fm_core::MermaidDegradationPlan {
             target_fidelity: if budget_exceeded {
                 MermaidFidelity::Compact

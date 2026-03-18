@@ -923,7 +923,7 @@ impl GraphDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct IrNodeId(pub usize);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
@@ -1361,11 +1361,7 @@ impl MermaidGraphIr {
             let Some(subgraph) = graph.subgraph(subgraph_id) else {
                 return;
             };
-            for &member in &subgraph.members {
-                if !members.contains(&member) {
-                    members.push(member);
-                }
-            }
+            members.extend(subgraph.members.iter().copied());
             for &child_id in &subgraph.children {
                 collect(graph, child_id, members);
             }
@@ -1373,6 +1369,8 @@ impl MermaidGraphIr {
 
         let mut members = Vec::new();
         collect(self, subgraph_id, &mut members);
+        members.sort_unstable();
+        members.dedup();
         members
     }
 }
@@ -2071,6 +2069,154 @@ impl MermaidWasmPressureSignals {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MermaidStageBudgetLedger {
+    pub stage: String,
+    pub allocated_ms: u64,
+    pub used_ms: u64,
+    pub remaining_ms: u64,
+    pub exceeded: bool,
+}
+
+impl MermaidStageBudgetLedger {
+    #[must_use]
+    pub fn new(stage: &str, allocated_ms: u64) -> Self {
+        Self {
+            stage: stage.to_string(),
+            allocated_ms,
+            used_ms: 0,
+            remaining_ms: allocated_ms,
+            exceeded: false,
+        }
+    }
+
+    pub fn consume(&mut self, used_ms: u64) {
+        self.used_ms = used_ms;
+        self.remaining_ms = self.allocated_ms.saturating_sub(used_ms);
+        self.exceeded = used_ms > self.allocated_ms;
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MermaidBudgetLedger {
+    pub arbitration_policy: String,
+    pub total_budget_ms: u64,
+    pub remaining_total_ms: u64,
+    pub exhausted: bool,
+    pub pressure_tier: MermaidPressureTier,
+    pub parse: MermaidStageBudgetLedger,
+    pub layout: MermaidStageBudgetLedger,
+    pub render: MermaidStageBudgetLedger,
+    pub notes: Vec<String>,
+}
+
+impl Default for MermaidBudgetLedger {
+    fn default() -> Self {
+        Self::new(&MermaidPressureReport::default())
+    }
+}
+
+impl MermaidBudgetLedger {
+    #[must_use]
+    pub fn new(pressure: &MermaidPressureReport) -> Self {
+        let total_budget_ms: u64 = match pressure.tier {
+            MermaidPressureTier::Unknown => 120,
+            MermaidPressureTier::Nominal => 250,
+            MermaidPressureTier::Elevated => 180,
+            MermaidPressureTier::High => 120,
+            MermaidPressureTier::Critical => 80,
+        };
+        let parse_budget_ms = total_budget_ms.div_ceil(5);
+        let render_budget_ms = total_budget_ms.div_ceil(5);
+        let layout_budget_ms = total_budget_ms
+            .saturating_sub(parse_budget_ms)
+            .saturating_sub(render_budget_ms);
+        let mut notes = Vec::new();
+        if pressure.conservative_fallback {
+            notes.push(String::from(
+                "telemetry unavailable; broker used conservative global budget defaults",
+            ));
+        }
+        Self {
+            arbitration_policy: String::from("parse_first_then_layout_heavy_then_render_tail"),
+            total_budget_ms,
+            remaining_total_ms: total_budget_ms,
+            exhausted: false,
+            pressure_tier: pressure.tier,
+            parse: MermaidStageBudgetLedger::new("parse", parse_budget_ms),
+            layout: MermaidStageBudgetLedger::new("layout", layout_budget_ms),
+            render: MermaidStageBudgetLedger::new("render", render_budget_ms),
+            notes,
+        }
+    }
+
+    pub fn record_parse(&mut self, used_ms: u64) {
+        self.parse.consume(used_ms);
+        self.rebalance_after_parse();
+        self.finish_stage_accounting();
+    }
+
+    pub fn record_layout(&mut self, used_ms: u64) {
+        self.layout.consume(used_ms);
+        self.finish_stage_accounting();
+    }
+
+    pub fn record_render(&mut self, used_ms: u64) {
+        self.render.consume(used_ms);
+        self.finish_stage_accounting();
+    }
+
+    #[must_use]
+    pub fn layout_time_budget_ms(&self) -> usize {
+        self.layout.allocated_ms.max(1) as usize
+    }
+
+    #[must_use]
+    pub fn layout_iteration_budget(&self, default_budget: usize) -> usize {
+        scale_budget(default_budget, self.layout.allocated_ms, 250)
+    }
+
+    #[must_use]
+    pub fn route_budget(&self, default_budget: usize) -> usize {
+        scale_budget(default_budget, self.layout.allocated_ms, 250)
+    }
+
+    #[must_use]
+    pub const fn should_simplify_render(&self) -> bool {
+        matches!(
+            self.pressure_tier,
+            MermaidPressureTier::High | MermaidPressureTier::Critical
+        ) || self.render.allocated_ms <= 24
+    }
+
+    fn rebalance_after_parse(&mut self) {
+        let remaining_total = self.total_budget_ms.saturating_sub(self.parse.used_ms);
+        let render_budget_ms = remaining_total.div_ceil(4);
+        let layout_budget_ms = remaining_total.saturating_sub(render_budget_ms);
+        self.layout.allocated_ms = layout_budget_ms;
+        self.layout.remaining_ms = layout_budget_ms;
+        self.render.allocated_ms = render_budget_ms;
+        self.render.remaining_ms = render_budget_ms;
+    }
+
+    fn finish_stage_accounting(&mut self) {
+        let used_total = self
+            .parse
+            .used_ms
+            .saturating_add(self.layout.used_ms)
+            .saturating_add(self.render.used_ms);
+        self.remaining_total_ms = self.total_budget_ms.saturating_sub(used_total);
+        self.exhausted = used_total > self.total_budget_ms;
+    }
+}
+
+fn scale_budget(default_budget: usize, allocated_ms: u64, baseline_ms: u64) -> usize {
+    let numerator = (default_budget as u128)
+        .saturating_mul(allocated_ms.max(1) as u128)
+        .div_ceil(baseline_ms.max(1) as u128);
+    numerator.max(1).min(usize::MAX as u128) as usize
+}
+
 fn env_permille(key: &str) -> Option<u16> {
     env_u16(key).map(|value| value.min(1_000))
 }
@@ -2139,6 +2285,7 @@ pub struct MermaidGuardReport {
     pub guard_reason: Option<String>,
     pub observability: MermaidObservabilityIds,
     pub pressure: MermaidPressureReport,
+    pub budget_broker: MermaidBudgetLedger,
     pub degradation: MermaidDegradationPlan,
 }
 

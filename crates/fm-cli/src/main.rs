@@ -18,13 +18,14 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use fm_core::{
-    DiagramType, MermaidDiagramIr, MermaidNativePressureSignals, MermaidParseMode,
+    DiagramType, MermaidBudgetLedger, MermaidDiagramIr, MermaidNativePressureSignals, MermaidParseMode,
     StructuredDiagnostic, capability_matrix, capability_matrix_json_pretty,
     mermaid_layout_guard_observability,
 };
 use fm_layout::{
-    LayoutAlgorithm, TracedLayout, build_layout_guard_report_with_pressure,
+    LayoutAlgorithm, LayoutGuardrails, TracedLayout, build_layout_guard_report_with_pressure,
     layout_diagram_traced_with_algorithm,
+    layout_diagram_traced_with_algorithm_and_guardrails,
 };
 use fm_parser::{detect_type_with_confidence, parse_evidence_json, parse_with_mode};
 use fm_render_svg::{SvgRenderConfig, ThemePreset, render_svg_with_layout};
@@ -378,6 +379,11 @@ struct RenderResult {
     decision_id: String,
     policy_id: String,
     schema_version: String,
+    budget_total_ms: u64,
+    parse_budget_ms: u64,
+    layout_budget_ms: u64,
+    render_budget_ms: u64,
+    budget_exhausted: bool,
     output_bytes: usize,
     width: Option<u32>,
     height: Option<u32>,
@@ -450,6 +456,11 @@ struct ValidateResult {
     decision_id: String,
     policy_id: String,
     schema_version: String,
+    budget_total_ms: u64,
+    parse_budget_ms: u64,
+    layout_budget_ms: u64,
+    render_budget_ms: u64,
+    budget_exhausted: bool,
     diagnostics: Vec<ValidationDiagnostic>,
 }
 
@@ -643,12 +654,15 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
     }
 
     let total_start = Instant::now();
+    let pressure = MermaidNativePressureSignals::sample().into_report();
+    let mut budget_broker = MermaidBudgetLedger::new(&pressure);
 
     // Parse
     let parse_start = Instant::now();
     let source = load_input(input)?;
     let parsed = parse_with_mode(&source, parse_mode);
     let parse_time = parse_start.elapsed();
+    budget_broker.record_parse(parse_time.as_millis().min(u128::from(u64::MAX)) as u64);
 
     debug!(
         "Parsed: type={:?}, nodes={}, edges={}, warnings={}",
@@ -664,10 +678,20 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
 
     // Layout
     let layout_start = Instant::now();
-    let traced_layout = layout_diagram_traced_with_algorithm(&parsed.ir, layout_algorithm);
+    let layout_guardrails = LayoutGuardrails {
+        max_layout_time_ms: budget_broker.layout_time_budget_ms(),
+        max_layout_iterations: budget_broker
+            .layout_iteration_budget(LayoutGuardrails::default().max_layout_iterations),
+        max_route_ops: budget_broker.route_budget(LayoutGuardrails::default().max_route_ops),
+    };
+    let traced_layout = layout_diagram_traced_with_algorithm_and_guardrails(
+        &parsed.ir,
+        layout_algorithm,
+        layout_guardrails,
+    );
     let layout = &traced_layout.layout;
     let layout_time = layout_start.elapsed();
-    let pressure = MermaidNativePressureSignals::sample().into_report();
+    budget_broker.record_layout(layout_time.as_millis().min(u128::from(u64::MAX)) as u64);
     let mut guard_report =
         build_layout_guard_report_with_pressure(&parsed.ir, &traced_layout, pressure);
     let (_cx, observability) = mermaid_layout_guard_observability(
@@ -697,9 +721,16 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
 
     // Render
     let render_start = Instant::now();
+    let effective_theme = if budget_broker.should_simplify_render() {
+        "plain"
+    } else {
+        theme
+    };
     let (rendered, actual_width, actual_height) =
-        render_format(&parsed.ir, layout, format, theme, width, height)?;
+        render_format(&parsed.ir, layout, format, effective_theme, width, height)?;
     let render_time = render_start.elapsed();
+    budget_broker.record_render(render_time.as_millis().min(u128::from(u64::MAX)) as u64);
+    guard_report.budget_broker = budget_broker.clone();
 
     let total_time = total_start.elapsed();
 
@@ -740,6 +771,11 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             decision_id: guard_report.observability.decision_id.to_string(),
             policy_id: guard_report.observability.policy_id.to_string(),
             schema_version: guard_report.observability.schema_version.to_string(),
+            budget_total_ms: budget_broker.total_budget_ms,
+            parse_budget_ms: budget_broker.parse.allocated_ms,
+            layout_budget_ms: budget_broker.layout.allocated_ms,
+            render_budget_ms: budget_broker.render.allocated_ms,
+            budget_exhausted: budget_broker.exhausted,
             output_bytes: rendered.len(),
             width: actual_width,
             height: actual_height,
@@ -1107,10 +1143,30 @@ fn cmd_validate(
     fail_on: FailOnSeverity,
     diagnostics_out: Option<&str>,
 ) -> Result<()> {
+    let total_start = Instant::now();
+    let pressure = MermaidNativePressureSignals::sample().into_report();
+    let mut budget_broker = MermaidBudgetLedger::new(&pressure);
+
+    let parse_start = Instant::now();
     let source = load_input(input)?;
     let parsed = parse_with_mode(&source, parse_mode);
-    let traced_layout = layout_diagram_traced_with_algorithm(&parsed.ir, layout_algorithm);
-    let pressure = MermaidNativePressureSignals::sample().into_report();
+    let parse_time = parse_start.elapsed();
+    budget_broker.record_parse(parse_time.as_millis().min(u128::from(u64::MAX)) as u64);
+
+    let layout_start = Instant::now();
+    let layout_guardrails = LayoutGuardrails {
+        max_layout_time_ms: budget_broker.layout_time_budget_ms(),
+        max_layout_iterations: budget_broker
+            .layout_iteration_budget(LayoutGuardrails::default().max_layout_iterations),
+        max_route_ops: budget_broker.route_budget(LayoutGuardrails::default().max_route_ops),
+    };
+    let traced_layout = layout_diagram_traced_with_algorithm_and_guardrails(
+        &parsed.ir,
+        layout_algorithm,
+        layout_guardrails,
+    );
+    let layout_time = layout_start.elapsed();
+    budget_broker.record_layout(layout_time.as_millis().min(u128::from(u64::MAX)) as u64);
     let mut guard_report =
         build_layout_guard_report_with_pressure(&parsed.ir, &traced_layout, pressure);
     let (_cx, observability) = mermaid_layout_guard_observability(
@@ -1123,9 +1179,14 @@ fn cmd_validate(
     let layout = &traced_layout.layout;
     let svg_config = SvgRenderConfig {
         include_source_spans: true,
+        shadows: !budget_broker.should_simplify_render(),
         ..SvgRenderConfig::default()
     };
+    let render_start = Instant::now();
     let svg_output = render_svg_with_layout(&parsed.ir, layout, &svg_config);
+    let render_time = render_start.elapsed();
+    budget_broker.record_render(render_time.as_millis().min(u128::from(u64::MAX)) as u64);
+    guard_report.budget_broker = budget_broker.clone();
 
     let mut diagnostics = collect_parse_diagnostics(&parsed);
     diagnostics.extend(collect_structural_diagnostics(&parsed));
@@ -1165,8 +1226,14 @@ fn cmd_validate(
         decision_id: guard_report.observability.decision_id.to_string(),
         policy_id: guard_report.observability.policy_id.to_string(),
         schema_version: guard_report.observability.schema_version.to_string(),
+        budget_total_ms: budget_broker.total_budget_ms,
+        parse_budget_ms: budget_broker.parse.allocated_ms,
+        layout_budget_ms: budget_broker.layout.allocated_ms,
+        render_budget_ms: budget_broker.render.allocated_ms,
+        budget_exhausted: budget_broker.exhausted,
         diagnostics,
     };
+    let _total_time = total_start.elapsed();
 
     if let Some(path) = diagnostics_out {
         let artifact = serde_json::to_string_pretty(&result)?;

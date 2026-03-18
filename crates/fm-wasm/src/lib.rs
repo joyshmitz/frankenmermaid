@@ -1,12 +1,16 @@
 #![forbid(unsafe_code)]
 
 use std::sync::{LazyLock, RwLock};
+use std::time::Instant;
 
 use fm_core::{
-    MermaidDiagramIr, MermaidGuardReport, MermaidWasmPressureSignals, Span, capability_matrix,
-    mermaid_layout_guard_observability,
+    MermaidBudgetLedger, MermaidDiagramIr, MermaidGuardReport, MermaidWasmPressureSignals, Span,
+    capability_matrix, mermaid_layout_guard_observability,
 };
-use fm_layout::{DiagramLayout, build_layout_guard_report_with_pressure, layout_diagram_traced};
+use fm_layout::{
+    DiagramLayout, LayoutGuardrails, build_layout_guard_report_with_pressure,
+    layout_diagram_traced, layout_diagram_traced_with_algorithm_and_guardrails,
+};
 #[cfg(target_arch = "wasm32")]
 use fm_parser::ParseResult;
 use fm_parser::{detect_type_with_confidence, parse};
@@ -433,10 +437,30 @@ fn merge_pressure_config(
 
 #[must_use]
 pub fn render(input: &str) -> WasmRenderOutput {
-    let parsed = parse(input);
     let runtime = read_runtime_config();
-    let traced_layout = layout_diagram_traced(&parsed.ir);
     let pressure = runtime.pressure.into_report();
+    let mut budget_broker = MermaidBudgetLedger::new(&pressure);
+    let parse_start = Instant::now();
+    let parsed = parse(input);
+    budget_broker.record_parse(parse_start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+    let layout_guardrails = LayoutGuardrails {
+        max_layout_time_ms: budget_broker.layout_time_budget_ms(),
+        max_layout_iterations: budget_broker
+            .layout_iteration_budget(LayoutGuardrails::default().max_layout_iterations),
+        max_route_ops: budget_broker.route_budget(LayoutGuardrails::default().max_route_ops),
+    };
+    let layout_start = Instant::now();
+    let traced_layout = layout_diagram_traced_with_algorithm_and_guardrails(
+        &parsed.ir,
+        fm_layout::LayoutAlgorithm::Auto,
+        layout_guardrails,
+    );
+    budget_broker.record_layout(
+        layout_start
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64,
+    );
     let mut guard = build_layout_guard_report_with_pressure(&parsed.ir, &traced_layout, pressure);
     let (_cx, observability) = mermaid_layout_guard_observability(
         "wasm.render",
@@ -445,14 +469,25 @@ pub fn render(input: &str) -> WasmRenderOutput {
         traced_layout.trace.guard.estimated_layout_time_ms.max(1) as u64,
     );
     guard.observability = observability;
+    guard.budget_broker = budget_broker.clone();
     let source_spans = collect_source_spans(&parsed.ir, &traced_layout.layout);
     let svg_config = SvgRenderConfig {
         include_source_spans: true,
+        shadows: !budget_broker.should_simplify_render(),
         ..runtime.svg.clone()
     };
+    let render_start = Instant::now();
+    let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config);
+    budget_broker.record_render(
+        render_start
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64,
+    );
+    guard.budget_broker = budget_broker;
 
     WasmRenderOutput {
-        svg: render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config),
+        svg,
         detected_type: parsed.ir.diagram_type.as_str().to_string(),
         trace_id: guard.observability.trace_id.to_string(),
         decision_id: guard.observability.decision_id.to_string(),
@@ -486,9 +521,29 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
         include_source_spans: true,
         ..merge_svg_config(&runtime.svg, &overrides.svg, overrides.theme.as_deref())?
     };
-    let parsed = parse(input);
-    let traced_layout = layout_diagram_traced(&parsed.ir);
     let pressure = merge_pressure_config(&runtime.pressure, &overrides.pressure).into_report();
+    let mut budget_broker = MermaidBudgetLedger::new(&pressure);
+    let parse_start = Instant::now();
+    let parsed = parse(input);
+    budget_broker.record_parse(parse_start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+    let layout_guardrails = LayoutGuardrails {
+        max_layout_time_ms: budget_broker.layout_time_budget_ms(),
+        max_layout_iterations: budget_broker
+            .layout_iteration_budget(LayoutGuardrails::default().max_layout_iterations),
+        max_route_ops: budget_broker.route_budget(LayoutGuardrails::default().max_route_ops),
+    };
+    let layout_start = Instant::now();
+    let traced_layout = layout_diagram_traced_with_algorithm_and_guardrails(
+        &parsed.ir,
+        fm_layout::LayoutAlgorithm::Auto,
+        layout_guardrails,
+    );
+    budget_broker.record_layout(
+        layout_start
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64,
+    );
     let mut _guard = build_layout_guard_report_with_pressure(&parsed.ir, &traced_layout, pressure);
     let (_cx, observability) = mermaid_layout_guard_observability(
         "wasm.renderSvg",
@@ -497,6 +552,7 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
         traced_layout.trace.guard.estimated_layout_time_ms.max(1) as u64,
     );
     _guard.observability = observability;
+    _guard.budget_broker = budget_broker;
     Ok(render_svg_with_layout(
         &parsed.ir,
         &traced_layout.layout,
@@ -787,12 +843,38 @@ impl Diagram {
         let next_canvas = merge_canvas_config(&self.canvas_config, &overrides.canvas);
         let next_pressure = merge_pressure_config(&self.pressure_config, &overrides.pressure);
 
+        let pressure_report = next_pressure.into_report();
+        let mut budget_broker = MermaidBudgetLedger::new(&pressure_report);
+        let parse_start = Instant::now();
         let parsed = parse(input);
-        let traced_layout = layout_diagram_traced(&parsed.ir);
+        budget_broker.record_parse(
+            parse_start
+                .elapsed()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64,
+        );
+        let layout_guardrails = LayoutGuardrails {
+            max_layout_time_ms: budget_broker.layout_time_budget_ms(),
+            max_layout_iterations: budget_broker
+                .layout_iteration_budget(LayoutGuardrails::default().max_layout_iterations),
+            max_route_ops: budget_broker.route_budget(LayoutGuardrails::default().max_route_ops),
+        };
+        let layout_start = Instant::now();
+        let traced_layout = layout_diagram_traced_with_algorithm_and_guardrails(
+            &parsed.ir,
+            fm_layout::LayoutAlgorithm::Auto,
+            layout_guardrails,
+        );
+        budget_broker.record_layout(
+            layout_start
+                .elapsed()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64,
+        );
         let mut guard = build_layout_guard_report_with_pressure(
             &parsed.ir,
             &traced_layout,
-            next_pressure.into_report(),
+            pressure_report,
         );
         let (_cx, observability) = mermaid_layout_guard_observability(
             "wasm.diagram.render",
@@ -801,7 +883,15 @@ impl Diagram {
             traced_layout.trace.guard.estimated_layout_time_ms.max(1) as u64,
         );
         guard.observability = observability;
+        let render_start = Instant::now();
         let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &render_svg_config);
+        budget_broker.record_render(
+            render_start
+                .elapsed()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64,
+        );
+        guard.budget_broker = budget_broker;
 
         let mut web_canvas = WebCanvas2dContext::new(self.canvas.clone(), self.context.clone());
         let canvas_result = render_to_canvas_with_layout(

@@ -610,6 +610,11 @@ fn render_json_writes_artifact_and_stdout_metadata() {
     assert!(json["decision_id"].is_string());
     assert!(json["policy_id"].is_string());
     assert_eq!(json["schema_version"], "1.0.0");
+    assert!(json["budget_total_ms"].is_u64());
+    assert!(json["parse_budget_ms"].is_u64());
+    assert!(json["layout_budget_ms"].is_u64());
+    assert!(json["render_budget_ms"].is_u64());
+    assert!(json["budget_exhausted"].is_boolean());
     assert!(json["output_bytes"].as_u64().is_some_and(|value| value > 0));
 
     let artifact = std::fs::read_to_string(&output_path).expect("failed to read rendered svg");
@@ -643,6 +648,11 @@ fn validate_json_reports_source_span_counts() {
     assert!(json["decision_id"].is_string());
     assert!(json["policy_id"].is_string());
     assert_eq!(json["schema_version"], "1.0.0");
+    assert!(json["budget_total_ms"].is_u64());
+    assert!(json["parse_budget_ms"].is_u64());
+    assert!(json["layout_budget_ms"].is_u64());
+    assert!(json["render_budget_ms"].is_u64());
+    assert!(json["budget_exhausted"].is_boolean());
 }
 
 #[test]
@@ -671,6 +681,7 @@ fn validate_json_honors_native_pressure_env_overrides() {
     assert_eq!(json["pressure_score_permille"], 920);
     assert_eq!(json["policy_id"], "fm.layout.guard@v1");
     assert_eq!(json["schema_version"], "1.0.0");
+    assert!(json["layout_budget_ms"].as_u64().is_some_and(|value| value > 0));
 }
 
 #[test]
