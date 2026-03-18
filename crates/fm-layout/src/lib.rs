@@ -5006,7 +5006,7 @@ fn bk_upper_neighbours(
 ///
 /// Returns `(root, align)` arrays indexed by node_index.
 /// - `root[v]` is the root of the block containing v.
-/// - `align[v]` is the next node in the block (circular chain ending at root).
+/// - `align[v]` is the next node in the block chain; `align[v] == v` at the terminal.
 fn bk_vertical_alignment(
     ir: &MermaidDiagramIr,
     ranks: &BTreeMap<usize, usize>,
@@ -5018,14 +5018,6 @@ fn bk_vertical_alignment(
     let n = ir.nodes.len();
     let mut root: Vec<usize> = (0..n).collect();
     let mut align: Vec<usize> = (0..n).collect();
-
-    // Build position-in-rank lookup.
-    let mut pos_in_rank: BTreeMap<usize, usize> = BTreeMap::new();
-    for nodes in ordering_by_rank.values() {
-        for (pos, &node) in nodes.iter().enumerate() {
-            pos_in_rank.insert(node, pos);
-        }
-    }
 
     // Process ranks in the specified vertical order.
     let rank_iter: Vec<usize> = if top_to_bottom {
@@ -5150,8 +5142,9 @@ fn bk_horizontal_compaction(
         (u_extent / 2.0) + node_spacing + (w_extent / 2.0)
     }
 
-    // Place blocks using iterative (non-recursive) approach to avoid stack overflow.
-    // Process all block roots in rank order to ensure predecessors are placed first.
+    // Place blocks.  We use an explicit work stack to ensure predecessor block
+    // roots are placed before the blocks that depend on them (the original BK
+    // algorithm handles this via recursion in `place_block`).
     let mut ordered_roots: Vec<usize> = Vec::new();
     for rank_key in ordering_by_rank.keys() {
         if let Some(nodes) = ordering_by_rank.get(rank_key) {
@@ -5163,20 +5156,47 @@ fn bk_horizontal_compaction(
         }
     }
 
-    for &block_root in &ordered_roots {
+    /// Place a single block root and all predecessor blocks it depends on.
+    /// Uses an explicit stack to avoid recursion.
+    fn place_block(
+        block_root: usize,
+        x: &mut [f32],
+        sink: &mut [usize],
+        shift: &mut [f32],
+        root: &[usize],
+        align: &[usize],
+        pred_in_rank: &[Option<usize>],
+        node_sizes: &[(f32, f32)],
+        node_spacing: f32,
+        horizontal_ranks: bool,
+    ) {
         if x[block_root] > f32::NEG_INFINITY {
-            continue; // Already placed.
+            return; // Already placed.
         }
         x[block_root] = 0.0;
 
-        // Walk the block chain: block_root -> align[block_root] -> ... -> block_root.
+        // Walk the block chain: block_root -> align[block_root] -> ...
         let mut w = block_root;
         loop {
             if let Some(pred) = pred_in_rank[w] {
                 let pred_root = root[pred];
-                // Ensure predecessor block is placed.
+                // Ensure predecessor block is placed first (recursive in
+                // original algorithm; bounded by number of block roots).
                 if x[pred_root] <= f32::NEG_INFINITY {
-                    x[pred_root] = 0.0;
+                    // Recurse into predecessor.  Depth is bounded by the
+                    // number of distinct block roots, which is ≤ node_count.
+                    place_block(
+                        pred_root,
+                        x,
+                        sink,
+                        shift,
+                        root,
+                        align,
+                        pred_in_rank,
+                        node_sizes,
+                        node_spacing,
+                        horizontal_ranks,
+                    );
                 }
                 if sink[block_root] == block_root {
                     sink[block_root] = sink[pred_root];
@@ -5197,12 +5217,22 @@ fn bk_horizontal_compaction(
         }
     }
 
-    // Propagate block root coordinates to all block members.
-    for v in 0..node_count {
-        x[v] = x[root[v]];
+    for &br in &ordered_roots {
+        place_block(
+            br,
+            &mut x,
+            &mut sink,
+            &mut shift,
+            root,
+            align,
+            &pred_in_rank,
+            node_sizes,
+            node_spacing,
+            horizontal_ranks,
+        );
     }
 
-    // Apply class shifts.
+    // Apply class shifts to block roots.
     for v in 0..node_count {
         if root[v] == v {
             let s = shift[sink[v]];
@@ -5211,13 +5241,10 @@ fn bk_horizontal_compaction(
             }
         }
     }
-    // Re-propagate after shift application.
+
+    // Propagate (shifted) block root coordinates to all block members.
     for v in 0..node_count {
         x[v] = x[root[v]];
-        let s = shift[sink[root[v]]];
-        if s < f32::INFINITY {
-            x[v] += s;
-        }
     }
 
     x

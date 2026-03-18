@@ -2472,6 +2472,7 @@ fn parse_journey_step(line: &str) -> Option<JourneyStep> {
 fn parse_kanban(input: &str, builder: &mut IrBuilder) {
     let mut current_column: Option<usize> = None;
     let mut current_column_subgraph: Option<usize> = None;
+    let mut current_column_indent: Option<usize> = None;
     let mut card_count = 0_usize;
 
     for (index, line) in input.lines().enumerate() {
@@ -2487,22 +2488,22 @@ fn parse_kanban(input: &str, builder: &mut IrBuilder) {
 
         let span = span_for(line_number, line);
 
-        // Determine indentation level: 0 = column header, 1+ = card.
-        // Columns have zero or one level of indentation (leading spaces/tabs).
-        let leading_spaces = line.len() - line.trim_start().len();
-        let indent_level = if line.starts_with('\t') {
-            line.chars().take_while(|c| *c == '\t').count()
-        } else {
-            leading_spaces / 2
-        };
+        // Determine indentation level using standard mindmap/indent utility
+        let indent_width = leading_indent_width(line);
 
         // Parse optional bracket syntax: id[Label] or just plain text.
         let (item_id, item_label) = parse_kanban_item(trimmed);
 
-        // Columns are at indent level 0 or 1; cards are at indent level 2+.
-        let is_column_header = indent_level <= 1;
+        // It is a column header if there is no current column, or if the indent
+        // is less than or equal to the current column's indent.
+        let is_column_header = match current_column_indent {
+            None => true,
+            Some(col_indent) => indent_width <= col_indent,
+        };
+
         if is_column_header {
             // This is a column header.
+            current_column_indent = Some(indent_width);
             let column_key = format!("kanban-col-{}", normalize_compound_identifier(&item_id));
             if column_key == "kanban-col-" {
                 builder.add_warning(format!(
@@ -2518,6 +2519,7 @@ fn parse_kanban(input: &str, builder: &mut IrBuilder) {
                 ));
                 current_column = None;
                 current_column_subgraph = None;
+                current_column_indent = None;
                 continue;
             };
             let Some(subgraph_index) = builder.ensure_subgraph(
@@ -2532,6 +2534,7 @@ fn parse_kanban(input: &str, builder: &mut IrBuilder) {
                 ));
                 current_column = None;
                 current_column_subgraph = None;
+                current_column_indent = None;
                 continue;
             };
             current_column = Some(cluster_index);
