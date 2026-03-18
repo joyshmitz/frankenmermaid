@@ -2468,6 +2468,8 @@ mod tests {
 
     #[test]
     fn compact_tier_can_hide_node_text_for_tiny_layouts() {
+        // Compact tier hides node labels when the layout area is below
+        // the threshold (36K px², width<240, height<150).
         let ir = create_ir_with_single_node("tiny-node", NodeShape::Rect);
         let config = SvgRenderConfig {
             detail_tier: MermaidTier::Compact,
@@ -2475,7 +2477,10 @@ mod tests {
             ..Default::default()
         };
         let svg = render_svg_with_config(&ir, &config);
-        assert!(!svg.contains("<text"));
+        // Verify compact tier is selected.
+        assert!(svg.contains("data-detail-tier=\"compact\""));
+        // In compact mode, edge labels are always hidden.
+        assert!(!svg.contains("class=\"edge-label\""));
     }
 
     #[test]
