@@ -279,6 +279,126 @@ impl Default for LayoutDispatch {
     }
 }
 
+/// Graph topology metrics used for intelligent algorithm auto-selection.
+///
+/// For diagram types that map unambiguously to a specific algorithm (e.g. Mindmap → Radial),
+/// the metrics are not consulted. For general graph types (Flowchart, Class, State, ER, etc.),
+/// these metrics drive the choice between Sugiyama, Force, and Tree layouts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GraphMetrics {
+    pub node_count: usize,
+    pub edge_count: usize,
+    /// `edge_count / node_count` (0.0 when no nodes).
+    pub edge_to_node_ratio: f32,
+    /// Number of DFS back-edges (proxy for cycle density).
+    pub back_edge_count: usize,
+    /// Number of strongly connected components with more than one node.
+    pub scc_count: usize,
+    /// Size of the largest SCC (1 means no cycles).
+    pub max_scc_size: usize,
+    /// Nodes with in-degree 0 (candidate roots for tree layout).
+    pub root_count: usize,
+    /// True when the graph has no back-edges and a single root — an exact tree.
+    pub is_tree_like: bool,
+    /// True when the edge-to-node ratio is low (< 1.2), suggesting sparse connectivity.
+    pub is_sparse: bool,
+    /// True when the edge-to-node ratio is high (> 2.0), suggesting dense connectivity.
+    pub is_dense: bool,
+}
+
+impl GraphMetrics {
+    /// Compute graph metrics from the IR.  Runs DFS back-edge detection and Tarjan SCC
+    /// detection in O(V+E) time, so this is cheap relative to actual layout.
+    #[must_use]
+    pub fn from_ir(ir: &MermaidDiagramIr) -> Self {
+        let node_count = ir.nodes.len();
+        let edges = resolved_edges(ir);
+        let edge_count = edges.len();
+        let edge_to_node_ratio = if node_count == 0 {
+            0.0
+        } else {
+            edge_count as f32 / node_count as f32
+        };
+
+        let mut in_degree = vec![0_usize; node_count];
+        for edge in &edges {
+            in_degree[edge.target] = in_degree[edge.target].saturating_add(1);
+        }
+        let root_count = in_degree.iter().filter(|d| **d == 0).count();
+
+        let back_edge_count = count_back_edges(node_count, &edges);
+
+        let node_priority = stable_node_priorities(ir);
+        let cycle_detection = detect_cycle_components(node_count, &edges, &node_priority);
+        let scc_count = cycle_detection.cyclic_component_indexes.len();
+        let max_scc_size = cycle_detection
+            .components
+            .iter()
+            .filter(|c| c.len() > 1)
+            .map(Vec::len)
+            .max()
+            .unwrap_or(1);
+
+        let is_tree_like = back_edge_count == 0 && root_count == 1;
+        let is_sparse = edge_to_node_ratio < 1.2;
+        let is_dense = edge_to_node_ratio > 2.0;
+
+        Self {
+            node_count,
+            edge_count,
+            edge_to_node_ratio,
+            back_edge_count,
+            scc_count,
+            max_scc_size,
+            root_count,
+            is_tree_like,
+            is_sparse,
+            is_dense,
+        }
+    }
+}
+
+/// Count DFS back-edges without full SCC decomposition.
+fn count_back_edges(node_count: usize, edges: &[OrientedEdge]) -> usize {
+    if node_count == 0 {
+        return 0;
+    }
+    let mut adj = vec![vec![]; node_count];
+    for edge in edges {
+        if edge.source < node_count && edge.target < node_count {
+            adj[edge.source].push(edge.target);
+        }
+    }
+    let mut color = vec![0_u8; node_count];
+    let mut back_edges = 0_usize;
+    let mut stack: Vec<(usize, usize)> = Vec::new();
+    for start in 0..node_count {
+        if color[start] != 0 {
+            continue;
+        }
+        stack.push((start, 0));
+        color[start] = 1;
+        while let Some((node, idx)) = stack.last_mut() {
+            if *idx < adj[*node].len() {
+                let neighbor = adj[*node][*idx];
+                *idx += 1;
+                match color[neighbor] {
+                    0 => {
+                        color[neighbor] = 1;
+                        stack.push((neighbor, 0));
+                    }
+                    1 => back_edges += 1,
+                    _ => {}
+                }
+            } else {
+                color[*node] = 2;
+                stack.pop();
+            }
+        }
+    }
+    back_edges
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayoutCycleCluster {
     pub head_node_index: usize,
@@ -993,12 +1113,15 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
 
 fn dispatch_layout_algorithm(ir: &MermaidDiagramIr, requested: LayoutAlgorithm) -> LayoutDispatch {
     match requested {
-        LayoutAlgorithm::Auto => LayoutDispatch {
-            requested,
-            selected: preferred_layout_algorithm(ir),
-            capability_unavailable: false,
-            reason: "auto_selected_from_diagram_type",
-        },
+        LayoutAlgorithm::Auto => {
+            let selected = preferred_layout_algorithm(ir);
+            LayoutDispatch {
+                requested,
+                selected,
+                capability_unavailable: false,
+                reason: auto_selection_reason(ir, selected),
+            }
+        }
         explicit => {
             if algorithm_available_for_diagram(ir.diagram_type, explicit) {
                 LayoutDispatch {
@@ -1008,14 +1131,41 @@ fn dispatch_layout_algorithm(ir: &MermaidDiagramIr, requested: LayoutAlgorithm) 
                     reason: "explicit_request_honored",
                 }
             } else {
+                let selected = preferred_layout_algorithm(ir);
                 LayoutDispatch {
                     requested,
-                    selected: preferred_layout_algorithm(ir),
+                    selected,
                     capability_unavailable: true,
                     reason: "requested_algorithm_capability_unavailable_for_diagram_type",
                 }
             }
         }
+    }
+}
+
+/// Return a static reason string that explains *why* the auto-selector chose this algorithm.
+fn auto_selection_reason(ir: &MermaidDiagramIr, selected: LayoutAlgorithm) -> &'static str {
+    match ir.diagram_type {
+        DiagramType::Mindmap => return "auto_diagram_type_mindmap",
+        DiagramType::Timeline => return "auto_diagram_type_timeline",
+        DiagramType::Gantt => return "auto_diagram_type_gantt",
+        DiagramType::Sankey => return "auto_diagram_type_sankey",
+        DiagramType::Journey | DiagramType::Kanban => return "auto_diagram_type_kanban",
+        DiagramType::BlockBeta => return "auto_diagram_type_block_beta",
+        DiagramType::Sequence => return "auto_diagram_type_sequence",
+        _ => {}
+    }
+    match selected {
+        LayoutAlgorithm::Tree => "auto_metrics_tree_like",
+        LayoutAlgorithm::Force => {
+            let metrics = GraphMetrics::from_ir(ir);
+            if metrics.is_dense {
+                "auto_metrics_dense_graph"
+            } else {
+                "auto_metrics_sparse_disconnected"
+            }
+        }
+        _ => "auto_metrics_default_sugiyama",
     }
 }
 
@@ -1028,8 +1178,41 @@ fn preferred_layout_algorithm(ir: &MermaidDiagramIr) -> LayoutAlgorithm {
         DiagramType::Journey | DiagramType::Kanban => LayoutAlgorithm::Kanban,
         DiagramType::BlockBeta => LayoutAlgorithm::Grid,
         DiagramType::Sequence => LayoutAlgorithm::Sequence,
-        _ => LayoutAlgorithm::Sugiyama,
+        _ => select_general_graph_algorithm(ir),
     }
+}
+
+/// For general graph types (Flowchart, Class, State, ER, C4, Requirement, etc.),
+/// analyze graph topology metrics to choose between Sugiyama, Tree, and Force.
+fn select_general_graph_algorithm(ir: &MermaidDiagramIr) -> LayoutAlgorithm {
+    let metrics = GraphMetrics::from_ir(ir);
+
+    // Trivial graphs: Sugiyama handles them efficiently.
+    if metrics.node_count <= 2 {
+        return LayoutAlgorithm::Sugiyama;
+    }
+
+    // Perfect tree: use Tree layout for cleaner hierarchical rendering.
+    if metrics.is_tree_like {
+        return LayoutAlgorithm::Tree;
+    }
+
+    // Dense graphs with many crossings: force-directed avoids excessive crossing
+    // minimization cost and often produces better results for hairball graphs.
+    // Only apply to larger graphs where Sugiyama performance starts to degrade.
+    if metrics.is_dense && metrics.node_count > 20 {
+        return LayoutAlgorithm::Force;
+    }
+
+    // Very sparse disconnected graphs: force-directed handles disconnected
+    // components naturally via repulsion, spreading them out.
+    // Only apply to larger graphs to maintain Sugiyama's rank-based stability for small ones.
+    if metrics.is_sparse && metrics.root_count > metrics.node_count / 2 && metrics.node_count > 10 {
+        return LayoutAlgorithm::Force;
+    }
+
+    // Default: Sugiyama produces clean hierarchical layouts for most DAG-like graphs.
+    LayoutAlgorithm::Sugiyama
 }
 
 fn algorithm_available_for_diagram(diagram_type: DiagramType, algorithm: LayoutAlgorithm) -> bool {
@@ -4951,9 +5134,10 @@ fn bk_upper_neighbours(
     if let Some(nodes) = adjacency.get(node_index) {
         for &n in nodes {
             if ranks.get(&n).copied().unwrap_or(0) == adjacent_rank
-                && let Some(&pos) = pos_map.get(&n) {
-                    neighbours.push((n, pos));
-                }
+                && let Some(&pos) = pos_map.get(&n)
+            {
+                neighbours.push((n, pos));
+            }
         }
     }
 
@@ -4967,6 +5151,7 @@ fn bk_upper_neighbours(
 /// Returns `(root, align)` arrays indexed by node_index.
 /// - `root[v]` is the root of the block containing v.
 /// - `align[v]` is the next node in the block chain; `align[v] == v` at the terminal.
+#[allow(clippy::too_many_arguments)]
 fn bk_vertical_alignment(
     n: usize,
     adjacency: &[BTreeSet<usize>],
@@ -5123,6 +5308,7 @@ fn bk_horizontal_compaction(
     /// Place a single block root and all predecessor blocks it depends on.
     /// Recurses into unplaced predecessors; terminates because each block
     /// root sets `x[block_root] = 0.0` on entry, preventing re-entry.
+    #[allow(clippy::too_many_arguments)]
     fn place_block(
         block_root: usize,
         x: &mut [f32],
@@ -5236,10 +5422,13 @@ fn brandes_kopf_secondary_coords(
     for edge in &ir.edges {
         if let Some(s) = endpoint_node_index(ir, edge.from)
             && let Some(t) = endpoint_node_index(ir, edge.to)
-            && s < n && t < n && s != t {
-                adjacency[s].insert(t);
-                adjacency[t].insert(s);
-            }
+            && s < n
+            && t < n
+            && s != t
+        {
+            adjacency[s].insert(t);
+            adjacency[t].insert(s);
+        }
     }
 
     // Pre-build position maps for each rank.
@@ -6274,10 +6463,11 @@ pub fn build_layout_guard_report_with_pressure(
 #[cfg(test)]
 mod tests {
     use super::{
-        CycleStrategy, LayoutAlgorithm, LayoutGuardrails, LayoutPoint, RenderClip, RenderItem,
-        RenderSource, build_layout_guard_report, build_render_scene, layout, layout_diagram,
-        layout_diagram_force, layout_diagram_force_traced, layout_diagram_gantt,
-        layout_diagram_grid, layout_diagram_radial, layout_diagram_sankey, layout_diagram_sequence,
+        CycleStrategy, GraphMetrics, LayoutAlgorithm, LayoutGuardrails, LayoutPoint, RenderClip,
+        RenderItem, RenderSource, build_layout_guard_report, build_render_scene,
+        dispatch_layout_algorithm, layout, layout_diagram, layout_diagram_force,
+        layout_diagram_force_traced, layout_diagram_gantt, layout_diagram_grid,
+        layout_diagram_radial, layout_diagram_sankey, layout_diagram_sequence,
         layout_diagram_sequence_traced, layout_diagram_timeline, layout_diagram_traced,
         layout_diagram_traced_with_algorithm, layout_diagram_traced_with_algorithm_and_guardrails,
         layout_diagram_tree, layout_diagram_with_cycle_strategy, route_edge_points,
@@ -8952,7 +9142,7 @@ mod tests {
                 .or_default()
                 .push((node.bounds.x, node.bounds.x + node.bounds.width));
         }
-        for (_rank, intervals) in &by_rank {
+        for intervals in by_rank.values() {
             let mut sorted = intervals.clone();
             sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
             for pair in sorted.windows(2) {
@@ -9088,5 +9278,274 @@ mod tests {
                 node.bounds.y
             );
         }
+    }
+
+    // ── Auto algorithm selection tests (bd-vb9.7) ──────────────────────
+
+    fn graph_ir(
+        diagram_type: DiagramType,
+        node_count: usize,
+        edges: &[(usize, usize)],
+    ) -> MermaidDiagramIr {
+        let mut ir = MermaidDiagramIr::empty(diagram_type);
+        ir.direction = GraphDirection::TB;
+        for i in 0..node_count {
+            ir.nodes.push(IrNode {
+                id: format!("N{i}"),
+                ..IrNode::default()
+            });
+        }
+        for &(from, to) in edges {
+            ir.edges.push(IrEdge {
+                from: IrEndpoint::Node(IrNodeId(from)),
+                to: IrEndpoint::Node(IrNodeId(to)),
+                arrow: ArrowType::Arrow,
+                ..IrEdge::default()
+            });
+        }
+        ir
+    }
+
+    #[test]
+    fn auto_select_mindmap_uses_radial() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Mindmap);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Radial);
+        assert_eq!(dispatch.reason, "auto_diagram_type_mindmap");
+    }
+
+    #[test]
+    fn auto_select_timeline_uses_timeline() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Timeline);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Timeline);
+        assert_eq!(dispatch.reason, "auto_diagram_type_timeline");
+    }
+
+    #[test]
+    fn auto_select_gantt_uses_gantt() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Gantt);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Gantt);
+        assert_eq!(dispatch.reason, "auto_diagram_type_gantt");
+    }
+
+    #[test]
+    fn auto_select_sankey_uses_sankey() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Sankey);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Sankey);
+        assert_eq!(dispatch.reason, "auto_diagram_type_sankey");
+    }
+
+    #[test]
+    fn auto_select_journey_uses_kanban() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Journey);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Kanban);
+        assert_eq!(dispatch.reason, "auto_diagram_type_kanban");
+    }
+
+    #[test]
+    fn auto_select_block_beta_uses_grid() {
+        let ir = MermaidDiagramIr::empty(DiagramType::BlockBeta);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Grid);
+        assert_eq!(dispatch.reason, "auto_diagram_type_block_beta");
+    }
+
+    #[test]
+    fn auto_select_sequence_uses_sequence() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Sequence);
+        assert_eq!(dispatch.reason, "auto_diagram_type_sequence");
+    }
+
+    #[test]
+    fn auto_select_tree_like_flowchart_uses_tree() {
+        let ir = graph_ir(DiagramType::Flowchart, 5, &[(0, 1), (0, 2), (1, 3), (2, 4)]);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Tree);
+        assert_eq!(dispatch.reason, "auto_metrics_tree_like");
+    }
+
+    #[test]
+    fn auto_select_dense_flowchart_uses_force() {
+        let ir = graph_ir(
+            DiagramType::Flowchart,
+            5,
+            &[
+                (0, 1),
+                (0, 2),
+                (0, 3),
+                (0, 4),
+                (1, 2),
+                (1, 3),
+                (1, 4),
+                (2, 3),
+                (2, 4),
+                (3, 4),
+                (3, 0),
+                (4, 1),
+            ],
+        );
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Force);
+        assert_eq!(dispatch.reason, "auto_metrics_dense_graph");
+    }
+
+    #[test]
+    fn auto_select_sparse_disconnected_uses_force() {
+        let ir = graph_ir(DiagramType::Flowchart, 6, &[(0, 1), (2, 3)]);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Force);
+        assert_eq!(dispatch.reason, "auto_metrics_sparse_disconnected");
+    }
+
+    #[test]
+    fn auto_select_simple_dag_uses_sugiyama() {
+        let ir = graph_ir(
+            DiagramType::Flowchart,
+            6,
+            &[(0, 2), (0, 3), (1, 3), (1, 4), (2, 5), (3, 5), (4, 5)],
+        );
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Sugiyama);
+        assert_eq!(dispatch.reason, "auto_metrics_default_sugiyama");
+    }
+
+    #[test]
+    fn auto_select_class_diagram_dag_uses_sugiyama() {
+        let ir = graph_ir(DiagramType::Class, 5, &[(0, 2), (1, 2), (2, 3), (2, 4)]);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Sugiyama);
+    }
+
+    #[test]
+    fn auto_select_trivial_graph_uses_sugiyama() {
+        let ir = graph_ir(DiagramType::Flowchart, 2, &[(0, 1)]);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Sugiyama);
+        assert_eq!(dispatch.reason, "auto_metrics_default_sugiyama");
+    }
+
+    #[test]
+    fn auto_select_empty_graph_uses_sugiyama() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Sugiyama);
+    }
+
+    #[test]
+    fn explicit_algorithm_overrides_auto() {
+        let ir = graph_ir(DiagramType::Flowchart, 5, &[(0, 1), (0, 2), (1, 3), (2, 4)]);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Sugiyama);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Sugiyama);
+        assert_eq!(dispatch.reason, "explicit_request_honored");
+        assert!(!dispatch.capability_unavailable);
+    }
+
+    #[test]
+    fn unavailable_algorithm_falls_back() {
+        let ir = graph_ir(DiagramType::Flowchart, 3, &[(0, 1), (1, 2)]);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Radial);
+        assert!(dispatch.capability_unavailable);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Tree);
+    }
+
+    #[test]
+    fn graph_metrics_empty_graph() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        let metrics = GraphMetrics::from_ir(&ir);
+        assert_eq!(metrics.node_count, 0);
+        assert_eq!(metrics.edge_count, 0);
+        assert_eq!(metrics.edge_to_node_ratio, 0.0);
+        assert_eq!(metrics.back_edge_count, 0);
+        assert_eq!(metrics.scc_count, 0);
+        assert_eq!(metrics.root_count, 0);
+    }
+
+    #[test]
+    fn graph_metrics_simple_chain() {
+        let ir = graph_ir(DiagramType::Flowchart, 4, &[(0, 1), (1, 2), (2, 3)]);
+        let metrics = GraphMetrics::from_ir(&ir);
+        assert_eq!(metrics.node_count, 4);
+        assert_eq!(metrics.edge_count, 3);
+        assert!(metrics.is_tree_like);
+        assert!(!metrics.is_dense);
+        assert_eq!(metrics.back_edge_count, 0);
+        assert_eq!(metrics.root_count, 1);
+    }
+
+    #[test]
+    fn graph_metrics_cycle_detection() {
+        let ir = graph_ir(DiagramType::Flowchart, 3, &[(0, 1), (1, 2), (2, 0)]);
+        let metrics = GraphMetrics::from_ir(&ir);
+        assert!(metrics.back_edge_count > 0);
+        assert!(metrics.scc_count > 0);
+        assert_eq!(metrics.max_scc_size, 3);
+        assert!(!metrics.is_tree_like);
+    }
+
+    #[test]
+    fn graph_metrics_dense_graph() {
+        let ir = graph_ir(
+            DiagramType::Flowchart,
+            4,
+            &[
+                (0, 1),
+                (0, 2),
+                (0, 3),
+                (1, 0),
+                (1, 2),
+                (1, 3),
+                (2, 0),
+                (2, 1),
+                (2, 3),
+                (3, 0),
+                (3, 1),
+                (3, 2),
+            ],
+        );
+        let metrics = GraphMetrics::from_ir(&ir);
+        assert!(metrics.is_dense);
+        assert!(!metrics.is_sparse);
+    }
+
+    #[test]
+    fn auto_select_deterministic_across_runs() {
+        let ir = graph_ir(
+            DiagramType::Flowchart,
+            8,
+            &[
+                (0, 1),
+                (0, 2),
+                (1, 3),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+            ],
+        );
+        let d1 = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        let d2 = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(d1.selected, d2.selected);
+        assert_eq!(d1.reason, d2.reason);
+    }
+
+    #[test]
+    fn auto_select_er_with_cycle_uses_sugiyama() {
+        let ir = graph_ir(DiagramType::Er, 4, &[(0, 1), (1, 2), (2, 3), (3, 0)]);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Sugiyama);
+    }
+
+    #[test]
+    fn auto_select_state_tree_uses_tree() {
+        let ir = graph_ir(DiagramType::State, 4, &[(0, 1), (0, 2), (1, 3)]);
+        let dispatch = dispatch_layout_algorithm(&ir, LayoutAlgorithm::Auto);
+        assert_eq!(dispatch.selected, LayoutAlgorithm::Tree);
     }
 }
