@@ -3954,7 +3954,7 @@ fn force_iteration_budget(n: usize) -> usize {
 /// Cooling schedule: linear decay from initial temperature.
 fn force_temperature(iteration: usize, max_iterations: usize, k: f32) -> f32 {
     let t0 = k * 10.0; // Initial temperature
-    let progress = iteration as f32 / max_iterations as f32;
+    let progress = iteration as f32 / max_iterations.max(1) as f32;
     t0 * (1.0 - progress)
 }
 
