@@ -9,6 +9,7 @@ use fm_core::{
     MermaidDiagramIr, MermaidFidelity, MermaidGlyphMode, MermaidGuardReport, MermaidPressureReport,
     Span,
 };
+use tracing::{debug, info, trace, warn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutAlgorithm {
@@ -1492,7 +1493,7 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
 }
 
 fn dispatch_layout_algorithm(ir: &MermaidDiagramIr, requested: LayoutAlgorithm) -> LayoutDispatch {
-    match requested {
+    let dispatch = match requested {
         LayoutAlgorithm::Auto => {
             let selected = preferred_layout_algorithm(ir);
             LayoutDispatch {
@@ -1520,7 +1521,18 @@ fn dispatch_layout_algorithm(ir: &MermaidDiagramIr, requested: LayoutAlgorithm) 
                 }
             }
         }
-    }
+    };
+    info!(
+        requested = dispatch.requested.as_str(),
+        selected = dispatch.selected.as_str(),
+        capability_unavailable = dispatch.capability_unavailable,
+        reason = dispatch.reason,
+        diagram_type = ir.diagram_type.as_str(),
+        node_count = ir.nodes.len(),
+        edge_count = ir.edges.len(),
+        "layout.dispatch"
+    );
+    dispatch
 }
 
 /// Return a static reason string that explains *why* the auto-selector chose this algorithm.
@@ -1854,7 +1866,7 @@ fn evaluate_layout_guardrails(
         }
     }
 
-    LayoutGuardDecision {
+    let guard = LayoutGuardDecision {
         initial_algorithm: selected,
         selected_algorithm,
         estimated_layout_time_ms: initial_estimate.time_ms,
@@ -1874,7 +1886,26 @@ fn evaluate_layout_guardrails(
             selected_algorithm != selected,
             within_budget_candidate_found,
         ),
+    };
+
+    if guard.fallback_applied {
+        warn!(
+            initial_algorithm = guard.initial_algorithm.as_str(),
+            selected_algorithm = guard.selected_algorithm.as_str(),
+            estimated_time_ms = guard.estimated_layout_time_ms,
+            reason = guard.reason,
+            "layout.guardrail.fallback"
+        );
+    } else {
+        debug!(
+            algorithm = guard.selected_algorithm.as_str(),
+            estimated_time_ms = guard.estimated_layout_time_ms,
+            reason = guard.reason,
+            "layout.guardrail.ok"
+        );
     }
+
+    guard
 }
 
 fn layout_diagram_sugiyama_traced_with_config(
@@ -4429,11 +4460,27 @@ fn cycle_removal(ir: &MermaidDiagramIr, cycle_strategy: CycleStrategy) -> CycleR
         reversed_edge_indexes.clone()
     };
 
-    CycleRemovalResult {
+    let result = CycleRemovalResult {
         reversed_edge_indexes,
         highlighted_edge_indexes,
         summary: cycle_detection.summary,
+    };
+    if result.summary.cycle_count > 0 {
+        info!(
+            strategy = cycle_strategy.as_str(),
+            cycle_count = result.summary.cycle_count,
+            cycle_node_count = result.summary.cycle_node_count,
+            max_cycle_size = result.summary.max_cycle_size,
+            reversed_edges = result.reversed_edge_indexes.len(),
+            "layout.cycle_removal"
+        );
+    } else {
+        trace!(
+            strategy = cycle_strategy.as_str(),
+            "layout.cycle_removal.acyclic"
+        );
     }
+    result
 }
 
 fn detect_cycle_components(
@@ -5396,6 +5443,11 @@ fn crossing_minimization(
     }
 
     let crossing_count = total_crossings(ir, ranks, &ordering_by_rank);
+    debug!(
+        crossings_after_barycenter = crossing_count,
+        ranks = ordering_by_rank.len(),
+        "layout.crossing_minimization"
+    );
     (crossing_count, ordering_by_rank)
 }
 
