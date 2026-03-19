@@ -779,5 +779,163 @@ mod tests {
                 }
             }
         }
+
+        // ── Parser roundtrip invariant tests (bd-3ac.7) ──────────────
+
+        #[test]
+        fn prop_ir_serde_roundtrip_is_idempotent(input in ".{0,256}") {
+            // parse(input) -> IR -> serialize -> deserialize -> IR' => IR == IR'
+            let result = parse(&input);
+            let json = serde_json::to_string(&result.ir).expect("serialize");
+            let roundtripped: MermaidDiagramIr =
+                serde_json::from_str(&json).expect("deserialize");
+            prop_assert_eq!(&result.ir, &roundtripped);
+        }
+
+        #[test]
+        fn prop_flowchart_roundtrip_preserves_structure(
+            node_count in 2usize..12,
+            edge_seed in 0u64..200,
+        ) {
+            let mut input = String::from("flowchart TD\n");
+            for i in 0..node_count {
+                input.push_str(&format!("  N{i}[Node {i}]\n"));
+            }
+            let mut val = edge_seed;
+            for _ in 0..node_count.min(8) {
+                val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let from = (val as usize) % node_count;
+                val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let to = (val as usize) % node_count;
+                if from != to {
+                    input.push_str(&format!("  N{from} --> N{to}\n"));
+                }
+            }
+
+            let result = parse(&input);
+            let json = serde_json::to_string(&result.ir).expect("serialize");
+            let roundtripped: MermaidDiagramIr =
+                serde_json::from_str(&json).expect("deserialize");
+
+            prop_assert_eq!(result.ir.diagram_type, roundtripped.diagram_type);
+            prop_assert_eq!(result.ir.direction, roundtripped.direction);
+            prop_assert_eq!(result.ir.nodes.len(), roundtripped.nodes.len());
+            prop_assert_eq!(result.ir.edges.len(), roundtripped.edges.len());
+            prop_assert_eq!(result.ir.labels.len(), roundtripped.labels.len());
+
+            for (orig, rt) in result.ir.nodes.iter().zip(roundtripped.nodes.iter()) {
+                prop_assert_eq!(&orig.id, &rt.id);
+                prop_assert_eq!(orig.shape, rt.shape);
+                prop_assert_eq!(orig.implicit, rt.implicit);
+            }
+            for (orig, rt) in result.ir.edges.iter().zip(roundtripped.edges.iter()) {
+                prop_assert_eq!(orig.from, rt.from);
+                prop_assert_eq!(orig.to, rt.to);
+                prop_assert_eq!(orig.arrow, rt.arrow);
+            }
+        }
+
+        #[test]
+        fn prop_sequence_roundtrip_preserves_participants(
+            participant_count in 2usize..6,
+        ) {
+            let names: Vec<String> = (0..participant_count)
+                .map(|i| format!("P{i}"))
+                .collect();
+            let mut input = String::from("sequenceDiagram\n");
+            for name in &names {
+                input.push_str(&format!("  participant {name}\n"));
+            }
+            for i in 0..participant_count.saturating_sub(1) {
+                input.push_str(&format!("  {}->>{}:msg{i}\n", names[i], names[i + 1]));
+            }
+
+            let result = parse(&input);
+            prop_assert_eq!(result.ir.diagram_type, DiagramType::Sequence);
+
+            let json = serde_json::to_string(&result.ir).expect("serialize");
+            let roundtripped: MermaidDiagramIr =
+                serde_json::from_str(&json).expect("deserialize");
+            prop_assert_eq!(result.ir.nodes.len(), roundtripped.nodes.len());
+            prop_assert_eq!(result.ir.edges.len(), roundtripped.edges.len());
+        }
+
+        #[test]
+        fn prop_class_diagram_roundtrip(class_count in 2usize..6) {
+            let mut input = String::from("classDiagram\n");
+            for i in 0..class_count {
+                input.push_str(&format!("  class C{i}\n"));
+            }
+            for i in 1..class_count {
+                input.push_str(&format!("  C0 <|-- C{i}\n"));
+            }
+
+            let result = parse(&input);
+            prop_assert_eq!(result.ir.diagram_type, DiagramType::Class);
+
+            let json = serde_json::to_string(&result.ir).expect("serialize");
+            let roundtripped: MermaidDiagramIr =
+                serde_json::from_str(&json).expect("deserialize");
+            prop_assert_eq!(&result.ir, &roundtripped);
+        }
+
+        #[test]
+        fn prop_state_diagram_roundtrip(state_count in 2usize..8) {
+            let mut input = String::from("stateDiagram-v2\n");
+            input.push_str("  [*] --> S0\n");
+            for i in 1..state_count {
+                input.push_str(&format!("  S{} --> S{i}\n", i - 1));
+            }
+            input.push_str(&format!("  S{} --> [*]\n", state_count - 1));
+
+            let result = parse(&input);
+            prop_assert_eq!(result.ir.diagram_type, DiagramType::State);
+
+            let json = serde_json::to_string(&result.ir).expect("serialize");
+            let roundtripped: MermaidDiagramIr =
+                serde_json::from_str(&json).expect("deserialize");
+            prop_assert_eq!(&result.ir, &roundtripped);
+        }
+
+        #[test]
+        fn prop_multi_type_detection_is_stable(diagram_index in 0usize..7) {
+            let inputs = [
+                "flowchart LR\n  A-->B",
+                "sequenceDiagram\n  A->>B:hi",
+                "classDiagram\n  A <|-- B",
+                "stateDiagram-v2\n  [*]-->S1",
+                "erDiagram\n  A ||--o{ B : has",
+                "gantt\n  section S\n  T1 :a1, 2024-01-01, 3d",
+                "pie\n  \"A\":50\n  \"B\":50",
+            ];
+            let input = inputs[diagram_index];
+
+            let r1 = parse(input);
+            let r2 = parse(input);
+            prop_assert_eq!(r1.ir.diagram_type, r2.ir.diagram_type);
+            prop_assert_eq!(r1.ir.nodes.len(), r2.ir.nodes.len());
+            prop_assert_eq!(r1.ir.edges.len(), r2.ir.edges.len());
+
+            let json1 = serde_json::to_string(&r1.ir).expect("ser1");
+            let json2 = serde_json::to_string(&r2.ir).expect("ser2");
+            prop_assert_eq!(json1, json2, "Serialized IR must be identical");
+        }
+
+        #[test]
+        fn prop_diagnostics_survive_roundtrip(input in ".{0,128}") {
+            let result = parse(&input);
+            let json = serde_json::to_string(&result.ir).expect("serialize");
+            let roundtripped: MermaidDiagramIr =
+                serde_json::from_str(&json).expect("deserialize");
+            prop_assert_eq!(
+                result.ir.diagnostics.len(),
+                roundtripped.diagnostics.len(),
+                "Diagnostic count must survive roundtrip"
+            );
+            for (orig, rt) in result.ir.diagnostics.iter().zip(roundtripped.diagnostics.iter()) {
+                prop_assert_eq!(orig.severity, rt.severity);
+                prop_assert_eq!(&orig.message, &rt.message);
+            }
+        }
     }
 }
