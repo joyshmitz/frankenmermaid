@@ -938,4 +938,155 @@ mod tests {
             }
         }
     }
+
+    // ── Input sanitization and security hardening tests (bd-116l) ──────
+
+    #[test]
+    fn adversarial_deeply_nested_subgraphs_does_not_panic() {
+        let depth = 200;
+        let mut input = String::from("flowchart TD\n");
+        for i in 0..depth {
+            input.push_str(&format!("{}subgraph sg{i}\n", "  ".repeat(i + 1)));
+        }
+        for i in (0..depth).rev() {
+            input.push_str(&format!("{}end\n", "  ".repeat(i + 1)));
+        }
+        let result = parse(&input);
+        assert_eq!(result.ir.diagram_type, DiagramType::Flowchart);
+    }
+
+    #[test]
+    fn adversarial_extremely_long_single_line_does_not_panic() {
+        let long_label = "A".repeat(100_000);
+        let input = format!("flowchart LR\n  X[{long_label}] --> Y");
+        let result = parse(&input);
+        assert_eq!(result.ir.diagram_type, DiagramType::Flowchart);
+        assert!(!result.ir.nodes.is_empty());
+    }
+
+    #[test]
+    fn adversarial_many_nodes_does_not_panic() {
+        let count = 1000;
+        let mut input = String::from("flowchart TD\n");
+        for i in 0..count {
+            input.push_str(&format!("  N{i}[Node {i}]\n"));
+        }
+        for i in 1..count {
+            input.push_str(&format!("  N{} --> N{i}\n", i - 1));
+        }
+        let result = parse(&input);
+        assert!(result.ir.nodes.len() >= count);
+    }
+
+    #[test]
+    fn adversarial_many_edges_between_same_pair_does_not_panic() {
+        let mut input = String::from("flowchart LR\n  A --> B\n");
+        for _ in 0..500 {
+            input.push_str("  A --> B\n");
+        }
+        let result = parse(&input);
+        assert!(!result.ir.nodes.is_empty());
+        assert!(!result.ir.edges.is_empty());
+    }
+
+    #[test]
+    fn adversarial_null_bytes_in_input_does_not_panic() {
+        let input = "flowchart LR\n  A\0B --> C\0D";
+        let result = parse(input);
+        // Should handle gracefully — type detection still works.
+        assert_ne!(result.ir.diagram_type, DiagramType::Unknown);
+    }
+
+    #[test]
+    fn adversarial_control_characters_does_not_panic() {
+        let input = "flowchart\x01 LR\n  A\x02 --> B\x03\n  B\x1b[31m --> C";
+        let _result = parse(input);
+        // No panic is the success condition.
+    }
+
+    #[test]
+    fn adversarial_unicode_bom_does_not_panic() {
+        let input = "\u{FEFF}flowchart LR\n  A --> B";
+        let result = parse(input);
+        assert!(!result.ir.nodes.is_empty());
+    }
+
+    #[test]
+    fn adversarial_mixed_line_endings_does_not_panic() {
+        let input = "flowchart LR\r\n  A --> B\r  B --> C\n  C --> D\r\n";
+        let result = parse(input);
+        assert!(!result.ir.nodes.is_empty());
+    }
+
+    #[test]
+    fn adversarial_empty_and_whitespace_only_inputs() {
+        for input in ["", " ", "\n", "\t", "\n\n\n", "   \n  \t  \n  "] {
+            let result = parse(input);
+            // Should not panic, should return something.
+            assert_eq!(result.ir.diagram_type, DiagramType::Unknown);
+        }
+    }
+
+    #[test]
+    fn adversarial_repeated_keywords_does_not_panic() {
+        let input = "flowchart flowchart flowchart LR\n  A --> B";
+        let _result = parse(input);
+    }
+
+    #[test]
+    fn adversarial_nested_brackets_does_not_panic() {
+        let depth = 100;
+        let open: String = "[".repeat(depth);
+        let close: String = "]".repeat(depth);
+        let input = format!("flowchart LR\n  A{open}deep{close} --> B");
+        let _result = parse(&input);
+    }
+
+    #[test]
+    fn adversarial_very_long_node_id_does_not_panic() {
+        let long_id = "N".repeat(10_000);
+        let input = format!("flowchart LR\n  {long_id} --> B");
+        let _result = parse(&input);
+    }
+
+    #[test]
+    fn adversarial_many_diagram_type_keywords_does_not_confuse() {
+        // Input that mentions multiple diagram types — first keyword wins.
+        let input =
+            "flowchart LR\n  A --> B\nsequenceDiagram\n  C->>D: hi\nclassDiagram\n  E <|-- F";
+        let result = parse(input);
+        assert_eq!(
+            result.ir.diagram_type,
+            DiagramType::Flowchart,
+            "First keyword should win"
+        );
+    }
+
+    #[test]
+    fn adversarial_only_edges_no_declarations_does_not_panic() {
+        let input = "flowchart TD\n  --> --> --> --> -->";
+        let _result = parse(input);
+    }
+
+    #[test]
+    fn adversarial_init_directive_with_bad_json_does_not_panic() {
+        let input = "%%{init: {{{invalid json}}}%%\nflowchart LR\n  A --> B";
+        let result = parse(input);
+        assert!(!result.ir.nodes.is_empty());
+    }
+
+    #[test]
+    fn adversarial_binary_content_does_not_panic() {
+        // Simulate feeding binary data to the parser.
+        let input: String = (0..256).map(|b| char::from(b as u8)).collect();
+        let _result = parse(&input);
+    }
+
+    #[test]
+    fn adversarial_massive_whitespace_padding_does_not_panic() {
+        let padding = " ".repeat(50_000);
+        let input = format!("{padding}flowchart LR\n{padding}A --> B{padding}");
+        let result = parse(&input);
+        assert!(!result.ir.nodes.is_empty());
+    }
 }
