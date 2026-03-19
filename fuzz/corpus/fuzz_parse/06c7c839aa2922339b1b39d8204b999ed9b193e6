@@ -1,0 +1,4 @@
+seindmap
+  r Hellg
+  Bolice->>Bob: Hellg
+  Bob-->i

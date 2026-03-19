@@ -1,0 +1,2 @@
+flowchart LR
+  SAa[trt] --> B{Decn}~[  B 0-B{Decis]

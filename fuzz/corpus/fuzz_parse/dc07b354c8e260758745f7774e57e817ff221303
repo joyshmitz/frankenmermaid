@@ -1,0 +1,4 @@
+flowchart LR
+  A[Start] --> B{De
+  A[t]tSra --> B{Dec#sion}
+  B -B -->|No| D[Skip]

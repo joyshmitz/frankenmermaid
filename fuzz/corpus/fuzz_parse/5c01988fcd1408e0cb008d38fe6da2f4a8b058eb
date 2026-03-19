@@ -1,0 +1,3 @@
+fl}owchart LR
+  !A[Start] --> B{Decision}
+  B -->|Yes|]

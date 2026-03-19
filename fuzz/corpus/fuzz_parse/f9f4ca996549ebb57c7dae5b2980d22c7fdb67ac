@@ -1,0 +1,3 @@
+flowchavt LR
+  A[Start] --> B{Decision}--B  
+ >|YesDiagrAnimal <|--   D[Skip]

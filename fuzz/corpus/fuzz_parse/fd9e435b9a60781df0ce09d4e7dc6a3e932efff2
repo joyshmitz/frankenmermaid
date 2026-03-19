@@ -1,0 +1,3 @@
+erDam
+ iagram
+  CUSTOMER ||--o{ ORDER : places

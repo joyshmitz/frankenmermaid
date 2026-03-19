@@ -1,0 +1,5 @@
+flowchart B{Decision}
+  B -->|Yes| C[Action]
+  B - -->hrt
+  B - -->hrt"LR
+  Ap]

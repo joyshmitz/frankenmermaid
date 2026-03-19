@@ -1,0 +1,7 @@
+classDiagram
+  A-- Duck
+ni/alassDiagram
+  A-- Duck
+ni/al m
+  A-- Duck
+ni/al <|age

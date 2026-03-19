@@ -1,0 +1,4 @@
+sequAlice->>enceDiagraeDiagram
+  Alicm
+  Alice->>Bob: Hello
+  Bob-->>Bobice: Hi

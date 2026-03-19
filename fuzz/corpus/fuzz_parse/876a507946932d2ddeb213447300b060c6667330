@@ -1,0 +1,4 @@
+sequenca
+  ArDeimag
+  Alice->>Bob: Hello
+  Bob-->>(Alice: Hi

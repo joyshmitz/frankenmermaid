@@ -1,0 +1,3 @@
+steDiagram-v2
+  [*] --> Still
+  Still --> Movi.g

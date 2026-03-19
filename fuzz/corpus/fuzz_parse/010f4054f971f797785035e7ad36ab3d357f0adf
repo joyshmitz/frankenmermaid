@@ -1,0 +1,3 @@
+classDiagr#am
+  Animl <a|-- Duck
+  Animal : +in?t age

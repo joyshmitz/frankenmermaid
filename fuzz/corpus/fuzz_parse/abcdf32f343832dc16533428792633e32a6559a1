@@ -1,0 +1,3 @@
+erDam
+ iagam
+  CUSTOMER ||--o{ ORDER : place{

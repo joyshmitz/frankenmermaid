@@ -1,0 +1,4 @@
+sequencarDeipag
+  Alice->>Bob: Hello
+  Bob)->encarDeipag
+  Alice->>(Alice: Hi

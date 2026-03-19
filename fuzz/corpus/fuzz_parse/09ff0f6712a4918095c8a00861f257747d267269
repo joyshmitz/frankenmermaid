@@ -1,0 +1,4 @@
+gantt
+  secti  o Sn
+Task :a1, 2024-01-012agram
+  CUSTOMER ||--o{ ORDER : plac, 3d

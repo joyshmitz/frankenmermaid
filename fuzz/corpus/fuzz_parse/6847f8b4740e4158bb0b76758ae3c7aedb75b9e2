@@ -1,0 +1,5 @@
+classDiagrae
+  Animalagram
+  Animal <|-- Duck
+ <|-- Duck
+

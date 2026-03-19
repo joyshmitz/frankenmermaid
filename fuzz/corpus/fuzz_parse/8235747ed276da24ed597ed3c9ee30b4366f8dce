@@ -1,0 +1,3 @@
+cla ||--o{qsDiagram
+  Animal <|-E Animal : +intsDiagram
+  Anal age

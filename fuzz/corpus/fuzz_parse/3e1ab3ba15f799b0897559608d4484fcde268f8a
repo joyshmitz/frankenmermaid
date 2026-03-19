@@ -1,0 +1,3 @@
+cla ||--o{ssDiagram
+  Animal <|-ER ||--o{ ORDE-uck
+  Animal : +int age

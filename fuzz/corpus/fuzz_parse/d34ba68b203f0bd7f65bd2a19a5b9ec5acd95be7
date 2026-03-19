@@ -1,0 +1,3 @@
+sequencarDeimag
+  Alice->>Bob: Hello
+  Bob-->>(Alice: Hi

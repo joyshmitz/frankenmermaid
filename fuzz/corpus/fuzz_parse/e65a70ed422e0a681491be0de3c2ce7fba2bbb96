@@ -1,0 +1,3 @@
+classDiagram
+assDia(ram
+  AnimVl <|--   Animal   Animal <|--   Animal : +i?nt age

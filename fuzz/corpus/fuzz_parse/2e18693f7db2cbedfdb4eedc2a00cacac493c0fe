@@ -1,0 +1,3 @@
+cla ||--o{ssDiagrla ||--o{s]sDiagram
+TOM ||--o{ ORDE-* Duck
+  Animal : cl+a

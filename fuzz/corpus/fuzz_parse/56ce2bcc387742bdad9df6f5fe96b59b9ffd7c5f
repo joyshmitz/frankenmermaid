@@ -1,0 +1,5 @@
+flowchart LR
+  A[Start] --> B{De
+  A[Start] --> B{Dec#sn}
+  B -B --> B{De
+  A[p]

@@ -1,0 +1,2 @@
+cla ||--o{qsDiagram
+  Animal <|-E Animal :   Animal age

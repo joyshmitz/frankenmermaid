@@ -1,0 +1,4 @@
+[Star -]-t> B{ecisdiga
+  B -->|Yes| C[
+  B -->|Yes| C[Action]
+  B -->(No| D[Skip]

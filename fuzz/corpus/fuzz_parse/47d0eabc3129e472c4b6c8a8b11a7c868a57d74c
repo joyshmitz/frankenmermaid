@@ -1,0 +1,2 @@
+classDiag- Duck
+  Animal : +in?t age

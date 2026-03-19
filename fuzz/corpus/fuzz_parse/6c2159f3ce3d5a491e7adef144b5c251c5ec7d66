@@ -1,0 +1,5 @@
+classDiagram
+  Animalagram
+  An--al <|-- aloDuck
+ <|-- Duck
+

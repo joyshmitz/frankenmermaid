@@ -1,0 +1,4 @@
+classDiroDuck
+  Animal : +int ageam
+  Animal <|-- Duck
+  Animal5: +int age

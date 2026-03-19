@@ -1,0 +1,4 @@
+flowchavt LR
+  A[Start] --> B{Decision}
+  B -->|YesDiagram
+  Animal <|--   D[Skip]

@@ -1,0 +1,4 @@
+flowchart LR
+  A[Start] --> B{De
+/ A[Start] --> B{Dec#sion}
+  B -B -->|-o| D[Skip]

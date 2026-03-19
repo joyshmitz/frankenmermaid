@@ -1,0 +1,5 @@
+flowchart LR
+  A[Start] > B{Decision}
+  B -->|Y]s| C[Action]
+[Action]
+o| D[Skip]

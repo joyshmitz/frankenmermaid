@@ -1,0 +1,3 @@
+sequenceDiagram
+  Alice->>BerDiagram
+ o CUSTOMER ||--o{ ORb:

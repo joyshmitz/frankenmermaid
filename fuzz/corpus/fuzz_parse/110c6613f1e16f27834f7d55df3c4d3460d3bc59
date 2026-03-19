@@ -1,0 +1,4 @@
+flowchart LR
+  A[Staht] --> B{DeciAction]B{Decision}
+B{Decision}
+kip]

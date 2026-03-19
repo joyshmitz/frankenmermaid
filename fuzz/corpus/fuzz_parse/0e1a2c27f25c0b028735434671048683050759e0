@@ -1,0 +1,3 @@
+flowchart | C[Action]
+  B - -->|No| D[>|Yes| C[Action]
+  B - -->|No| D[Skip]

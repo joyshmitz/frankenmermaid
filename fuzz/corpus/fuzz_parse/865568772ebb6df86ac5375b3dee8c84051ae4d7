@@ -1,0 +1,3 @@
+flowchart [Start--> B{Decision}
+  B -->|Yes| C[Action]
+  B - -->|No| D[Skip]

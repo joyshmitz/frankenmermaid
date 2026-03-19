@@ -1,0 +1,1 @@
+cla |fdigrlaph G { A -|> B; B -> C;%}
