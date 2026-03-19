@@ -4040,10 +4040,10 @@ fn force_barnes_hut_repulsion(
 ) {
     let n = positions.len();
     // Find bounding box.
-    let mut min_x = f32::MAX;
-    let mut min_y = f32::MAX;
-    let mut max_x = f32::MIN;
-    let mut max_y = f32::MIN;
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
     for &(x, y) in positions {
         min_x = min_x.min(x);
         min_y = min_y.min(y);
@@ -6689,10 +6689,10 @@ fn build_cluster_boxes(
         .iter()
         .enumerate()
         .filter_map(|(cluster_index, cluster)| {
-            let mut min_x = f32::MAX;
-            let mut min_y = f32::MAX;
-            let mut max_x = f32::MIN;
-            let mut max_y = f32::MIN;
+            let mut min_x = f32::INFINITY;
+            let mut min_y = f32::INFINITY;
+            let mut max_x = f32::NEG_INFINITY;
+            let mut max_y = f32::NEG_INFINITY;
 
             for member in &cluster.members {
                 let Some(node_box) = nodes.get(member.0) else {
@@ -6728,10 +6728,10 @@ fn compute_bounds(
     edges: &[LayoutEdgePath],
     spacing: LayoutSpacing,
 ) -> LayoutRect {
-    let mut min_x = f32::MAX;
-    let mut min_y = f32::MAX;
-    let mut max_x = f32::MIN;
-    let mut max_y = f32::MIN;
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
 
     for node in nodes {
         min_x = min_x.min(node.bounds.x);
@@ -6886,10 +6886,10 @@ fn build_cycle_cluster_results(
         }
 
         // Compute the cluster bounding box over all members.
-        let mut min_x = f32::MAX;
-        let mut min_y = f32::MAX;
-        let mut max_x = f32::MIN;
-        let mut max_y = f32::MIN;
+        let mut min_x = f32::INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
         for &member_index in members {
             if let Some(member_box) = nodes.iter().find(|n| n.node_index == member_index) {
                 min_x = min_x.min(member_box.bounds.x);
