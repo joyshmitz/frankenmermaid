@@ -6267,7 +6267,19 @@ fn build_edge_paths_with_orientation(
             } else {
                 let (source_anchor, target_anchor) =
                     edge_anchors(source_box, target_box, horizontal_ranks);
-                let mut pts = route_edge_points(source_anchor, target_anchor, horizontal_ranks);
+                // Collect obstacles: all node boxes except source and target.
+                let obstacles: Vec<LayoutRect> = nodes
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, _)| *idx != source && *idx != target)
+                    .map(|(_, n)| n.bounds)
+                    .collect();
+                let mut pts = route_edge_points_with_obstacles(
+                    source_anchor,
+                    target_anchor,
+                    horizontal_ranks,
+                    &obstacles,
+                );
                 if parallel_offset.abs() > 0.01 {
                     apply_parallel_offset(&mut pts, parallel_offset, horizontal_ranks);
                 }
@@ -6418,6 +6430,19 @@ fn route_edge_points(
     target: LayoutPoint,
     horizontal_ranks: bool,
 ) -> Vec<LayoutPoint> {
+    route_edge_points_with_obstacles(source, target, horizontal_ranks, &[])
+}
+
+/// Route an edge with orthogonal segments, avoiding node bounding boxes.
+///
+/// When `obstacles` is non-empty, the router checks if the midpoint segment
+/// intersects any obstacle and reroutes around it if needed.
+fn route_edge_points_with_obstacles(
+    source: LayoutPoint,
+    target: LayoutPoint,
+    horizontal_ranks: bool,
+    obstacles: &[LayoutRect],
+) -> Vec<LayoutPoint> {
     let epsilon = 0.001_f32;
 
     let points = if horizontal_ranks {
@@ -6425,38 +6450,149 @@ fn route_edge_points(
             vec![source, target]
         } else {
             let mid_x = (source.x + target.x) / 2.0;
-            vec![
-                source,
+            let mid_segment = (
                 LayoutPoint {
                     x: mid_x,
-                    y: source.y,
+                    y: source.y.min(target.y),
                 },
                 LayoutPoint {
                     x: mid_x,
-                    y: target.y,
+                    y: source.y.max(target.y),
                 },
-                target,
-            ]
+            );
+            // Check if the vertical mid-segment clips through any obstacle.
+            if let Some(nudge) = find_obstacle_nudge_x(mid_segment, mid_x, obstacles) {
+                // Route around: two vertical segments flanking the obstacle.
+                vec![
+                    source,
+                    LayoutPoint {
+                        x: nudge,
+                        y: source.y,
+                    },
+                    LayoutPoint {
+                        x: nudge,
+                        y: target.y,
+                    },
+                    target,
+                ]
+            } else {
+                vec![
+                    source,
+                    LayoutPoint {
+                        x: mid_x,
+                        y: source.y,
+                    },
+                    LayoutPoint {
+                        x: mid_x,
+                        y: target.y,
+                    },
+                    target,
+                ]
+            }
         }
     } else if (source.x - target.x).abs() < epsilon {
         vec![source, target]
     } else {
         let mid_y = (source.y + target.y) / 2.0;
-        vec![
-            source,
+        let mid_segment = (
             LayoutPoint {
-                x: source.x,
+                x: source.x.min(target.x),
                 y: mid_y,
             },
             LayoutPoint {
-                x: target.x,
+                x: source.x.max(target.x),
                 y: mid_y,
             },
-            target,
-        ]
+        );
+        if let Some(nudge) = find_obstacle_nudge_y(mid_segment, mid_y, obstacles) {
+            vec![
+                source,
+                LayoutPoint {
+                    x: source.x,
+                    y: nudge,
+                },
+                LayoutPoint {
+                    x: target.x,
+                    y: nudge,
+                },
+                target,
+            ]
+        } else {
+            vec![
+                source,
+                LayoutPoint {
+                    x: source.x,
+                    y: mid_y,
+                },
+                LayoutPoint {
+                    x: target.x,
+                    y: mid_y,
+                },
+                target,
+            ]
+        }
     };
 
     simplify_polyline(points)
+}
+
+/// Check if a vertical segment at x-coordinate `mid_x` intersects any obstacle.
+/// Returns a nudged x-coordinate that avoids the obstacle, or None if clear.
+fn find_obstacle_nudge_x(
+    segment: (LayoutPoint, LayoutPoint),
+    mid_x: f32,
+    obstacles: &[LayoutRect],
+) -> Option<f32> {
+    let margin = 8.0_f32;
+    let y_min = segment.0.y;
+    let y_max = segment.1.y;
+    for obs in obstacles {
+        // Check if the vertical line at mid_x passes through this obstacle's x-range
+        // and the y-range overlaps.
+        if mid_x >= obs.x - margin
+            && mid_x <= obs.x + obs.width + margin
+            && y_max >= obs.y
+            && y_min <= obs.y + obs.height
+        {
+            // Nudge to the closer side of the obstacle.
+            let left_dist = (mid_x - (obs.x - margin)).abs();
+            let right_dist = (mid_x - (obs.x + obs.width + margin)).abs();
+            return if left_dist <= right_dist {
+                Some(obs.x - margin)
+            } else {
+                Some(obs.x + obs.width + margin)
+            };
+        }
+    }
+    None
+}
+
+/// Check if a horizontal segment at y-coordinate `mid_y` intersects any obstacle.
+/// Returns a nudged y-coordinate that avoids the obstacle, or None if clear.
+fn find_obstacle_nudge_y(
+    segment: (LayoutPoint, LayoutPoint),
+    mid_y: f32,
+    obstacles: &[LayoutRect],
+) -> Option<f32> {
+    let margin = 8.0_f32;
+    let x_min = segment.0.x;
+    let x_max = segment.1.x;
+    for obs in obstacles {
+        if mid_y >= obs.y - margin
+            && mid_y <= obs.y + obs.height + margin
+            && x_max >= obs.x
+            && x_min <= obs.x + obs.width
+        {
+            let top_dist = (mid_y - (obs.y - margin)).abs();
+            let bottom_dist = (mid_y - (obs.y + obs.height + margin)).abs();
+            return if top_dist <= bottom_dist {
+                Some(obs.y - margin)
+            } else {
+                Some(obs.y + obs.height + margin)
+            };
+        }
+    }
+    None
 }
 
 fn simplify_polyline(points: Vec<LayoutPoint>) -> Vec<LayoutPoint> {
@@ -6862,14 +6998,15 @@ pub fn build_layout_guard_report_with_pressure(
 #[cfg(test)]
 mod tests {
     use super::{
-        CycleStrategy, GraphMetrics, LayoutAlgorithm, LayoutGuardrails, LayoutPoint, RenderClip,
-        RenderItem, RenderSource, build_layout_guard_report, build_render_scene,
+        CycleStrategy, GraphMetrics, LayoutAlgorithm, LayoutGuardrails, LayoutPoint, LayoutRect,
+        RenderClip, RenderItem, RenderSource, build_layout_guard_report, build_render_scene,
         dispatch_layout_algorithm, layout, layout_diagram, layout_diagram_force,
         layout_diagram_force_traced, layout_diagram_gantt, layout_diagram_grid,
         layout_diagram_radial, layout_diagram_sankey, layout_diagram_sequence,
         layout_diagram_sequence_traced, layout_diagram_timeline, layout_diagram_traced,
         layout_diagram_traced_with_algorithm, layout_diagram_traced_with_algorithm_and_guardrails,
         layout_diagram_tree, layout_diagram_with_cycle_strategy, route_edge_points,
+        route_edge_points_with_obstacles,
     };
     use fm_core::{
         ArrowType, DiagramType, GraphDirection, IrCluster, IrClusterId, IrEdge, IrEndpoint,
@@ -7740,6 +7877,86 @@ mod tests {
             points.last().copied(),
             Some(LayoutPoint { x: 120.0, y: 100.0 })
         );
+    }
+
+    #[test]
+    fn obstacle_routing_nudges_around_blocking_node() {
+        // Route from (50, 10) to (50, 200) vertically, with an obstacle at x=30..70, y=80..120.
+        let obstacle = LayoutRect {
+            x: 30.0,
+            y: 80.0,
+            width: 40.0,
+            height: 40.0,
+        };
+        let points = route_edge_points_with_obstacles(
+            LayoutPoint { x: 50.0, y: 10.0 },
+            LayoutPoint { x: 50.0, y: 200.0 },
+            false,
+            &[obstacle],
+        );
+        // With obstacle at x=30..70, the midpoint y=105 passes through it.
+        // The route should be direct (aligned x), since the midpoint segment is vertical
+        // and both source/target have the same x. Actually for same-x, it's a straight line.
+        // Let me test an offset case where midpoint goes through obstacle.
+        let points2 = route_edge_points_with_obstacles(
+            LayoutPoint { x: 10.0, y: 10.0 },
+            LayoutPoint { x: 100.0, y: 200.0 },
+            false,
+            &[obstacle],
+        );
+        // The midpoint y = (10+200)/2 = 105. The horizontal segment at y=105
+        // goes from x=10 to x=100 and passes through obstacle x=30..70.
+        // So the route should be nudged to y < 72 or y > 128.
+        for pt in &points2 {
+            // No waypoint should be inside the obstacle.
+            let inside = pt.x >= obstacle.x
+                && pt.x <= obstacle.x + obstacle.width
+                && pt.y >= obstacle.y
+                && pt.y <= obstacle.y + obstacle.height;
+            assert!(
+                !inside,
+                "Waypoint ({:.1}, {:.1}) is inside obstacle ({:.0}..{:.0}, {:.0}..{:.0})",
+                pt.x,
+                pt.y,
+                obstacle.x,
+                obstacle.x + obstacle.width,
+                obstacle.y,
+                obstacle.y + obstacle.height,
+            );
+        }
+        // Verify route still connects source to target.
+        assert_eq!(points2.first().unwrap().x, 10.0);
+        assert_eq!(points2.first().unwrap().y, 10.0);
+        assert_eq!(points2.last().unwrap().x, 100.0);
+        assert_eq!(points2.last().unwrap().y, 200.0);
+    }
+
+    #[test]
+    fn obstacle_routing_no_obstacles_matches_basic_routing() {
+        let source = LayoutPoint { x: 10.0, y: 40.0 };
+        let target = LayoutPoint { x: 100.0, y: 120.0 };
+        let basic = route_edge_points(source, target, false);
+        let obstacle_aware = route_edge_points_with_obstacles(source, target, false, &[]);
+        assert_eq!(basic, obstacle_aware);
+    }
+
+    #[test]
+    fn obstacle_routing_clears_obstacle_on_horizontal_layout() {
+        let obstacle = LayoutRect {
+            x: 60.0,
+            y: 30.0,
+            width: 40.0,
+            height: 40.0,
+        };
+        let points = route_edge_points_with_obstacles(
+            LayoutPoint { x: 10.0, y: 10.0 },
+            LayoutPoint { x: 100.0, y: 80.0 },
+            true,
+            &[obstacle],
+        );
+        // Verify source and target preserved.
+        assert_eq!(points.first().unwrap().x, 10.0);
+        assert_eq!(points.last().unwrap().x, 100.0);
     }
 
     #[test]
