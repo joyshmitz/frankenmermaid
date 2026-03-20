@@ -313,12 +313,24 @@ fn find_unescaped_quote_end(input: &str) -> Option<usize> {
 }
 
 fn normalize_identifier(raw: &str) -> String {
-    let cleaned = raw
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim_matches('`')
-        .trim();
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let (cleaned, was_quoted) = if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+        || (trimmed.starts_with('`') && trimmed.ends_with('`'))
+    {
+        if trimmed.len() < 2 {
+            (trimmed, false)
+        } else {
+            (&trimmed[1..trimmed.len() - 1], true)
+        }
+    } else {
+        (trimmed, false)
+    };
+
     if cleaned.is_empty() {
         return String::new();
     }
@@ -327,16 +339,23 @@ fn normalize_identifier(raw: &str) -> String {
     for ch in cleaned.chars() {
         if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/') {
             out.push(ch);
-        } else if ch.is_whitespace() || matches!(ch, ':' | ';' | ',') {
+        } else if ch.is_whitespace() {
+            if !out.is_empty() {
+                out.push('_');
+            }
+        } else if matches!(ch, ':' | ';' | ',') {
             if !out.is_empty() {
                 break;
             }
+        } else if was_quoted {
+            out.push('_');
         } else if !out.is_empty() {
             break;
         }
     }
 
-    if out.is_empty() {
+    let mut result = out.trim_end_matches('_').to_string();
+    if result.is_empty() {
         let mut fallback = String::with_capacity(cleaned.len());
         for grapheme in cleaned.graphemes(true) {
             if grapheme
@@ -348,10 +367,9 @@ fn normalize_identifier(raw: &str) -> String {
                 fallback.push('_');
             }
         }
-        fallback.trim_matches('_').to_string()
-    } else {
-        out
+        result = fallback.trim_matches('_').to_string();
     }
+    result
 }
 
 fn strip_comments(line: &str) -> &str {

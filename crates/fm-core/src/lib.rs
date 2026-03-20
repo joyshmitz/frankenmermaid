@@ -8,8 +8,6 @@ pub use font_metrics::{
 };
 
 use std::collections::BTreeMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 pub use franken_kernel::{Budget, Cx, DecisionId, NoCaps, PolicyId, SchemaVersion, TraceId};
 use serde::{Deserialize, Serialize};
@@ -55,13 +53,21 @@ fn stable_u128_hash(domain: &str, parts: &[&str]) -> u128 {
 }
 
 fn stable_u64_hash(salt: &str, domain: &str, parts: &[&str]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    salt.hash(&mut hasher);
-    domain.hash(&mut hasher);
+    let mut hash = 0xcbf29ce484222325_u64;
+
+    let mut update = |s: &str| {
+        for byte in s.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    };
+
+    update(salt);
+    update(domain);
     for part in parts {
-        part.hash(&mut hasher);
+        update(part);
     }
-    hasher.finish()
+    hash
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2441,6 +2447,64 @@ pub struct MermaidGuardReport {
     pub degradation: MermaidDegradationPlan,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MermaidLayoutDecisionAlternative {
+    pub algorithm: String,
+    pub selected: bool,
+    pub available_for_diagram: bool,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MermaidLayoutDecisionRecord {
+    pub kind: String,
+    pub trace_id: TraceId,
+    pub decision_id: DecisionId,
+    pub policy_id: PolicyId,
+    #[serde(with = "schema_version_semver")]
+    pub schema_version: SchemaVersion,
+    pub requested_algorithm: String,
+    pub selected_algorithm: String,
+    pub capability_unavailable: bool,
+    pub dispatch_reason: String,
+    pub guard_reason: String,
+    pub fallback_applied: bool,
+    pub confidence_permille: u16,
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub crossing_count: usize,
+    pub reversed_edges: usize,
+    pub estimated_layout_time_ms: usize,
+    pub estimated_layout_iterations: usize,
+    pub estimated_route_ops: usize,
+    pub pressure_source: MermaidPressureSource,
+    pub pressure_tier: MermaidPressureTier,
+    pub budget_total_ms: u64,
+    pub budget_exhausted: bool,
+    pub alternatives: Vec<MermaidLayoutDecisionAlternative>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct MermaidLayoutDecisionLedger {
+    pub entries: Vec<MermaidLayoutDecisionRecord>,
+}
+
+impl MermaidLayoutDecisionLedger {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn to_jsonl(&self) -> serde_json::Result<String> {
+        let mut lines = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            lines.push(serde_json::to_string(entry)?);
+        }
+        Ok(lines.join("\n"))
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum MermaidFallbackAction {
     #[default]
@@ -3130,6 +3194,7 @@ mod tests {
         IrSequenceFragment, IrSequenceMeta, IrSequenceNote, IrSubgraph, IrSubgraphId,
         LifecycleEventKind, MERMAID_SCHEMA_VERSION, MermaidConfig, MermaidDiagramIr, MermaidError,
         MermaidErrorCode, MermaidFallbackAction, MermaidFallbackPolicy,
+        MermaidLayoutDecisionAlternative, MermaidLayoutDecisionLedger, MermaidLayoutDecisionRecord,
         MermaidNativePressureSignals, MermaidPressureTier, MermaidSanitizeMode,
         MermaidSupportLevel, MermaidWarningCode, MermaidWasmPressureSignals, NodeShape,
         NotePosition, Position, Span, StructuredDiagnostic, capability_matrix,
@@ -3195,6 +3260,56 @@ mod tests {
         assert!(!Diagnostic::error("e").is_warning());
         assert!(Diagnostic::warning("w").is_warning());
         assert!(!Diagnostic::warning("w").is_error());
+    }
+
+    #[test]
+    fn layout_decision_ledger_serializes_to_jsonl() {
+        let (_cx, observability) = mermaid_layout_guard_observability(
+            "cli.validate",
+            "flowchart LR\nA-->B",
+            "sugiyama",
+            42,
+        );
+        let ledger = MermaidLayoutDecisionLedger {
+            entries: vec![MermaidLayoutDecisionRecord {
+                kind: "layout_decision".to_string(),
+                trace_id: observability.trace_id,
+                decision_id: observability.decision_id,
+                policy_id: observability.policy_id,
+                schema_version: observability.schema_version,
+                requested_algorithm: "auto".to_string(),
+                selected_algorithm: "sugiyama".to_string(),
+                capability_unavailable: false,
+                dispatch_reason: "auto_selected_for_flowchart".to_string(),
+                guard_reason: "within_budget".to_string(),
+                fallback_applied: false,
+                confidence_permille: 820,
+                node_count: 2,
+                edge_count: 1,
+                crossing_count: 0,
+                reversed_edges: 0,
+                estimated_layout_time_ms: 12,
+                estimated_layout_iterations: 3,
+                estimated_route_ops: 8,
+                pressure_source: super::MermaidPressureSource::Native,
+                pressure_tier: MermaidPressureTier::Nominal,
+                budget_total_ms: 250,
+                budget_exhausted: false,
+                alternatives: vec![MermaidLayoutDecisionAlternative {
+                    algorithm: "sugiyama".to_string(),
+                    selected: true,
+                    available_for_diagram: true,
+                    note: Some("selected via auto_selected_for_flowchart".to_string()),
+                }],
+                notes: vec!["auto_selected_for_flowchart".to_string()],
+            }],
+        };
+
+        let jsonl = ledger.to_jsonl().expect("ledger should serialize");
+        assert!(jsonl.contains("\"kind\":\"layout_decision\""));
+        assert!(jsonl.contains("\"selected_algorithm\":\"sugiyama\""));
+        assert!(jsonl.contains("\"confidence_permille\":820"));
+        assert!(!ledger.is_empty());
     }
 
     #[test]

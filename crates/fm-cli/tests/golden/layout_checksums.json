@@ -9,6 +9,14 @@
       "layout_width": 271.700012,
       "node_count": 2
     },
+    "dense_flowchart_stress": {
+      "edge_count": 25,
+      "layout_algorithm": "auto",
+      "layout_checksum": "80cfc53e0ff57e16",
+      "layout_height": 1103.0,
+      "layout_width": 893.937439,
+      "node_count": 16
+    },
     "flowchart_cycle": {
       "edge_count": 3,
       "layout_algorithm": "auto",
@@ -25,6 +33,14 @@
       "layout_width": 672.200012,
       "node_count": 4
     },
+    "fuzzy_keyword_recovery": {
+      "edge_count": 5,
+      "layout_algorithm": "auto",
+      "layout_checksum": "28c5a74c03220a66",
+      "layout_height": 916.5,
+      "layout_width": 509.5,
+      "node_count": 6
+    },
     "gantt_basic": {
       "edge_count": 0,
       "layout_algorithm": "auto",
@@ -36,7 +52,7 @@
     "malformed_recovery": {
       "edge_count": 2,
       "layout_algorithm": "auto",
-      "layout_checksum": "6a899c2815faff7d",
+      "layout_checksum": "b378bb57b711db75",
       "layout_height": 170.5,
       "layout_width": 1180.025024,
       "node_count": 4

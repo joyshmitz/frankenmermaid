@@ -1050,19 +1050,17 @@ fn parse_subgraph_statement(statement: &str) -> Option<(String, Option<String>)>
     }
 
     // Mermaid commonly supports `subgraph <id> <title>` and
-    // `subgraph <id> "<title>"`. Prefer this split form before trying
-    // compact node-like forms (`id[Title]`), otherwise the title may
-    // accidentally include the id token.
-    if let Some(split_index) = body.find(char::is_whitespace) {
-        let (candidate_key, candidate_title) = body.split_at(split_index);
-        let key = normalize_identifier(candidate_key);
-        let title = normalize_subgraph_title(candidate_title);
-        let title_has_wrappers = matches!(
-            candidate_title.trim_start().chars().next(),
-            Some('[' | '(' | '{' | '"' | '\'' | '`')
-        );
-        let key_is_structured = key.chars().any(|ch| !ch.is_ascii_alphabetic());
-        if !key.is_empty() && (title_has_wrappers || key_is_structured) {
+    // `subgraph <id> "<title>"`. Use robust quoted extraction to handle
+    // spaces and escapes in either field.
+    if let Some((key_raw, rest)) = extract_quoted_or_word(body) {
+        let key = normalize_identifier(&key_raw);
+        if !key.is_empty() {
+            let title_raw = rest.trim();
+            let title = if title_raw.is_empty() {
+                None
+            } else {
+                normalize_subgraph_title(title_raw)
+            };
             return Some((key, title));
         }
     }
@@ -4806,12 +4804,24 @@ fn parse_wrapped_str(raw: &str, open: &str, close: &str, shape: NodeShape) -> Op
 }
 
 fn normalize_identifier(raw: &str) -> String {
-    let cleaned = raw
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim_matches('`')
-        .trim();
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let (cleaned, was_quoted) = if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+        || (trimmed.starts_with('`') && trimmed.ends_with('`'))
+    {
+        if trimmed.len() < 2 {
+            (trimmed, false)
+        } else {
+            (&trimmed[1..trimmed.len() - 1], true)
+        }
+    } else {
+        (trimmed, false)
+    };
+
     if cleaned.is_empty() {
         return String::new();
     }
@@ -4820,16 +4830,26 @@ fn normalize_identifier(raw: &str) -> String {
     for ch in cleaned.chars() {
         if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/') {
             out.push(ch);
-        } else if ch.is_whitespace() || matches!(ch, ':' | ';' | ',') {
+        } else if ch.is_whitespace() {
+            // Replace spaces with underscores for all identifiers to ensure they are safe
+            // for layout engines and other backends, while preserving the intent of
+            // multi-word identifiers (especially quoted ones).
+            if !out.is_empty() {
+                out.push('_');
+            }
+        } else if matches!(ch, ':' | ';' | ',') {
             if !out.is_empty() {
                 break;
             }
+        } else if was_quoted {
+            out.push('_');
         } else if !out.is_empty() {
             break;
         }
     }
 
-    if out.is_empty() {
+    let mut result = out.trim_end_matches('_').to_string();
+    if result.is_empty() {
         let mut fallback = String::with_capacity(cleaned.len());
         for grapheme in cleaned.graphemes(true) {
             if grapheme
@@ -4841,10 +4861,9 @@ fn normalize_identifier(raw: &str) -> String {
                 fallback.push('_');
             }
         }
-        fallback.trim_matches('_').to_string()
-    } else {
-        out
+        result = fallback.trim_matches('_').to_string();
     }
+    result
 }
 
 fn normalize_compound_identifier(raw: &str) -> String {
