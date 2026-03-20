@@ -6,8 +6,9 @@ use std::f32::consts::PI;
 
 use fm_core::{
     DiagramType, FontMetrics, GraphDirection, IrEndpoint, IrNode, MermaidComplexity, MermaidConfig,
-    MermaidDiagramIr, MermaidFidelity, MermaidGlyphMode, MermaidGuardReport, MermaidPressureReport,
-    Span,
+    MermaidDiagramIr, MermaidFidelity, MermaidGlyphMode, MermaidGuardReport,
+    MermaidLayoutDecisionAlternative, MermaidLayoutDecisionLedger, MermaidLayoutDecisionRecord,
+    MermaidPressureReport, MermaidPressureTier, Span,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -4451,7 +4452,12 @@ fn cycle_removal(ir: &MermaidDiagramIr, cycle_strategy: CycleStrategy) -> CycleR
         CycleStrategy::MfasApprox => {
             cycle_removal_mfas_approx(node_count, &edges, &node_priority, &cycle_detection)
         }
-        CycleStrategy::CycleAware => BTreeSet::new(),
+        CycleStrategy::CycleAware => {
+            // For CycleAware, we still want to break cycles for the ranking phase
+            // to ensure a high-quality topological baseline, but we keep the
+            // original orientation for other phases that handle cycles explicitly.
+            dfs_back_edges.clone()
+        }
     };
 
     let highlighted_edge_indexes = if matches!(cycle_strategy, CycleStrategy::CycleAware) {
@@ -4885,7 +4891,9 @@ fn rank_assignment(ir: &MermaidDiagramIr, cycles: &CycleRemovalResult) -> BTreeM
 
     if visited < node_count {
         // Residual cyclic components fallback to bounded longest-path relaxation.
-        let guard = edges.len().saturating_mul(2).saturating_add(1);
+        // We use node_count as the guard because the longest possible path in a DAG
+        // has node_count - 1 edges. If we iterate more, we are definitely in a cycle.
+        let guard = node_count;
         for _ in 0..guard {
             let mut changed = false;
             for edge in &edges {
@@ -6477,6 +6485,7 @@ fn edge_anchors(
     }
 }
 
+#[cfg(test)]
 fn route_edge_points(
     source: LayoutPoint,
     target: LayoutPoint,
@@ -7047,14 +7056,164 @@ pub fn build_layout_guard_report_with_pressure(
     }
 }
 
+#[must_use]
+pub fn build_layout_decision_ledger(
+    ir: &MermaidDiagramIr,
+    traced: &TracedLayout,
+    guard_report: &MermaidGuardReport,
+) -> MermaidLayoutDecisionLedger {
+    let dispatch = traced.trace.dispatch;
+    let guard = traced.trace.guard;
+    let metrics = GraphMetrics::from_ir(ir);
+    let confidence_permille =
+        layout_decision_confidence_permille(dispatch, guard, metrics, guard_report.pressure.tier);
+
+    let alternatives = concrete_layout_algorithms()
+        .into_iter()
+        .map(|algorithm| {
+            let available_for_diagram = algorithm_available_for_diagram(ir.diagram_type, algorithm);
+            let note = if algorithm == dispatch.selected {
+                Some(format!("selected via {}", dispatch.reason))
+            } else if algorithm == dispatch.requested && !available_for_diagram {
+                Some(String::from(
+                    "requested explicitly but unavailable for this diagram type",
+                ))
+            } else if algorithm == dispatch.requested {
+                Some(String::from("explicitly requested by caller"))
+            } else if available_for_diagram {
+                Some(String::from("available alternative"))
+            } else {
+                None
+            };
+            MermaidLayoutDecisionAlternative {
+                algorithm: algorithm.as_str().to_string(),
+                selected: algorithm == dispatch.selected,
+                available_for_diagram,
+                note,
+            }
+        })
+        .collect();
+
+    let mut notes = Vec::new();
+    if dispatch.requested == LayoutAlgorithm::Auto {
+        notes.push(String::from(auto_selection_reason(ir, dispatch.selected)));
+    }
+    if dispatch.capability_unavailable {
+        notes.push(format!(
+            "requested '{}' was unavailable for '{}'; used '{}'",
+            dispatch.requested.as_str(),
+            ir.diagram_type.as_str(),
+            dispatch.selected.as_str()
+        ));
+    }
+    if guard.fallback_applied {
+        notes.push(format!(
+            "guardrail fallback changed layout from '{}' to '{}'",
+            guard.initial_algorithm.as_str(),
+            guard.selected_algorithm.as_str()
+        ));
+    }
+
+    MermaidLayoutDecisionLedger {
+        entries: vec![MermaidLayoutDecisionRecord {
+            kind: String::from("layout_decision"),
+            trace_id: guard_report.observability.trace_id.clone(),
+            decision_id: guard_report.observability.decision_id.clone(),
+            policy_id: guard_report.observability.policy_id.clone(),
+            schema_version: guard_report.observability.schema_version.clone(),
+            requested_algorithm: dispatch.requested.as_str().to_string(),
+            selected_algorithm: dispatch.selected.as_str().to_string(),
+            capability_unavailable: dispatch.capability_unavailable,
+            dispatch_reason: dispatch.reason.to_string(),
+            guard_reason: guard.reason.to_string(),
+            fallback_applied: guard.fallback_applied,
+            confidence_permille,
+            node_count: traced.layout.nodes.len(),
+            edge_count: traced.layout.edges.len(),
+            crossing_count: traced.layout.stats.crossing_count,
+            reversed_edges: traced.layout.stats.reversed_edges,
+            estimated_layout_time_ms: guard.estimated_layout_time_ms,
+            estimated_layout_iterations: guard.estimated_layout_iterations,
+            estimated_route_ops: guard.estimated_route_ops,
+            pressure_source: guard_report.pressure.source,
+            pressure_tier: guard_report.pressure.tier,
+            budget_total_ms: guard_report.budget_broker.total_budget_ms,
+            budget_exhausted: guard_report.budget_broker.exhausted,
+            alternatives,
+            notes,
+        }],
+    }
+}
+
+fn concrete_layout_algorithms() -> [LayoutAlgorithm; 10] {
+    [
+        LayoutAlgorithm::Sugiyama,
+        LayoutAlgorithm::Force,
+        LayoutAlgorithm::Tree,
+        LayoutAlgorithm::Radial,
+        LayoutAlgorithm::Timeline,
+        LayoutAlgorithm::Gantt,
+        LayoutAlgorithm::Sankey,
+        LayoutAlgorithm::Kanban,
+        LayoutAlgorithm::Grid,
+        LayoutAlgorithm::Sequence,
+    ]
+}
+
+fn layout_decision_confidence_permille(
+    dispatch: LayoutDispatch,
+    guard: LayoutGuardDecision,
+    metrics: GraphMetrics,
+    pressure_tier: MermaidPressureTier,
+) -> u16 {
+    let mut confidence =
+        if dispatch.requested != LayoutAlgorithm::Auto && !dispatch.capability_unavailable {
+            970_u16
+        } else if dispatch.capability_unavailable {
+            420_u16
+        } else {
+            match dispatch.selected {
+                LayoutAlgorithm::Sequence
+                | LayoutAlgorithm::Timeline
+                | LayoutAlgorithm::Gantt
+                | LayoutAlgorithm::Sankey
+                | LayoutAlgorithm::Kanban
+                | LayoutAlgorithm::Grid
+                | LayoutAlgorithm::Radial => 900,
+                LayoutAlgorithm::Tree if metrics.is_tree_like => 880,
+                LayoutAlgorithm::Force if metrics.is_dense || metrics.back_edge_count > 0 => 760,
+                LayoutAlgorithm::Sugiyama => 820,
+                LayoutAlgorithm::Tree => 700,
+                LayoutAlgorithm::Force => 680,
+                LayoutAlgorithm::Auto => 500,
+            }
+        };
+
+    if guard.fallback_applied {
+        confidence = confidence.saturating_sub(180);
+    }
+    if guard.time_budget_exceeded || guard.iteration_budget_exceeded || guard.route_budget_exceeded
+    {
+        confidence = confidence.saturating_sub(80);
+    }
+
+    let pressure_penalty = match pressure_tier {
+        MermaidPressureTier::Unknown | MermaidPressureTier::Nominal => 0,
+        MermaidPressureTier::Elevated => 20,
+        MermaidPressureTier::High => 50,
+        MermaidPressureTier::Critical => 90,
+    };
+    confidence.saturating_sub(pressure_penalty)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         CycleStrategy, GraphMetrics, LayoutAlgorithm, LayoutGuardrails, LayoutPoint, LayoutRect,
-        RenderClip, RenderItem, RenderSource, build_layout_guard_report, build_render_scene,
-        dispatch_layout_algorithm, layout, layout_diagram, layout_diagram_force,
-        layout_diagram_force_traced, layout_diagram_gantt, layout_diagram_grid,
-        layout_diagram_radial, layout_diagram_sankey, layout_diagram_sequence,
+        RenderClip, RenderItem, RenderSource, build_layout_decision_ledger,
+        build_layout_guard_report, build_render_scene, dispatch_layout_algorithm, layout,
+        layout_diagram, layout_diagram_force, layout_diagram_force_traced, layout_diagram_gantt,
+        layout_diagram_grid, layout_diagram_radial, layout_diagram_sankey, layout_diagram_sequence,
         layout_diagram_sequence_traced, layout_diagram_timeline, layout_diagram_traced,
         layout_diagram_traced_with_algorithm, layout_diagram_traced_with_algorithm_and_guardrails,
         layout_diagram_tree, layout_diagram_with_cycle_strategy, route_edge_points,
@@ -7120,6 +7279,35 @@ mod tests {
         }
 
         ir
+    }
+
+    #[test]
+    fn layout_decision_ledger_tracks_selected_algorithm_and_jsonl() {
+        let ir = sample_ir();
+        let traced = layout_diagram_traced_with_algorithm(&ir, LayoutAlgorithm::Auto);
+        let mut report = build_layout_guard_report(&ir, &traced);
+        let (_cx, observability) = fm_core::mermaid_layout_guard_observability(
+            "cli.validate",
+            "flowchart LR\nA-->B",
+            traced.trace.dispatch.selected.as_str(),
+            64,
+        );
+        report.observability = observability;
+        let ledger = build_layout_decision_ledger(&ir, &traced, &report);
+
+        assert_eq!(ledger.entries.len(), 1);
+        let record = &ledger.entries[0];
+        assert_eq!(record.kind, "layout_decision");
+        assert_eq!(record.requested_algorithm, "auto");
+        assert_eq!(
+            record.selected_algorithm,
+            traced.trace.dispatch.selected.as_str()
+        );
+        assert!(record.alternatives.iter().any(|alt| alt.selected));
+
+        let jsonl = ledger.to_jsonl().expect("ledger should serialize");
+        assert!(jsonl.contains("\"requested_algorithm\":\"auto\""));
+        assert!(jsonl.contains("\"kind\":\"layout_decision\""));
     }
 
     #[test]
@@ -10570,6 +10758,9 @@ mod tests {
     // ── Performance baseline tests (bd-17e4.1) ────────────────────────
 
     /// Build a synthetic DAG with controlled density.
+    /// Build a synthetic DAG with controlled density.  Edges always go from
+    /// lower-index nodes to higher-index nodes, guaranteeing acyclicity.
+    /// Nodes near the end naturally have fewer outgoing edges (they are sinks).
     fn synthetic_dag(node_count: usize, edges_per_node: usize) -> MermaidDiagramIr {
         let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
         ir.direction = GraphDirection::TB;
@@ -10581,8 +10772,8 @@ mod tests {
         }
         for i in 0..node_count {
             for j in 1..=edges_per_node {
-                let target = (i + j) % node_count;
-                if target != i && target > i {
+                let target = i + j;
+                if target < node_count {
                     ir.edges.push(IrEdge {
                         from: IrEndpoint::Node(IrNodeId(i)),
                         to: IrEndpoint::Node(IrNodeId(target)),
