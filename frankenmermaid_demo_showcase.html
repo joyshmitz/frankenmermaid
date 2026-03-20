@@ -994,6 +994,14 @@
             <p class="text-xs font-semibold uppercase tracking-[0.28em] text-cobalt">Support reality</p>
             <h2 class="mt-2 text-2xl font-bold text-white">Current diagram support from the checked-in capability artifact</h2>
             <div id="support-grid" class="mt-6 grid gap-3 sm:grid-cols-2"></div>
+            <div class="mt-6 rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
+              <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Capability-to-scenario matrix</div>
+              <div class="mt-2 text-sm leading-6 text-slate-300">
+                This coverage artifact maps the demo’s promised feature families to concrete scenario IDs already present in the repo.
+              </div>
+              <div id="coverage-summary" class="mt-4 text-sm leading-6 text-slate-300"></div>
+              <div id="coverage-table" class="scrollbar-thin mt-4 max-h-72 overflow-auto rounded-[1.25rem] border border-white/10 bg-[#08101d] p-3"></div>
+            </div>
           </div>
 
           <div class="glass rounded-[2rem] p-6 shadow-panel sm:p-8">
@@ -1086,6 +1094,115 @@
         ["xyChart", "partial", "basic"],
         ["requirementDiagram", "partial", "basic"],
         ["packet-beta", "partial", "basic"]
+      ]
+    };
+
+    const coverageArtifactFallback = {
+      schema_version: 1,
+      artifact: "capability-to-scenario-matrix",
+      project: "frankenmermaid",
+      generated_by_bead: "bd-2u0.5.2.1",
+      updated_at: "2026-03-19",
+      feature_families: [
+        {
+          id: "parser",
+          label: "Parser and Type Detection",
+          maturity: "partial",
+          confidence: { label: "high", score: 0.82 },
+          scenario_ids: ["malformed_recovery", "flowchart_simple", "sequence_basic", "flowchart-1-incident-response-escalation"]
+        },
+        {
+          id: "layout",
+          label: "Deterministic Layout",
+          maturity: "partial",
+          confidence: { label: "high", score: 0.79 },
+          scenario_ids: ["flowchart_cycle", "flowchart-3-change-approval-pipeline", "gantt-1-q2-reliability-hardening", "state-1-security-exception-lifecycle"]
+        },
+        {
+          id: "rendering",
+          label: "Rendering Surfaces",
+          maturity: "partial",
+          confidence: { label: "high", score: 0.8 },
+          scenario_ids: ["flowchart-1-incident-response-escalation", "sequence-1-checkout-risk-review", "gantt_basic", "pie_basic", "gitGraph-1-release-train-alpha"]
+        },
+        {
+          id: "export",
+          label: "Export and Embedding",
+          maturity: "partial",
+          confidence: { label: "medium", score: 0.64 },
+          scenario_ids: ["flowchart_simple", "sequence_basic", "flowchart-1-incident-response-escalation"]
+        },
+        {
+          id: "diagnostics",
+          label: "Diagnostics and Recovery",
+          maturity: "partial",
+          confidence: { label: "high", score: 0.84 },
+          scenario_ids: ["malformed_recovery", "state_basic", "flowchart-1-incident-response-escalation"]
+        },
+        {
+          id: "performance",
+          label: "Performance and Runtime Guardrails",
+          maturity: "partial",
+          confidence: { label: "medium", score: 0.61 },
+          scenario_ids: ["flowchart_cycle", "gantt-3-partner-api-migration", "flowchart-8-partner-api-migration"]
+        },
+        {
+          id: "accessibility",
+          label: "Accessibility and Inspectability",
+          maturity: "partial",
+          confidence: { label: "medium", score: 0.68 },
+          scenario_ids: ["flowchart_simple", "flowchart-1-incident-response-escalation", "journey-1-new-customer-launch-journey"]
+        }
+      ],
+      journeys: [
+        {
+          id: "J1",
+          label: "Messy Input to Useful Output",
+          feature_family_ids: ["parser", "diagnostics", "rendering"],
+          scenario_ids: ["malformed_recovery", "flowchart-1-incident-response-escalation"]
+        },
+        {
+          id: "J2",
+          label: "One Diagram, Many Surfaces",
+          feature_family_ids: ["rendering", "export", "accessibility"],
+          scenario_ids: ["flowchart-1-incident-response-escalation", "sequence-1-checkout-risk-review", "pie_basic"]
+        },
+        {
+          id: "J3",
+          label: "Deterministic and Reviewable for CI",
+          feature_family_ids: ["layout", "diagnostics", "performance"],
+          scenario_ids: ["flowchart_simple", "flowchart_cycle", "gantt_basic"]
+        },
+        {
+          id: "J4",
+          label: "Terminal-First Incident or Remote Workflow",
+          feature_family_ids: ["rendering", "diagnostics"],
+          scenario_ids: ["flowchart_cycle", "state-1-security-exception-lifecycle"]
+        },
+        {
+          id: "J5",
+          label: "Embeddable Browser Runtime with Inspectable Metadata",
+          feature_family_ids: ["export", "accessibility", "diagnostics"],
+          scenario_ids: ["flowchart-1-incident-response-escalation", "journey-1-new-customer-launch-journey", "gantt-1-q2-reliability-hardening"]
+        }
+      ],
+      scenarios: [
+        { id: "flowchart_simple", title: "Flowchart Simple Golden Snapshot" },
+        { id: "flowchart_cycle", title: "Flowchart Cycle Golden Snapshot" },
+        { id: "sequence_basic", title: "Sequence Basic Golden Snapshot" },
+        { id: "state_basic", title: "State Basic Golden Snapshot" },
+        { id: "gantt_basic", title: "Gantt Basic Golden Snapshot" },
+        { id: "pie_basic", title: "Pie Basic Golden Snapshot" },
+        { id: "malformed_recovery", title: "Malformed Recovery Golden Snapshot" },
+        { id: "flowchart-1-incident-response-escalation", title: "Incident Response Escalation" },
+        { id: "flowchart-3-change-approval-pipeline", title: "Change Approval Pipeline" },
+        { id: "flowchart-8-partner-api-migration", title: "Partner API Migration" },
+        { id: "sequence-1-checkout-risk-review", title: "Checkout Risk Review" },
+        { id: "state-1-security-exception-lifecycle", title: "Security Exception Lifecycle" },
+        { id: "gantt-1-q2-reliability-hardening", title: "Q2 Reliability Hardening" },
+        { id: "gantt-3-partner-api-migration", title: "Partner API Migration Program" },
+        { id: "journey-1-new-customer-launch-journey", title: "New Customer Launch Journey" },
+        { id: "gitGraph-1-release-train-alpha", title: "Release Train Alpha" }
       ]
     };
 
@@ -1483,13 +1600,16 @@
       mermaidChip: document.getElementById("mermaid-chip"),
       canvasChip: document.getElementById("canvas-chip"),
       canvas: document.getElementById("diagram-canvas"),
-      supportGrid: document.getElementById("support-grid")
+      supportGrid: document.getElementById("support-grid"),
+      coverageSummary: document.getElementById("coverage-summary"),
+      coverageTable: document.getElementById("coverage-table")
     };
 
     let frankenRuntime = null;
     let diagramInstance = null;
     let currentSample = editorSamples[0];
     let spotlightSample = editorSamples[0];
+    let coverageArtifact = coverageArtifactFallback;
     let galleryObserver = null;
     let galleryFilter = "all";
     let galleryQuery = "";
@@ -1912,6 +2032,124 @@
       `;
     }
 
+    function validateCoverageArtifact(matrix) {
+      const families = Array.isArray(matrix?.feature_families) ? matrix.feature_families : [];
+      const scenarios = Array.isArray(matrix?.scenarios) ? matrix.scenarios : [];
+      const scenarioIds = new Set(scenarios.map((entry) => entry.id));
+
+      if (families.length === 0 || scenarios.length === 0) {
+        return {
+          ok: false,
+          reason: "missing feature families or scenarios"
+        };
+      }
+
+      for (const family of families) {
+        if (!Array.isArray(family.scenario_ids) || family.scenario_ids.length === 0) {
+          return {
+            ok: false,
+            reason: `family ${family.id || "unknown"} has no scenario ids`
+          };
+        }
+        for (const scenarioId of family.scenario_ids) {
+          if (!scenarioIds.has(scenarioId)) {
+            return {
+              ok: false,
+              reason: `family ${family.id || "unknown"} references missing scenario ${scenarioId}`
+            };
+          }
+        }
+      }
+
+      return { ok: true };
+    }
+
+    async function loadCoverageArtifact() {
+      const fallbackValidation = validateCoverageArtifact(coverageArtifactFallback);
+      if (!fallbackValidation.ok) {
+        throw new Error(`invalid inline coverage artifact: ${fallbackValidation.reason}`);
+      }
+
+      if (location.protocol === "file:") {
+        coverageArtifact = coverageArtifactFallback;
+        return coverageArtifact;
+      }
+
+      try {
+        const response = await fetch(new URL("./evidence/capability_scenario_matrix.json", location.href), {
+          method: "GET",
+          cache: "no-store"
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const candidate = await response.json();
+        const validation = validateCoverageArtifact(candidate);
+        if (!validation.ok) {
+          throw new Error(validation.reason);
+        }
+        coverageArtifact = candidate;
+        return coverageArtifact;
+      } catch (_error) {
+        coverageArtifact = coverageArtifactFallback;
+        return coverageArtifact;
+      }
+    }
+
+    function renderCoverageMatrix(matrix) {
+      const families = Array.isArray(matrix?.feature_families) ? matrix.feature_families : [];
+      const scenarios = Array.isArray(matrix?.scenarios) ? matrix.scenarios : [];
+      const journeys = Array.isArray(matrix?.journeys) ? matrix.journeys : [];
+      const scenarioTitles = new Map(scenarios.map((entry) => [entry.id, entry.title || entry.id]));
+
+      els.coverageSummary.innerHTML = `
+        <div><span class="font-semibold text-white">${families.length}</span> feature families are tied to <span class="font-semibold text-white">${scenarios.length}</span> concrete scenario IDs across <span class="font-semibold text-white">${journeys.length}</span> ranked demo journeys.</div>
+        <div class="mt-2 text-slate-400">Source: <code>evidence/capability_scenario_matrix.json</code>${location.protocol === "file:" ? " (inline fallback active for standalone file mode)" : ""}.</div>
+      `;
+
+      const rows = families
+        .map((family) => {
+          const confidence = family.confidence?.label
+            ? `${family.confidence.label} (${Math.round((family.confidence.score || 0) * 100)}%)`
+            : "unknown";
+          const linkedScenarios = family.scenario_ids
+            .map((scenarioId) => scenarioTitles.get(scenarioId) || scenarioId)
+            .slice(0, 3)
+            .join(", ");
+          return `
+            <tr class="border-b border-white/5 align-top">
+              <td class="px-3 py-3">
+                <div class="font-medium text-white">${family.label}</div>
+                <div class="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">${family.id}</div>
+              </td>
+              <td class="px-3 py-3">
+                <span class="pill ${badgeClass(family.maturity === "implemented" ? "implemented" : family.maturity === "experimental" ? "experimental" : "partial")} rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]">${family.maturity}</span>
+              </td>
+              <td class="px-3 py-3 text-slate-300">${confidence}</td>
+              <td class="px-3 py-3 text-slate-300">
+                <div>${family.scenario_ids.length} scenario ids</div>
+                <div class="mt-1 text-slate-500">${linkedScenarios}</div>
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      els.coverageTable.innerHTML = `
+        <table class="min-w-full text-left text-xs">
+          <thead class="sticky top-0 bg-[#08101d] text-slate-400">
+            <tr>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">Feature family</th>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">Maturity</th>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">Confidence</th>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">Scenario anchors</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
     async function probeUrl(url, expectBinary = false) {
       try {
         const response = await fetch(url, { method: "GET", cache: "no-store" });
@@ -2139,11 +2377,13 @@
     }
 
     async function boot() {
+      await loadCoverageArtifact();
       createSampleButtons();
       renderFeatureStrip();
       renderFilterControls();
       renderSupportGrid();
       renderCapabilityPanel(capabilityArtifact);
+      renderCoverageMatrix(coverageArtifact);
       els.input.value = currentSample.code;
       await loadFrankenRuntime();
       await renderSpotlight();

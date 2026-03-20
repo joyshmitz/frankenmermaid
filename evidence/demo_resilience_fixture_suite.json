@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "artifact": "demo-resilience-fixture-suite",
+  "project": "frankenmermaid",
+  "generated_by_bead": "bd-2u0.5.2.3",
+  "updated_at": "2026-03-20",
+  "scenarios": [
+    {
+      "scenario_id": "malformed_recovery",
+      "title": "Malformed flowchart recovery",
+      "category": "recovery",
+      "input_path": "crates/fm-cli/tests/golden/malformed_recovery.mmd",
+      "svg_path": "crates/fm-cli/tests/golden/malformed_recovery.svg",
+      "expected_warning_substrings": [],
+      "min_warning_count": 0,
+      "max_warning_count": 0,
+      "expected_degradation_tier": "full",
+      "min_node_count": 3,
+      "min_edge_count": 2
+    },
+    {
+      "scenario_id": "fuzzy_keyword_recovery",
+      "title": "Misspelled diagram header recovery",
+      "category": "recovery",
+      "input_path": "crates/fm-cli/tests/golden/fuzzy_keyword_recovery.mmd",
+      "svg_path": "crates/fm-cli/tests/golden/fuzzy_keyword_recovery.svg",
+      "expected_warning_substrings": [
+        "Fuzzy match"
+      ],
+      "min_warning_count": 1,
+      "max_warning_count": 4,
+      "expected_degradation_tier": "degraded",
+      "min_node_count": 5,
+      "min_edge_count": 5
+    },
+    {
+      "scenario_id": "dense_flowchart_stress",
+      "title": "Dense flowchart stress fixture",
+      "category": "stress",
+      "input_path": "crates/fm-cli/tests/golden/dense_flowchart_stress.mmd",
+      "svg_path": "crates/fm-cli/tests/golden/dense_flowchart_stress.svg",
+      "expected_warning_substrings": [],
+      "min_warning_count": 0,
+      "max_warning_count": 0,
+      "expected_degradation_tier": "full",
+      "min_node_count": 16,
+      "min_edge_count": 20
+    }
+  ]
+}

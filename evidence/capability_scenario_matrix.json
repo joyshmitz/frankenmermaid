@@ -1,0 +1,487 @@
+{
+  "schema_version": 1,
+  "artifact": "capability-to-scenario-matrix",
+  "project": "frankenmermaid",
+  "generated_by_bead": "bd-2u0.5.2.1",
+  "updated_at": "2026-03-19",
+  "sources": [
+    "README.md",
+    "evidence/demo_strategy.md",
+    "evidence/capability_matrix.json",
+    "frankenmermaid_demo_showcase.html",
+    "crates/fm-cli/tests/golden_svg_test.rs"
+  ],
+  "feature_families": [
+    {
+      "id": "parser",
+      "label": "Parser and Type Detection",
+      "maturity": "partial",
+      "confidence": {
+        "label": "high",
+        "score": 0.82
+      },
+      "summary": "Best-effort parse, fuzzy detection, and IR production are real strengths, but syntax coverage is still uneven across diagram families.",
+      "scenario_ids": [
+        "malformed_recovery",
+        "flowchart_simple",
+        "sequence_basic",
+        "flowchart-1-incident-response-escalation"
+      ],
+      "surface_targets": [
+        "cli",
+        "svg",
+        "wasm"
+      ],
+      "evidence_refs": [
+        "crates/fm-parser/src/lib.rs",
+        "crates/fm-cli/src/main.rs",
+        "crates/fm-cli/tests/golden_svg_test.rs"
+      ]
+    },
+    {
+      "id": "layout",
+      "label": "Deterministic Layout",
+      "maturity": "partial",
+      "confidence": {
+        "label": "high",
+        "score": 0.79
+      },
+      "summary": "Deterministic layout and cycle-aware handling exist today, but specialized algorithm depth is still advancing outside the strongest families.",
+      "scenario_ids": [
+        "flowchart_cycle",
+        "flowchart-3-change-approval-pipeline",
+        "gantt-1-q2-reliability-hardening",
+        "state-1-security-exception-lifecycle"
+      ],
+      "surface_targets": [
+        "svg",
+        "terminal",
+        "wasm"
+      ],
+      "evidence_refs": [
+        "crates/fm-layout/src/lib.rs",
+        "crates/fm-cli/tests/golden_layout_test.rs",
+        "evidence/demo_strategy.md"
+      ]
+    },
+    {
+      "id": "rendering",
+      "label": "Rendering Surfaces",
+      "maturity": "partial",
+      "confidence": {
+        "label": "high",
+        "score": 0.8
+      },
+      "summary": "SVG, terminal, canvas, and browser-facing surfaces are all present, but family-by-family visual fidelity is not yet uniformly deep.",
+      "scenario_ids": [
+        "flowchart-1-incident-response-escalation",
+        "sequence-1-checkout-risk-review",
+        "gantt_basic",
+        "pie_basic",
+        "gitGraph-1-release-train-alpha"
+      ],
+      "surface_targets": [
+        "svg",
+        "terminal",
+        "canvas",
+        "wasm"
+      ],
+      "evidence_refs": [
+        "crates/fm-render-svg/src/lib.rs",
+        "crates/fm-render-term/src/lib.rs",
+        "crates/fm-render-canvas/src/lib.rs",
+        "crates/fm-wasm/src/lib.rs"
+      ]
+    },
+    {
+      "id": "export",
+      "label": "Export and Embedding",
+      "maturity": "partial",
+      "confidence": {
+        "label": "medium",
+        "score": 0.64
+      },
+      "summary": "CLI export and WASM embedding contracts exist, but the standalone browser package publish path is still not reliably hosted for the showcase.",
+      "scenario_ids": [
+        "flowchart_simple",
+        "sequence_basic",
+        "flowchart-1-incident-response-escalation"
+      ],
+      "surface_targets": [
+        "cli",
+        "wasm",
+        "browser-showcase"
+      ],
+      "evidence_refs": [
+        "crates/fm-cli/src/main.rs",
+        "crates/fm-wasm/src/lib.rs",
+        "frankenmermaid_demo_showcase.html"
+      ]
+    },
+    {
+      "id": "diagnostics",
+      "label": "Diagnostics and Recovery",
+      "maturity": "partial",
+      "confidence": {
+        "label": "high",
+        "score": 0.84
+      },
+      "summary": "Recovery-first behavior, warnings, and inspectable output are central strengths, although the same diagnostic richness is not exposed equally by every surface yet.",
+      "scenario_ids": [
+        "malformed_recovery",
+        "state_basic",
+        "flowchart-1-incident-response-escalation"
+      ],
+      "surface_targets": [
+        "cli",
+        "json",
+        "wasm"
+      ],
+      "evidence_refs": [
+        "crates/fm-core/src/lib.rs",
+        "crates/fm-parser/src/lib.rs",
+        "crates/fm-cli/src/main.rs"
+      ]
+    },
+    {
+      "id": "performance",
+      "label": "Performance and Runtime Guardrails",
+      "maturity": "partial",
+      "confidence": {
+        "label": "medium",
+        "score": 0.61
+      },
+      "summary": "The repo has real layout guardrails and timing evidence hooks, but the demo proof remains concentrated in representative scenarios rather than a published benchmark dashboard.",
+      "scenario_ids": [
+        "flowchart_cycle",
+        "gantt-3-partner-api-migration",
+        "flowchart-8-partner-api-migration"
+      ],
+      "surface_targets": [
+        "cli",
+        "svg",
+        "wasm"
+      ],
+      "evidence_refs": [
+        "crates/fm-layout/src/lib.rs",
+        "crates/fm-cli/tests/golden_layout_test.rs",
+        "evidence/demo_strategy.md"
+      ]
+    },
+    {
+      "id": "accessibility",
+      "label": "Accessibility and Inspectability",
+      "maturity": "partial",
+      "confidence": {
+        "label": "medium",
+        "score": 0.68
+      },
+      "summary": "Accessible SVG semantics and source-span inspectability exist today, but accessibility proof is still strongest on the SVG/browser path rather than uniformly across every target.",
+      "scenario_ids": [
+        "flowchart_simple",
+        "flowchart-1-incident-response-escalation",
+        "journey-1-new-customer-launch-journey"
+      ],
+      "surface_targets": [
+        "svg",
+        "wasm",
+        "browser-showcase"
+      ],
+      "evidence_refs": [
+        "crates/fm-render-svg/src/a11y.rs",
+        "crates/fm-wasm/src/lib.rs",
+        "frankenmermaid_demo_showcase.html"
+      ]
+    }
+  ],
+  "journeys": [
+    {
+      "id": "J1",
+      "label": "Messy Input to Useful Output",
+      "feature_family_ids": [
+        "parser",
+        "diagnostics",
+        "rendering"
+      ],
+      "scenario_ids": [
+        "malformed_recovery",
+        "flowchart-1-incident-response-escalation"
+      ]
+    },
+    {
+      "id": "J2",
+      "label": "One Diagram, Many Surfaces",
+      "feature_family_ids": [
+        "rendering",
+        "export",
+        "accessibility"
+      ],
+      "scenario_ids": [
+        "flowchart-1-incident-response-escalation",
+        "sequence-1-checkout-risk-review",
+        "pie_basic"
+      ]
+    },
+    {
+      "id": "J3",
+      "label": "Deterministic and Reviewable for CI",
+      "feature_family_ids": [
+        "layout",
+        "diagnostics",
+        "performance"
+      ],
+      "scenario_ids": [
+        "flowchart_simple",
+        "flowchart_cycle",
+        "gantt_basic"
+      ]
+    },
+    {
+      "id": "J4",
+      "label": "Terminal-First Incident or Remote Workflow",
+      "feature_family_ids": [
+        "rendering",
+        "diagnostics"
+      ],
+      "scenario_ids": [
+        "flowchart_cycle",
+        "state-1-security-exception-lifecycle"
+      ]
+    },
+    {
+      "id": "J5",
+      "label": "Embeddable Browser Runtime with Inspectable Metadata",
+      "feature_family_ids": [
+        "export",
+        "accessibility",
+        "diagnostics"
+      ],
+      "scenario_ids": [
+        "flowchart-1-incident-response-escalation",
+        "journey-1-new-customer-launch-journey",
+        "gantt-1-q2-reliability-hardening"
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "flowchart_simple",
+      "title": "Flowchart Simple Golden Snapshot",
+      "kind": "golden-svg",
+      "diagram_family": "flowchart",
+      "source_refs": [
+        "crates/fm-cli/tests/golden/flowchart_simple.mmd",
+        "crates/fm-cli/tests/golden/flowchart_simple.svg"
+      ],
+      "surfaces": [
+        "cli",
+        "svg"
+      ]
+    },
+    {
+      "id": "flowchart_cycle",
+      "title": "Flowchart Cycle Golden Snapshot",
+      "kind": "golden-svg",
+      "diagram_family": "flowchart",
+      "source_refs": [
+        "crates/fm-cli/tests/golden/flowchart_cycle.mmd",
+        "crates/fm-cli/tests/golden/flowchart_cycle.svg"
+      ],
+      "surfaces": [
+        "cli",
+        "svg"
+      ]
+    },
+    {
+      "id": "sequence_basic",
+      "title": "Sequence Basic Golden Snapshot",
+      "kind": "golden-svg",
+      "diagram_family": "sequence",
+      "source_refs": [
+        "crates/fm-cli/tests/golden/sequence_basic.mmd",
+        "crates/fm-cli/tests/golden/sequence_basic.svg"
+      ],
+      "surfaces": [
+        "cli",
+        "svg"
+      ]
+    },
+    {
+      "id": "state_basic",
+      "title": "State Basic Golden Snapshot",
+      "kind": "golden-svg",
+      "diagram_family": "state",
+      "source_refs": [
+        "crates/fm-cli/tests/golden/state_basic.mmd",
+        "crates/fm-cli/tests/golden/state_basic.svg"
+      ],
+      "surfaces": [
+        "cli",
+        "svg"
+      ]
+    },
+    {
+      "id": "gantt_basic",
+      "title": "Gantt Basic Golden Snapshot",
+      "kind": "golden-svg",
+      "diagram_family": "gantt",
+      "source_refs": [
+        "crates/fm-cli/tests/golden/gantt_basic.mmd",
+        "crates/fm-cli/tests/golden/gantt_basic.svg"
+      ],
+      "surfaces": [
+        "cli",
+        "svg"
+      ]
+    },
+    {
+      "id": "pie_basic",
+      "title": "Pie Basic Golden Snapshot",
+      "kind": "golden-svg",
+      "diagram_family": "pie",
+      "source_refs": [
+        "crates/fm-cli/tests/golden/pie_basic.mmd",
+        "crates/fm-cli/tests/golden/pie_basic.svg"
+      ],
+      "surfaces": [
+        "cli",
+        "svg"
+      ]
+    },
+    {
+      "id": "malformed_recovery",
+      "title": "Malformed Recovery Golden Snapshot",
+      "kind": "golden-svg",
+      "diagram_family": "flowchart",
+      "source_refs": [
+        "crates/fm-cli/tests/golden/malformed_recovery.mmd",
+        "crates/fm-cli/tests/golden/malformed_recovery.svg"
+      ],
+      "surfaces": [
+        "cli",
+        "svg",
+        "diagnostics"
+      ]
+    },
+    {
+      "id": "flowchart-1-incident-response-escalation",
+      "title": "Incident Response Escalation",
+      "kind": "showcase-featured",
+      "diagram_family": "flowchart",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "wasm",
+        "mermaid-baseline"
+      ]
+    },
+    {
+      "id": "flowchart-3-change-approval-pipeline",
+      "title": "Change Approval Pipeline",
+      "kind": "showcase-gallery",
+      "diagram_family": "flowchart",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "wasm",
+        "mermaid-baseline"
+      ]
+    },
+    {
+      "id": "flowchart-8-partner-api-migration",
+      "title": "Partner API Migration",
+      "kind": "showcase-gallery",
+      "diagram_family": "flowchart",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "wasm",
+        "mermaid-baseline"
+      ]
+    },
+    {
+      "id": "sequence-1-checkout-risk-review",
+      "title": "Checkout Risk Review",
+      "kind": "showcase-featured",
+      "diagram_family": "sequence",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "mermaid-baseline"
+      ]
+    },
+    {
+      "id": "state-1-security-exception-lifecycle",
+      "title": "Security Exception Lifecycle",
+      "kind": "showcase-featured",
+      "diagram_family": "state",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "mermaid-baseline"
+      ]
+    },
+    {
+      "id": "gantt-1-q2-reliability-hardening",
+      "title": "Q2 Reliability Hardening",
+      "kind": "showcase-featured",
+      "diagram_family": "gantt",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "mermaid-baseline"
+      ]
+    },
+    {
+      "id": "gantt-3-partner-api-migration",
+      "title": "Partner API Migration Program",
+      "kind": "showcase-gallery",
+      "diagram_family": "gantt",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "mermaid-baseline"
+      ]
+    },
+    {
+      "id": "journey-1-new-customer-launch-journey",
+      "title": "New Customer Launch Journey",
+      "kind": "showcase-featured",
+      "diagram_family": "journey",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "mermaid-baseline"
+      ]
+    },
+    {
+      "id": "gitGraph-1-release-train-alpha",
+      "title": "Release Train Alpha",
+      "kind": "showcase-featured",
+      "diagram_family": "gitGraph",
+      "source_refs": [
+        "frankenmermaid_demo_showcase.html"
+      ],
+      "surfaces": [
+        "showcase",
+        "mermaid-baseline"
+      ]
+    }
+  ]
+}

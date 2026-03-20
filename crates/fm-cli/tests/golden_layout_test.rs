@@ -17,8 +17,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const CASE_IDS: &[&str] = &[
+    "dense_flowchart_stress",
     "flowchart_simple",
     "flowchart_cycle",
+    "fuzzy_keyword_recovery",
     "sequence_basic",
     "class_basic",
     "state_basic",

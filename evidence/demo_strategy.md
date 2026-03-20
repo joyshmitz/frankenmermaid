@@ -17,6 +17,8 @@ Primary sources:
 - `README.md`
 - `frankenmermaid_demo_showcase.html`
 - `evidence/capability_matrix.json`
+- `evidence/capability_scenario_matrix.json`
+- `evidence/demo_resilience_fixture_suite.json`
 - `crates/fm-cli/src/main.rs`
 - `crates/fm-parser/src/lib.rs`
 - `crates/fm-layout/src/lib.rs`
@@ -28,6 +30,7 @@ Current product truth that the demo must respect:
 - The strongest implemented story today is shared-pipeline rendering from one parse/layout flow into CLI, SVG, terminal, and WASM/browser surfaces.
 - The most differentiated product claims are resilience to malformed input, deterministic output, cycle-aware layout handling, terminal rendering, and inspectable diagnostics.
 - Capability breadth is large, but many diagram families are still `partial` in `evidence/capability_matrix.json`; the demo must highlight breadth without implying uniform depth.
+- Recovery and stress examples should now be anchored in `evidence/demo_resilience_fixture_suite.json` rather than ad hoc fixture mentions.
 
 ## Demo Thesis
 
@@ -208,6 +211,56 @@ Stretch only:
 | J4 Terminal-First Incident or Remote Workflow | `crates/fm-render-term/src/lib.rs`, CLI `diff` and render flows |
 | J5 Embeddable Browser Runtime with Inspectable Metadata | `crates/fm-wasm/src/lib.rs`, `frankenmermaid_demo_showcase.html` |
 
+## Capability-to-Scenario Matrix Contract
+
+Primary bead:
+- `bd-2u0.5.2.1`
+
+Source-of-truth artifact:
+- `evidence/capability_scenario_matrix.json`
+
+Contract:
+- Every demo-relevant feature family must map to one or more concrete scenario IDs.
+- Scenario IDs must resolve to executable examples already present in the repo: showcase samples, golden fixtures, or equivalent deterministic artifacts.
+- Each feature family must carry explicit `maturity` and `confidence` so the demo can stay honest about what is strong, partial, or still experimental.
+- The standalone showcase should consume this artifact directly when possible, and degrade to a synced fallback only when local `file://` execution prevents fetch-based loading.
+
+Current family coverage in the matrix:
+- `parser`
+- `layout`
+- `rendering`
+- `export`
+- `diagnostics`
+- `performance`
+- `accessibility`
+
+Current scenario anchors in the matrix:
+- golden fixtures: `flowchart_simple`, `flowchart_cycle`, `sequence_basic`, `state_basic`, `gantt_basic`, `pie_basic`, `malformed_recovery`
+- showcase featured/gallery scenarios: `flowchart-1-incident-response-escalation`, `sequence-1-checkout-risk-review`, `state-1-security-exception-lifecycle`, `gantt-1-q2-reliability-hardening`, `journey-1-new-customer-launch-journey`, `gitGraph-1-release-train-alpha`
+
+Why this artifact matters:
+- It stops the demo from drifting into vague claims by forcing each headline capability to point at a real, replayable scenario.
+- It bridges product narrative and repo truth: ranked journeys stay legible to humans, while the matrix stays machine-readable for the showcase and future validation tooling.
+- It gives future demo beads one stable place to extend instead of duplicating ad hoc sample lists across docs and UI code.
+
+## Recovery and Stress Fixture Contract
+
+Primary bead:
+- `bd-2u0.5.2.3`
+
+Source-of-truth artifact:
+- `evidence/demo_resilience_fixture_suite.json`
+
+Contract:
+- Recovery and stress scenarios must be backed by checked-in `.mmd` inputs and `.svg` golden outputs.
+- Each fixture entry must define expected warning volume, degradation tier, and minimum recovered graph size so the suite proves useful salvage rather than mere non-crashing behavior.
+- The golden harness should enforce this manifest directly so resilience proof stays executable and deterministic.
+
+Current resilience anchors:
+- `malformed_recovery`
+- `fuzzy_keyword_recovery`
+- `dense_flowchart_stress`
+
 ## Presenter Guidance
 
 Lead with:
@@ -239,6 +292,7 @@ The KPI bead should extend this file rather than replace it. It should add:
 - ownership for each metric
 - rehearsal and release thresholds
 - structured evidence expectations for demo validation runs
+- explicit references back to `evidence/capability_scenario_matrix.json` so KPI scoring always attaches to concrete scenario IDs
 
 ## KPI Rubric and Release-Quality Scorecard
 

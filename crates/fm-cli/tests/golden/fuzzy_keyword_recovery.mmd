@@ -1,0 +1,6 @@
+flwchart LR
+  Intake[Receive signal] --> Parse{Infer intent?}
+  Parse -->|yes| Salvage[Salvage structure]
+  Parse -->|no| Warn[Emit warning]
+  Salvage --> Output[Render output]
+  Warn --> Output
