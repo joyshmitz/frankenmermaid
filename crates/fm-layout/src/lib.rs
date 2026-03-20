@@ -11171,4 +11171,139 @@ mod tests {
             Ok(())
         }
     }
+
+    // ── Observability output format tests (bd-gy4.8) ──────────────────
+
+    #[test]
+    fn guard_report_contains_all_mandatory_fields() {
+        let ir = graph_ir(
+            DiagramType::Flowchart,
+            6,
+            &[(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)],
+        );
+        let traced = layout_diagram_traced(&ir);
+        let report = build_layout_guard_report(&ir, &traced);
+
+        // Complexity fields must be populated.
+        assert_eq!(report.complexity.nodes, 6);
+        assert_eq!(report.complexity.edges, 5);
+        assert!(report.complexity.score > 0);
+
+        // Algorithm selection must be present.
+        assert!(report.layout_requested_algorithm.is_some());
+        assert!(report.layout_selected_algorithm.is_some());
+        assert!(report.guard_reason.is_some());
+
+        // Budget estimates must be non-negative.
+        assert!(report.layout_time_estimate_ms > 0 || ir.nodes.is_empty());
+    }
+
+    #[test]
+    fn guard_report_detects_node_limit_exceeded() {
+        // Create a graph with more nodes than max_nodes default (200).
+        let edges: Vec<(usize, usize)> = (1..210).map(|i| (i - 1, i)).collect();
+        let ir = graph_ir(DiagramType::Flowchart, 210, &edges);
+        let traced = layout_diagram_traced(&ir);
+        let report = build_layout_guard_report(&ir, &traced);
+
+        assert!(report.node_limit_exceeded);
+        assert!(report.limits_exceeded);
+    }
+
+    #[test]
+    fn guard_report_serializes_to_valid_json() {
+        let ir = sample_ir();
+        let traced = layout_diagram_traced(&ir);
+        let report = build_layout_guard_report(&ir, &traced);
+
+        let json = serde_json::to_string(&report).expect("guard report must serialize");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("guard report must be valid JSON");
+
+        // Verify key fields are present in serialized form.
+        assert!(parsed.get("complexity").is_some());
+        assert!(parsed.get("node_limit_exceeded").is_some());
+        assert!(parsed.get("edge_limit_exceeded").is_some());
+        assert!(parsed.get("budget_exceeded").is_some());
+        assert!(parsed.get("layout_requested_algorithm").is_some());
+        assert!(parsed.get("layout_selected_algorithm").is_some());
+    }
+
+    #[test]
+    fn layout_stats_are_complete_for_sugiyama() {
+        let ir = graph_ir(DiagramType::Flowchart, 5, &[(0, 1), (1, 2), (2, 3), (3, 4)]);
+        let traced = layout_diagram_traced(&ir);
+        let stats = &traced.layout.stats;
+
+        assert_eq!(stats.node_count, 5);
+        assert_eq!(stats.edge_count, 4);
+        assert!(stats.total_edge_length >= 0.0);
+        assert!(stats.reversed_edge_total_length >= 0.0);
+        assert!(stats.phase_iterations > 0);
+    }
+
+    #[test]
+    fn layout_stats_report_cycle_info_for_cyclic_graph() {
+        let ir = graph_ir(DiagramType::Flowchart, 3, &[(0, 1), (1, 2), (2, 0)]);
+        let traced = layout_diagram_traced(&ir);
+        let stats = &traced.layout.stats;
+
+        assert!(stats.cycle_count > 0, "Should detect cycles");
+        assert!(stats.cycle_node_count > 0);
+        assert!(stats.max_cycle_size >= 3);
+        assert!(stats.reversed_edges > 0);
+    }
+
+    #[test]
+    fn layout_trace_contains_dispatch_and_snapshots() {
+        let ir = graph_ir(DiagramType::Flowchart, 4, &[(0, 1), (1, 2), (2, 3)]);
+        let traced = layout_diagram_traced(&ir);
+
+        // Dispatch must be populated.
+        assert_ne!(traced.trace.dispatch.reason, "legacy_default");
+
+        // Guard decision must have algorithm info.
+        assert!(!traced.trace.guard.selected_algorithm.as_str().is_empty());
+
+        // Snapshots must record at least cycle_removal and post_processing.
+        assert!(
+            traced.trace.snapshots.len() >= 2,
+            "Should have at least 2 layout stage snapshots, got {}",
+            traced.trace.snapshots.len()
+        );
+    }
+
+    #[test]
+    fn tracing_events_are_valid_jsonl() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = Arc::clone(&captured);
+
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .json()
+            .with_writer(move || CaptureWriter(Arc::clone(&captured_clone)))
+            .with_target(false)
+            .with_level(true);
+
+        let subscriber = tracing_subscriber::registry().with(fmt_layer);
+
+        let ir = graph_ir(DiagramType::Flowchart, 5, &[(0, 1), (1, 2), (2, 3), (3, 4)]);
+        tracing::subscriber::with_default(subscriber, || {
+            let _traced = layout_diagram_traced(&ir);
+        });
+
+        let events = captured.lock().unwrap();
+        // Every captured event must be valid JSON.
+        for (i, event) in events.iter().enumerate() {
+            let parsed: Result<serde_json::Value, _> = serde_json::from_str(event);
+            assert!(parsed.is_ok(), "Event {i} is not valid JSON: {event}");
+            // Each event must have a level and message.
+            let json = parsed.unwrap();
+            assert!(
+                json.get("level").is_some(),
+                "Event {i} missing 'level': {event}"
+            );
+        }
+    }
 }
