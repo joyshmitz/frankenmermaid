@@ -396,6 +396,7 @@ fn draw_cloud<C: Canvas2dContext>(ctx: &mut C, x: f64, y: f64, w: f64, h: f64) {
     ctx.begin_path();
     ctx.rect(x + r * 0.5, cy, w - r, h * 0.4);
     ctx.fill();
+    ctx.stroke();
 }
 
 /// Draw a tag/flag shape.

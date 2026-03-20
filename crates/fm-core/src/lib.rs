@@ -1659,13 +1659,14 @@ pub fn parse_mermaid_js_config_value(value: &Value) -> MermaidConfigParse {
             }
             // Common Mermaid key, but currently no equivalent runtime behavior in fm-core.
             "startOnLoad" => {
-                if !raw_value.is_boolean() {
+                if raw_value.is_boolean() {
+                    push_warning(
+                        &mut parsed,
+                        "Config key 'startOnLoad' is accepted but currently ignored".to_string(),
+                    );
+                } else {
                     push_type_error(&mut parsed, "startOnLoad", raw_value, "must be a boolean");
                 }
-                push_warning(
-                    &mut parsed,
-                    "Config key 'startOnLoad' is accepted but currently ignored".to_string(),
-                );
             }
             other => push_warning(
                 &mut parsed,
@@ -3068,6 +3069,11 @@ impl MermaidDiagramIr {
     }
 
     #[must_use]
+    pub fn node(&self, node_id: IrNodeId) -> Option<&IrNode> {
+        self.nodes.get(node_id.0)
+    }
+
+    #[must_use]
     pub fn graph_node(&self, node_id: IrNodeId) -> Option<&IrGraphNode> {
         self.graph.node(node_id)
     }
@@ -3603,6 +3609,7 @@ mod tests {
             (DiagramType::C4Component, "C4Component"),
             (DiagramType::C4Dynamic, "C4Dynamic"),
             (DiagramType::C4Deployment, "C4Deployment"),
+            (DiagramType::Kanban, "kanban"),
             (DiagramType::Unknown, "unknown"),
         ];
 
