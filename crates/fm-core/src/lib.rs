@@ -1108,6 +1108,9 @@ pub struct IrClassNodeMeta {
     pub methods: Vec<IrClassMember>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stereotype: Option<ClassStereotype>,
+    /// Generic type parameters, e.g. `["T"]` for `List~T~`, `["K","V"]` for `Map~K,V~`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generics: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

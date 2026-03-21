@@ -2101,7 +2101,14 @@ fn render_class_compartments(
         cursor_y += line_h;
     }
 
-    let name_elem = TextBuilder::new(class_name)
+    // Append generic parameters to class name if present (e.g., "List<T>").
+    let display_name = if meta.generics.is_empty() {
+        class_name.to_string()
+    } else {
+        format!("{class_name}<{}>", meta.generics.join(", "))
+    };
+
+    let name_elem = TextBuilder::new(&display_name)
         .x(x + w / 2.0)
         .y(cursor_y)
         .font_family(&config.font_family)
