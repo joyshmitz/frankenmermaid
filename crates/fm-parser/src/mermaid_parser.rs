@@ -1675,8 +1675,8 @@ fn parse_state_statements(line: &str) -> Option<Vec<StateStatement>> {
         if declaration.ends_with('{') {
             let name = declaration.trim_end_matches('{').trim();
             // Handle `"Label" as Name` syntax
-            let id = if let Some((_label, rest)) = name.split_once(" as ") {
-                rest.trim().to_string()
+            let id = if let Some((_, rest)) = parse_state_declaration_alias(name) {
+                rest.to_string()
             } else {
                 name.to_string()
             };
@@ -1733,6 +1733,7 @@ fn lower_state_statement(
     source_line: &str,
     builder: &mut IrBuilder,
 ) {
+    let span = span_for(line_number, source_line);
     match statement {
         StateStatement::Direction(direction) => builder.set_direction(direction),
         StateStatement::Declaration(declaration) => {
@@ -1740,15 +1741,13 @@ fn lower_state_statement(
         }
         StateStatement::Edge(asts) => {
             for ast in asts {
-                lower_flow_ast(&ast, line_number, source_line, builder, &[], &[]);
+                lower_state_flow_ast(&ast, line_number, source_line, builder, span);
             }
         }
         StateStatement::Node(node) => {
-            let span = span_for(line_number, source_line);
-            let _ = builder.intern_node(&node.id, node.label.as_deref(), node.shape, span);
+            lower_state_node(&node, builder, span);
         }
         StateStatement::CompositeStart(name) => {
-            let span = span_for(line_number, source_line);
             builder.begin_state_cluster(&name, span);
         }
         StateStatement::CompositeEnd => {
@@ -1760,6 +1759,81 @@ fn lower_state_statement(
             let span = span_for(line_number, source_line);
             let _ = builder.intern_node(&target, None, NodeShape::Rounded, span);
             let _ = text; // Note text available for future rendering
+        }
+    }
+}
+
+fn lower_state_flow_ast(
+    ast: &FlowAst,
+    line_number: usize,
+    source_line: &str,
+    builder: &mut IrBuilder,
+    span: Span,
+) {
+    match ast {
+        FlowAst::Node(node) => {
+            lower_state_node(node, builder, span);
+        }
+        FlowAst::Edge {
+            from,
+            arrow,
+            label,
+            to,
+        } => {
+            let from_node = state_edge_endpoint_token(from, true);
+            let to_node = state_edge_endpoint_token(to, false);
+            let from_id = builder.intern_node(
+                &from_node.id,
+                from_node.label.as_deref(),
+                from_node.shape,
+                span,
+            );
+            let to_id =
+                builder.intern_node(&to_node.id, to_node.label.as_deref(), to_node.shape, span);
+            if let (Some(f), Some(t)) = (from_id, to_id) {
+                builder.push_edge(f, t, *arrow, label.as_deref(), span);
+            }
+        }
+        _ => {
+            lower_flow_ast(ast, line_number, source_line, builder, &[], &[]);
+        }
+    }
+}
+
+fn lower_state_node(node: &NodeToken, builder: &mut IrBuilder, span: Span) {
+    let normalized = if node.id == STATE_PSEUDO_TOKEN {
+        NodeToken {
+            id: STATE_START_NODE_ID.to_string(),
+            label: None,
+            shape: NodeShape::FilledCircle,
+        }
+    } else {
+        node.clone()
+    };
+    let _ = builder.intern_node(
+        &normalized.id,
+        normalized.label.as_deref(),
+        normalized.shape,
+        span,
+    );
+}
+
+fn state_edge_endpoint_token(node: &NodeToken, is_source: bool) -> NodeToken {
+    if node.id != STATE_PSEUDO_TOKEN {
+        return node.clone();
+    }
+
+    if is_source {
+        NodeToken {
+            id: STATE_START_NODE_ID.to_string(),
+            label: None,
+            shape: NodeShape::FilledCircle,
+        }
+    } else {
+        NodeToken {
+            id: STATE_END_NODE_ID.to_string(),
+            label: None,
+            shape: NodeShape::DoubleCircle,
         }
     }
 }
@@ -3653,6 +3727,10 @@ enum StateStatement {
     },
 }
 
+const STATE_PSEUDO_TOKEN: &str = "__state_start_end";
+const STATE_START_NODE_ID: &str = "__state_start";
+const STATE_END_NODE_ID: &str = "__state_end";
+
 fn parse_block_beta(input: &str, builder: &mut IrBuilder) {
     let document = parse_block_beta_document(input);
     for warning in &document.warnings {
@@ -4513,10 +4591,13 @@ fn register_state_declaration(
         return false;
     }
 
-    let (raw_id, raw_label) = if let Some((label_part, id_part)) = body.split_once(" as ") {
-        (id_part.trim(), Some(label_part.trim()))
+    let (body_without_stereotype, stereotype) = parse_state_stereotype(body);
+    let (raw_id, raw_label) = if let Some((label_part, id_part)) =
+        parse_state_declaration_alias(body_without_stereotype)
+    {
+        (id_part, Some(label_part))
     } else {
-        (body, None)
+        (body_without_stereotype, None)
     };
 
     let id = normalize_identifier(raw_id);
@@ -4528,8 +4609,60 @@ fn register_state_declaration(
         .and_then(|value| clean_label(Some(value)))
         .or_else(|| clean_label(Some(raw_id)));
     let span = span_for(line_number, source_line);
-    let _ = builder.intern_node(&id, label.as_deref(), NodeShape::Rounded, span);
+    let (shape, label) = match stereotype {
+        Some(StatePseudoState::Fork | StatePseudoState::Join) => (NodeShape::HorizontalBar, None),
+        Some(StatePseudoState::Choice) => (NodeShape::Diamond, label),
+        Some(StatePseudoState::History) => (
+            NodeShape::Circle,
+            label.or_else(|| Some(String::from("H"))),
+        ),
+        Some(StatePseudoState::DeepHistory) => (
+            NodeShape::DoubleCircle,
+            label.or_else(|| Some(String::from("H*"))),
+        ),
+        None => (NodeShape::Rounded, label),
+    };
+    let _ = builder.intern_node(&id, label.as_deref(), shape, span);
     true
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatePseudoState {
+    Fork,
+    Join,
+    Choice,
+    History,
+    DeepHistory,
+}
+
+fn parse_state_declaration_alias(body: &str) -> Option<(&str, &str)> {
+    let (label_part, id_part) = body.rsplit_once(" as ")?;
+    Some((label_part.trim(), id_part.trim()))
+}
+
+fn parse_state_stereotype(body: &str) -> (&str, Option<StatePseudoState>) {
+    let Some(start_idx) = body.rfind("<<") else {
+        return (body, None);
+    };
+    let Some(end_idx) = body[start_idx + 2..].find(">>") else {
+        return (body, None);
+    };
+    let end_idx = start_idx + 2 + end_idx;
+    let stereotype = body[start_idx + 2..end_idx].trim().to_ascii_lowercase();
+    let pseudo_state = match stereotype.as_str() {
+        "fork" => Some(StatePseudoState::Fork),
+        "join" => Some(StatePseudoState::Join),
+        "choice" => Some(StatePseudoState::Choice),
+        "history" => Some(StatePseudoState::History),
+        "deephistory" => Some(StatePseudoState::DeepHistory),
+        _ => None,
+    };
+    let trimmed_body = body[..start_idx].trim_end();
+    if trimmed_body.is_empty() {
+        (body, None)
+    } else {
+        (trimmed_body, pseudo_state)
+    }
 }
 
 fn register_participant(
@@ -4928,8 +5061,8 @@ fn parse_node_token(raw: &str) -> Option<NodeToken> {
 
     if trimmed == "[*]" {
         return Some(NodeToken {
-            id: "__state_start_end".to_string(),
-            label: Some("*".to_string()),
+            id: STATE_PSEUDO_TOKEN.to_string(),
+            label: None,
             shape: NodeShape::Circle,
         });
     }
@@ -8258,10 +8391,21 @@ Rel_Back(db, app, "Responds")"#,
         let input = "stateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]";
         let parsed = parse_mermaid(input);
         assert_eq!(parsed.ir.diagram_type, DiagramType::State);
-        assert!(
-            parsed.ir.edges.len() >= 2,
-            "Should have at least 2 edges for start/end transitions"
-        );
+        let start = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == STATE_START_NODE_ID)
+            .expect("state start node");
+        let end = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == STATE_END_NODE_ID)
+            .expect("state end node");
+        assert_eq!(start.shape, NodeShape::FilledCircle);
+        assert_eq!(end.shape, NodeShape::DoubleCircle);
+        assert_eq!(parsed.ir.edges.len(), 2);
     }
 
     #[test]
@@ -8296,6 +8440,40 @@ Rel_Back(db, app, "Responds")"#,
             note_warnings.is_empty(),
             "State notes should not produce warnings, got: {note_warnings:?}"
         );
+    }
+
+    #[test]
+    fn state_declares_fork_join_choice_and_history_shapes() {
+        let input = "stateDiagram-v2\n  state fork_state <<fork>>\n  state join_state <<join>>\n  state chooser <<choice>>\n  state hist <<history>>\n  state deep_hist <<deepHistory>>";
+        let parsed = parse_mermaid(input);
+
+        let fork = parsed.ir.nodes.iter().find(|node| node.id == "fork_state").unwrap();
+        let join = parsed.ir.nodes.iter().find(|node| node.id == "join_state").unwrap();
+        let choice = parsed.ir.nodes.iter().find(|node| node.id == "chooser").unwrap();
+        let history = parsed.ir.nodes.iter().find(|node| node.id == "hist").unwrap();
+        let deep_history = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "deep_hist")
+            .unwrap();
+
+        assert_eq!(fork.shape, NodeShape::HorizontalBar);
+        assert_eq!(join.shape, NodeShape::HorizontalBar);
+        assert_eq!(choice.shape, NodeShape::Diamond);
+        assert_eq!(history.shape, NodeShape::Circle);
+        assert_eq!(deep_history.shape, NodeShape::DoubleCircle);
+
+        let history_label = history
+            .label
+            .and_then(|label_id| parsed.ir.labels.get(label_id.0))
+            .map(|label| label.text.as_str());
+        let deep_history_label = deep_history
+            .label
+            .and_then(|label_id| parsed.ir.labels.get(label_id.0))
+            .map(|label| label.text.as_str());
+        assert_eq!(history_label, Some("H"));
+        assert_eq!(deep_history_label, Some("H*"));
     }
 
     // --- Detection tests per diagram type ---
