@@ -82,6 +82,10 @@ enum Command {
         #[arg(short, long, default_value = "default")]
         theme: String,
 
+        /// Font size in pixels.
+        #[arg(long)]
+        font_size: Option<f32>,
+
         /// Output file path. If omitted, writes to stdout.
         #[arg(short, long)]
         output: Option<String>,
@@ -401,6 +405,7 @@ struct RenderCommandOptions<'a> {
     layout_algorithm: LayoutAlgorithm,
     format: OutputFormat,
     theme: &'a str,
+    font_size: Option<f32>,
     output: Option<&'a str>,
     dimensions: (Option<u32>, Option<u32>),
     json_output: bool,
@@ -486,6 +491,7 @@ fn main() -> Result<()> {
             layout_algorithm,
             format,
             theme,
+            font_size,
             output,
             width,
             height,
@@ -497,6 +503,7 @@ fn main() -> Result<()> {
                 layout_algorithm: layout_algorithm.to_layout(),
                 format,
                 theme: &theme,
+                font_size,
                 output: output.as_deref(),
                 dimensions: (width, height),
                 json_output: json,
@@ -647,6 +654,7 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
         layout_algorithm,
         format,
         theme,
+        font_size,
         output,
         dimensions,
         json_output,
@@ -687,9 +695,15 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             .layout_iteration_budget(LayoutGuardrails::default().max_layout_iterations),
         max_route_ops: budget_broker.route_budget(LayoutGuardrails::default().max_route_ops),
     };
-    // FIXME: Allow passing custom font metrics from CLI
+    let font_metrics = font_size.map(|size| {
+        fm_core::FontMetrics::new(fm_core::FontMetricsConfig {
+            font_size: size,
+            ..Default::default()
+        })
+    });
+    
     let layout_config = LayoutConfig {
-        font_metrics: None,
+        font_metrics,
         ..Default::default()
     };
     let traced_layout = fm_layout::layout_diagram_traced_with_config_and_guardrails(

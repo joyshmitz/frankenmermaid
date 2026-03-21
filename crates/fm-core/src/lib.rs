@@ -2934,6 +2934,55 @@ pub struct IrLifecycleEvent {
     pub at_edge: usize,
 }
 
+/// A named section in a Gantt chart.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IrGanttSection {
+    pub name: String,
+}
+
+/// A single Gantt task with parsed scheduling metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IrGanttTask {
+    pub node: IrNodeId,
+    pub section_idx: usize,
+    pub meta: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub milestone: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub active: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub done: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub critical: bool,
+}
+
+/// Gantt-diagram-specific metadata that extends the generic IR.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrGanttMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tick_interval: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excludes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<IrGanttSection>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<IrGanttTask>,
+}
+
 /// Sequence-diagram-specific metadata that extends the generic IR.
 ///
 /// Captures all advanced sequence constructs (activations, notes, fragments,
@@ -2970,6 +3019,8 @@ pub struct MermaidDiagramIr {
     pub meta: MermaidDiagramMeta,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sequence_meta: Option<IrSequenceMeta>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gantt_meta: Option<IrGanttMeta>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -2997,6 +3048,7 @@ impl MermaidDiagramIr {
                 guard: MermaidGuardReport::default(),
             },
             sequence_meta: None,
+            gantt_meta: None,
             diagnostics: Vec::new(),
         }
     }
