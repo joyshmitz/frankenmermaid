@@ -101,6 +101,22 @@ pub fn parse_dot(input: &str) -> ParseResult {
                 continue;
             }
 
+            // Handle graph/edge/node default attribute statements.
+            // These are valid DOT but we parse-and-skip them (no runtime behavior yet).
+            let lower = statement.trim().to_ascii_lowercase();
+            if lower.starts_with("graph ")
+                || lower.starts_with("graph[")
+                || lower.starts_with("graph\t")
+                || lower.starts_with("edge ")
+                || lower.starts_with("edge[")
+                || lower.starts_with("edge\t")
+                || lower.starts_with("node ")
+                || lower.starts_with("node[")
+                || lower.starts_with("node\t")
+            {
+                continue;
+            }
+
             builder.add_warning(format!(
                 "Line {line_number}: unsupported DOT statement: {statement}"
             ));
@@ -198,7 +214,7 @@ fn parse_dot_node_statement(
         return false;
     };
     let span = span_for(line_number, source_line);
-    let node_id = builder.intern_node(&node.id, node.label.as_deref(), NodeShape::Rect, span);
+    let node_id = builder.intern_node(&node.id, node.label.as_deref(), node.shape, span);
     if let Some(node_id) = node_id {
         add_node_to_active_groups(builder, active_clusters, active_subgraphs, node_id);
     }
@@ -223,6 +239,7 @@ fn add_node_to_active_groups(
 struct DotNode {
     id: String,
     label: Option<String>,
+    shape: NodeShape,
 }
 
 fn parse_dot_node_fragment(raw: &str) -> Option<DotNode> {
@@ -237,9 +254,48 @@ fn parse_dot_node_fragment(raw: &str) -> Option<DotNode> {
         return None;
     }
 
-    Some(DotNode {
-        id,
-        label: attrs.and_then(parse_dot_label),
+    let label = attrs.and_then(parse_dot_label);
+    let shape = attrs.and_then(parse_dot_shape).unwrap_or(NodeShape::Rect);
+
+    Some(DotNode { id, label, shape })
+}
+
+/// Extract `shape=...` from DOT attribute list and map to `NodeShape`.
+fn parse_dot_shape(attributes: &str) -> Option<NodeShape> {
+    let lower = attributes.to_ascii_lowercase();
+    let idx = lower.find("shape")?;
+    let after = attributes[idx + "shape".len()..].trim_start();
+    let value = after.strip_prefix('=')?.trim_start();
+    let token = value
+        .split([',', ']', ' ', '\t'])
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_matches('"')
+        .to_ascii_lowercase();
+    dot_shape_to_node_shape(&token)
+}
+
+/// Map DOT shape names to frankenmermaid NodeShape.
+fn dot_shape_to_node_shape(name: &str) -> Option<NodeShape> {
+    Some(match name {
+        "box" | "rect" | "rectangle" | "square" => NodeShape::Rect,
+        "roundedbox" | "rounded" => NodeShape::Rounded,
+        "diamond" => NodeShape::Diamond,
+        "circle" | "point" | "doublecircle" => NodeShape::Circle,
+        "ellipse" | "oval" => NodeShape::Rounded,
+        "hexagon" => NodeShape::Hexagon,
+        "trapezium" => NodeShape::Trapezoid,
+        "invtrapezium" => NodeShape::InvTrapezoid,
+        "parallelogram" => NodeShape::Parallelogram,
+        "triangle" | "invtriangle" => NodeShape::Triangle,
+        "pentagon" => NodeShape::Pentagon,
+        "star" => NodeShape::Star,
+        "cylinder" => NodeShape::Cylinder,
+        "note" | "tab" => NodeShape::Note,
+        "cds" | "component" => NodeShape::Subroutine,
+        "folder" | "box3d" | "house" | "invhouse" => NodeShape::Rect,
+        _ => return None,
     })
 }
 
