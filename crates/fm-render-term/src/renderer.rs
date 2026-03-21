@@ -903,17 +903,7 @@ impl TermRenderer {
                 && let Some(ref meta) = node.class_meta
                 && (!meta.attributes.is_empty() || !meta.methods.is_empty())
             {
-                self.overlay_class_compartments(
-                    &mut lines,
-                    x,
-                    y,
-                    w,
-                    h,
-                    ir,
-                    node,
-                    meta,
-                    cell_width,
-                );
+                self.overlay_class_compartments(&mut lines, x, y, w, h, ir, node, meta, cell_width);
                 continue;
             }
 
@@ -1072,6 +1062,141 @@ impl TermRenderer {
         }
 
         lines.join("\n")
+    }
+
+    /// Render a UML-style three-compartment class box into the character grid.
+    ///
+    /// Layout:
+    /// ```text
+    /// ┌──────────┐
+    /// │ ClassName │  ← header (centered)
+    /// ├──────────┤
+    /// │ +name    │  ← attributes with visibility
+    /// │ -age     │
+    /// ├──────────┤
+    /// │ +eat()   │  ← methods with visibility
+    /// └──────────┘
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    fn overlay_class_compartments(
+        &self,
+        grid: &mut [Vec<char>],
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        ir: &MermaidDiagramIr,
+        node: &fm_core::IrNode,
+        meta: &fm_core::IrClassNodeMeta,
+        grid_width: usize,
+    ) {
+        let inner_w = w.saturating_sub(2); // Width inside borders
+        let glyphs = &self.box_glyphs;
+
+        // Helper to write a left-aligned string into the grid at (row, col).
+        let write_text =
+            |grid: &mut [Vec<char>], row: usize, col: usize, text: &str, max_w: usize| {
+                if row >= grid.len() {
+                    return;
+                }
+                for (i, ch) in text.chars().take(max_w).enumerate() {
+                    let c = col + i;
+                    if c < grid_width && c < grid[row].len() {
+                        grid[row][c] = ch;
+                    }
+                }
+            };
+
+        // Helper to draw a horizontal separator.
+        let draw_separator = |grid: &mut [Vec<char>], row: usize| {
+            if row >= grid.len() {
+                return;
+            }
+            if x < grid_width && x < grid[row].len() {
+                grid[row][x] = glyphs.t_right;
+            }
+            for dx in 1..w.saturating_sub(1) {
+                let c = x + dx;
+                if c < grid_width && c < grid[row].len() {
+                    grid[row][c] = glyphs.horizontal;
+                }
+            }
+            let right = x + w.saturating_sub(1);
+            if right < grid_width && right < grid[row].len() {
+                grid[row][right] = glyphs.t_left;
+            }
+        };
+
+        let mut row = y + 1; // Start inside the top border.
+
+        // Header: class name (centered).
+        let class_name = node
+            .label
+            .and_then(|lid| ir.labels.get(lid.0))
+            .map(|l| l.text.as_str())
+            .unwrap_or(&node.id);
+        let name_text = self.truncate_label(class_name);
+        let name_chars = name_text.chars().count();
+        let name_x = x + 1 + inner_w.saturating_sub(name_chars) / 2;
+        write_text(grid, row, name_x, &name_text, inner_w);
+        row += 1;
+
+        // Separator after header.
+        if row < y + h.saturating_sub(1) {
+            draw_separator(grid, row);
+            row += 1;
+        }
+
+        // Attributes compartment.
+        for attr in &meta.attributes {
+            if row >= y + h.saturating_sub(1) {
+                break;
+            }
+            let vis = visibility_char(attr.visibility);
+            let text = format!("{vis}{}", attr.name);
+            write_text(grid, row, x + 1, &text, inner_w);
+            row += 1;
+        }
+
+        // Separator before methods (only if we have both attributes and methods).
+        if !meta.attributes.is_empty() && !meta.methods.is_empty() && row < y + h.saturating_sub(1)
+        {
+            draw_separator(grid, row);
+            row += 1;
+        }
+
+        // Methods compartment.
+        for method in &meta.methods {
+            if row >= y + h.saturating_sub(1) {
+                break;
+            }
+            let vis = visibility_char(method.visibility);
+            let suffix = if method.is_abstract {
+                "*"
+            } else if method.is_static {
+                "$"
+            } else {
+                ""
+            };
+            let ret = method
+                .return_type
+                .as_deref()
+                .map(|t| format!(": {t}"))
+                .unwrap_or_default();
+            let text = format!("{vis}{}{suffix}{ret}", method.name);
+            write_text(grid, row, x + 1, &text, inner_w);
+            row += 1;
+        }
+    }
+}
+
+/// Map ClassVisibility to its UML symbol.
+fn visibility_char(vis: fm_core::ClassVisibility) -> char {
+    match vis {
+        fm_core::ClassVisibility::Public => '+',
+        fm_core::ClassVisibility::Private => '-',
+        fm_core::ClassVisibility::Protected => '#',
+        fm_core::ClassVisibility::Package => '~',
     }
 }
 
