@@ -477,6 +477,39 @@ fn run_cli_with_env(args: &[&str], stdin: &str, envs: &[(&str, &str)]) -> std::p
     }
 }
 
+fn render_json_metadata(input: &str) -> (serde_json::Value, String) {
+    let output_file = NamedTempFile::new().expect("temp render output file");
+    let output_path = output_file
+        .path()
+        .to_str()
+        .expect("temp path must be valid utf-8")
+        .to_string();
+
+    let output = run_cli(
+        &[
+            "render",
+            "-",
+            "--format",
+            "svg",
+            "--json",
+            "--output",
+            &output_path,
+        ],
+        input,
+    );
+    assert!(
+        output.status.success(),
+        "render --json should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("render --json must print metadata JSON");
+    let artifact = std::fs::read_to_string(&output_path).expect("failed to read rendered svg");
+    (json, artifact)
+}
+
 #[test]
 fn validate_pretty_outputs_structured_diagnostics_payload() {
     let input = "flowchart LR\nA-->B\nB-->A\n";
@@ -754,6 +787,55 @@ fn render_json_reports_specialized_auto_layout_selection() {
         assert_eq!(json["layout_selected"], expected_layout);
         assert!(json["layout_band_count"].is_u64());
         assert!(json["layout_tick_count"].is_u64());
+    }
+}
+
+#[test]
+fn render_json_replay_keeps_ledger_trace_continuity_and_stable_outputs() {
+    let input = r#"flowchart LR
+    Start[Start] --> Parse[Parse]
+    Parse --> Layout[Layout]
+    Layout --> Render[Render]
+    Render --> Done[Done]
+"#;
+
+    let (first_json, first_svg) = render_json_metadata(input);
+    let (second_json, second_svg) = render_json_metadata(input);
+
+    assert_eq!(first_svg, second_svg, "rendered SVG should be byte-stable");
+    assert_eq!(
+        first_json["layout_decision_ledger_jsonl"], second_json["layout_decision_ledger_jsonl"],
+        "ledger JSONL should be stable across replay"
+    );
+    assert_eq!(first_json["trace_id"], second_json["trace_id"]);
+    assert_eq!(first_json["decision_id"], second_json["decision_id"]);
+    assert_eq!(
+        first_json["layout_selected"],
+        second_json["layout_selected"]
+    );
+    assert_eq!(first_json["node_count"], second_json["node_count"]);
+    assert_eq!(first_json["edge_count"], second_json["edge_count"]);
+    assert_eq!(first_json["output_bytes"], first_svg.len());
+    assert_eq!(second_json["output_bytes"], second_svg.len());
+
+    for json in [&first_json, &second_json] {
+        let trace_id = json["trace_id"]
+            .as_str()
+            .expect("trace_id should be a string");
+        let decision_id = json["decision_id"]
+            .as_str()
+            .expect("decision_id should be a string");
+        let entries = json["layout_decision_ledger"]["entries"]
+            .as_array()
+            .expect("ledger entries should be an array");
+        assert!(
+            !entries.is_empty(),
+            "ledger should include at least one decision entry"
+        );
+        for entry in entries {
+            assert_eq!(entry["trace_id"], trace_id);
+            assert_eq!(entry["decision_id"], decision_id);
+        }
     }
 }
 
