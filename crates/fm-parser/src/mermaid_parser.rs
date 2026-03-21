@@ -6116,16 +6116,8 @@ fn is_block_beta_header(line: &str) -> bool {
 }
 
 fn is_sankey_header(line: &str) -> bool {
-    line == "sankey"
-        || line == "sankey-beta"
-        || line
-            .strip_prefix("sankey")
-            .and_then(|rest| rest.chars().next())
-            .is_some_and(char::is_whitespace)
-        || line
-            .strip_prefix("sankey-beta")
-            .and_then(|rest| rest.chars().next())
-            .is_some_and(char::is_whitespace)
+    let lower = line.to_ascii_lowercase();
+    matches_keyword_header(&lower, "sankey") || matches_keyword_header(&lower, "sankey-beta")
 }
 
 fn matches_keyword_header(line: &str, keyword: &str) -> bool {
@@ -6133,7 +6125,7 @@ fn matches_keyword_header(line: &str, keyword: &str) -> bool {
         || line
             .strip_prefix(keyword)
             .and_then(|rest| rest.chars().next())
-            .is_some_and(char::is_whitespace)
+            .is_some_and(|c| c.is_whitespace() || c == '-')
 }
 
 fn span_for(line_number: usize, line: &str) -> Span {
@@ -6149,11 +6141,18 @@ pub(crate) fn first_significant_line(input: &str) -> Option<&str> {
 
 fn is_flowchart_header(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
-    lower.starts_with("flowchart") || lower == "graph" || lower.starts_with("graph ")
+    matches_keyword_header(&lower, "flowchart") || matches_keyword_header(&lower, "graph")
 }
 
 fn is_non_graph_statement(line: &str) -> bool {
-    line.starts_with("style ") || line.starts_with("classDef ") || line.starts_with("linkStyle ")
+    let check = |line: &str, keyword: &str| {
+        line.starts_with(keyword)
+            && line
+                .as_bytes()
+                .get(keyword.len())
+                .map_or(true, |&c| (c as char).is_whitespace())
+    };
+    check(line, "style") || check(line, "classDef") || check(line, "linkStyle")
 }
 
 /// Extract `classDef`, `style`, and `linkStyle` directives from raw input

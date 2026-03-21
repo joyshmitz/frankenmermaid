@@ -718,12 +718,45 @@ fn truncate_display(value: &str, max_width: usize) -> String {
         return value.to_string();
     }
 
-    let mut truncated = String::new();
-    for ch in value.chars().take(max_width.saturating_sub(1)) {
-        truncated.push(ch);
+    let mut result = String::new();
+    let mut current_width = 0;
+    let mut in_escape = false;
+    let mut in_bracket = false;
+
+    for c in value.chars() {
+        if in_escape {
+            result.push(c);
+            if c == '[' {
+                in_bracket = true;
+                in_escape = false;
+            } else {
+                in_escape = false;
+            }
+            continue;
+        }
+        if in_bracket {
+            result.push(c);
+            if c.is_ascii_alphabetic() {
+                in_bracket = false;
+            }
+            continue;
+        }
+        if c == '\x1b' {
+            result.push(c);
+            in_escape = true;
+            continue;
+        }
+
+        if current_width + 1 >= max_width {
+            result.push('…');
+            break;
+        }
+
+        result.push(c);
+        current_width += 1;
     }
-    truncated.push('…');
-    truncated
+
+    result
 }
 
 fn pad_display(value: &str, width: usize) -> String {

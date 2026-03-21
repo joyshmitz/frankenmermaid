@@ -278,7 +278,13 @@ fn fuzzy_keyword_match(lower: &str) -> Option<DetectedType> {
 
 /// Content-based heuristics for detecting diagram type from patterns.
 fn content_heuristics(input: &str) -> Option<DetectedType> {
-    let content = input.to_lowercase();
+    // Strip comments to avoid false positives in metadata
+    let lines: Vec<&str> = input
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("%%"))
+        .collect();
+    let content = lines.join("\n").to_lowercase();
 
     // ER diagram patterns
     if content.contains("||--o{")
@@ -296,9 +302,12 @@ fn content_heuristics(input: &str) -> Option<DetectedType> {
 
     // Sequence diagram patterns
     if content.contains("->>")
+        || content.contains("-->>")
         || content.contains("participant ")
         || content.contains("actor ")
         || content.contains("activate ")
+        || content.contains("note ")
+        || (content.contains("->") && content.contains(':'))
     {
         return Some(DetectedType {
             diagram_type: DiagramType::Sequence,
