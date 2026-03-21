@@ -883,10 +883,10 @@ fn build_label_layer(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> RenderGro
         let Some(node) = ir.nodes.get(node_box.node_index) else {
             continue;
         };
-        let label_text = node
-            .label
-            .and_then(|label_id| ir.labels.get(label_id.0))
-            .map_or_else(|| node.id.clone(), |label| label.text.clone());
+        let label_text = display_node_label(ir, node);
+        if label_text.is_empty() {
+            continue;
+        }
 
         layer.children.push(RenderItem::Text(RenderText {
             source: RenderSource::Node(node_box.node_index),
@@ -965,9 +965,12 @@ fn node_path(bounds: LayoutRect, shape: fm_core::NodeShape) -> Vec<PathCmd> {
         NodeShape::Stadium => stadium_path(bounds),
         NodeShape::Diamond => diamond_path(bounds),
         NodeShape::Hexagon => hexagon_path(bounds),
-        NodeShape::Circle | NodeShape::DoubleCircle => polygon_ellipse_path(bounds, 24),
+        NodeShape::Circle | NodeShape::FilledCircle | NodeShape::DoubleCircle => {
+            polygon_ellipse_path(bounds, 24)
+        }
         NodeShape::Cylinder => cylinder_path(bounds),
         NodeShape::Trapezoid => trapezoid_path(bounds),
+        NodeShape::HorizontalBar => horizontal_bar_path(bounds),
         NodeShape::InvTrapezoid => inv_trapezoid_path(bounds),
         NodeShape::Parallelogram => parallelogram_path(bounds),
         NodeShape::InvParallelogram => inv_parallelogram_path(bounds),
@@ -1173,6 +1176,10 @@ fn triangle_path(bounds: LayoutRect) -> Vec<PathCmd> {
         PathCmd::LineTo { x, y: y + h },
         PathCmd::Close,
     ]
+}
+
+fn horizontal_bar_path(bounds: LayoutRect) -> Vec<PathCmd> {
+    rounded_rect_path(bounds, (bounds.height / 2.0).min(4.0))
 }
 
 fn polygon_path(bounds: LayoutRect, sides: usize, angle_offset: f32) -> Vec<PathCmd> {
@@ -4649,22 +4656,43 @@ pub fn compute_node_sizes(
     ir.nodes
         .iter()
         .map(|node| {
-            let text = node
-                .label
-                .and_then(|label_id| ir.labels.get(label_id.0))
-                .map(|value| value.text.as_str())
-                .unwrap_or_else(|| node.id.as_str());
+            let text = display_node_label(ir, node);
 
-            let (label_width, label_height) = metrics.estimate_dimensions(text);
-
-            // Generous padding for readable, premium-looking nodes
-            let width = label_width + 72.0;
-            let height = label_height + 44.0;
-
-            // Ensure generous baseline dimensions
-            (width.max(100.0), height.max(52.0))
+            match node.shape {
+                fm_core::NodeShape::FilledCircle => (20.0, 20.0),
+                fm_core::NodeShape::DoubleCircle => {
+                    if text.is_empty() {
+                        (24.0, 24.0)
+                    } else {
+                        let (label_width, label_height) = metrics.estimate_dimensions(&text);
+                        ((label_width + 52.0).max(42.0), (label_height + 30.0).max(42.0))
+                    }
+                }
+                fm_core::NodeShape::HorizontalBar => (72.0, 16.0),
+                _ => {
+                    let text = if text.is_empty() { node.id.as_str() } else { &text };
+                    let (label_width, label_height) = metrics.estimate_dimensions(text);
+                    let width = label_width + 72.0;
+                    let height = label_height + 44.0;
+                    (width.max(100.0), height.max(52.0))
+                }
+            }
         })
         .collect()
+}
+
+fn display_node_label(ir: &MermaidDiagramIr, node: &IrNode) -> String {
+    let explicit = node
+        .label
+        .and_then(|label_id| ir.labels.get(label_id.0))
+        .map(|value| value.text.clone());
+
+    match node.shape {
+        fm_core::NodeShape::FilledCircle => String::new(),
+        fm_core::NodeShape::DoubleCircle if explicit.is_none() => String::new(),
+        fm_core::NodeShape::HorizontalBar => String::new(),
+        _ => explicit.unwrap_or_else(|| node.id.clone()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

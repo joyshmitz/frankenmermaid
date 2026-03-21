@@ -1430,7 +1430,14 @@ fn render_node(
         .and_then(|n| n.label)
         .and_then(|lid| ir.labels.get(lid.0))
         .map(|l| l.text.as_str())
-        .or_else(|| ir_node.map(|n| n.id.as_str()))
+        .or_else(|| {
+            ir_node.and_then(|node| match node.shape {
+                NodeShape::FilledCircle => None,
+                NodeShape::DoubleCircle if node.label.is_none() => None,
+                NodeShape::HorizontalBar => None,
+                _ => Some(node.id.as_str()),
+            })
+        })
         .unwrap_or("");
     let label_text = truncate_label(raw_label_text, detail.node_label_max_chars);
     let node_font_size = detail.node_font_size;
@@ -1571,13 +1578,17 @@ fn render_node(
                 .stroke_width(1.6)
         }
 
-        NodeShape::Circle | NodeShape::DoubleCircle => {
+        NodeShape::Circle | NodeShape::FilledCircle | NodeShape::DoubleCircle => {
             let r = w.min(h) / 2.0;
             let mut elem = Element::circle()
                 .cx(cx)
                 .cy(cy)
                 .r(r)
-                .fill(&colors.node_fill)
+                .fill(if shape == NodeShape::FilledCircle {
+                    colors.node_stroke.as_str()
+                } else {
+                    colors.node_fill.as_str()
+                })
                 .stroke(&colors.node_stroke)
                 .stroke_width(1.6);
 
@@ -1587,6 +1598,16 @@ fn render_node(
             }
             elem
         }
+
+        NodeShape::HorizontalBar => Element::rect()
+            .x(x)
+            .y(y + h * 0.25)
+            .width(w)
+            .height((h * 0.5).max(8.0))
+            .fill(&colors.node_stroke)
+            .stroke(&colors.node_stroke)
+            .stroke_width(1.0)
+            .rx((h * 0.25).max(3.0)),
 
         NodeShape::Cylinder => {
             let ry = h * 0.1;
@@ -1913,7 +1934,9 @@ fn render_node(
         }
     };
 
-    let shape_elem = if config.node_gradients && !matches!(shape, NodeShape::Note) {
+    let shape_elem = if config.node_gradients
+        && !matches!(shape, NodeShape::Note | NodeShape::FilledCircle | NodeShape::HorizontalBar)
+    {
         shape_elem.fill("url(#fm-node-gradient)")
     } else {
         shape_elem
@@ -1923,7 +1946,13 @@ fn render_node(
     // Highlighted nodes prefer glow so the effects don't visually muddy each other.
     let shape_elem = if detail.enable_shadows
         && !(is_highlighted && config.glow_enabled)
-        && !matches!(shape, NodeShape::Subroutine | NodeShape::CrossedCircle)
+        && !matches!(
+            shape,
+            NodeShape::Subroutine
+                | NodeShape::CrossedCircle
+                | NodeShape::FilledCircle
+                | NodeShape::HorizontalBar
+        )
     {
         shape_elem.filter("url(#drop-shadow)")
     } else {
@@ -2007,10 +2036,12 @@ const fn node_shape_css_class(shape: fm_core::NodeShape) -> &'static str {
         NodeShape::Diamond => "fm-node-shape-diamond",
         NodeShape::Hexagon => "fm-node-shape-hexagon",
         NodeShape::Circle => "fm-node-shape-circle",
+        NodeShape::FilledCircle => "fm-node-shape-filled-circle",
         NodeShape::Asymmetric => "fm-node-shape-asymmetric",
         NodeShape::Cylinder => "fm-node-shape-cylinder",
         NodeShape::Trapezoid => "fm-node-shape-trapezoid",
         NodeShape::DoubleCircle => "fm-node-shape-double-circle",
+        NodeShape::HorizontalBar => "fm-node-shape-horizontal-bar",
         NodeShape::Note => "fm-node-shape-note",
         NodeShape::InvTrapezoid => "fm-node-shape-inv-trapezoid",
         NodeShape::Parallelogram => "fm-node-shape-parallelogram",

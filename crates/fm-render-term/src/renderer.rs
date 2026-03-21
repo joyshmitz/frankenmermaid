@@ -896,10 +896,28 @@ impl TermRenderer {
         // Overlay node labels.
         for node_box in &layout.nodes {
             let (x, y, w, h) = self.bounds_to_cells(&node_box.bounds);
+            let ir_node = ir.nodes.get(node_box.node_index);
 
-            let label = ir
-                .nodes
-                .get(node_box.node_index)
+            // Class diagram nodes with class_meta get three-compartment rendering.
+            if let Some(node) = ir_node
+                && let Some(ref meta) = node.class_meta
+                && (!meta.attributes.is_empty() || !meta.methods.is_empty())
+            {
+                self.overlay_class_compartments(
+                    &mut lines,
+                    x,
+                    y,
+                    w,
+                    h,
+                    ir,
+                    node,
+                    meta,
+                    cell_width,
+                );
+                continue;
+            }
+
+            let label = ir_node
                 .and_then(|n| n.label)
                 .and_then(|lid| ir.labels.get(lid.0))
                 .map(|l| self.truncate_label(&l.text))
