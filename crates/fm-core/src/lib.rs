@@ -1403,6 +1403,26 @@ pub enum IrConstraint {
     },
 }
 
+/// Target of a style reference — what gets styled.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum IrStyleTarget {
+    /// `classDef name fill:#fff,stroke:#000` — defines a reusable class.
+    Class(String),
+    /// `style nodeId fill:#fff` — applies CSS directly to a node.
+    Node(IrNodeId),
+    /// `linkStyle 0 stroke:#f00` — applies CSS to an edge by index.
+    Link(usize),
+}
+
+/// A style reference from a `classDef`, `style`, or `linkStyle` directive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IrStyleRef {
+    pub target: IrStyleTarget,
+    /// Raw CSS property string, e.g. `"fill:#fff,stroke:#000,stroke-width:2px"`.
+    pub style: String,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum MermaidGlyphMode {
     #[default]
@@ -3016,6 +3036,9 @@ pub struct MermaidDiagramIr {
     pub graph: MermaidGraphIr,
     pub labels: Vec<IrLabel>,
     pub constraints: Vec<IrConstraint>,
+    /// Style references from `classDef`, `style`, and `linkStyle` directives.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub style_refs: Vec<IrStyleRef>,
     pub meta: MermaidDiagramMeta,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sequence_meta: Option<IrSequenceMeta>,
@@ -3037,6 +3060,7 @@ impl MermaidDiagramIr {
             graph: MermaidGraphIr::default(),
             labels: Vec::new(),
             constraints: Vec::new(),
+            style_refs: Vec::new(),
             meta: MermaidDiagramMeta {
                 diagram_type,
                 direction: GraphDirection::TB,
