@@ -786,7 +786,7 @@ fn build_edge_layer(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> RenderGrou
 
         let mut stroke = StrokeStyle::solid("#475569", 1.5);
         let mut marker_end = MarkerKind::None;
-        let marker_start = MarkerKind::None;
+        let mut marker_start = MarkerKind::None;
 
         if let Some(ir_edge) = ir.edges.get(edge.edge_index) {
             if edge.reversed {
@@ -808,6 +808,30 @@ fn build_edge_layer(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> RenderGrou
                     }
                     fm_core::ArrowType::Circle => marker_end = MarkerKind::Circle,
                     fm_core::ArrowType::Cross => marker_end = MarkerKind::Cross,
+                    fm_core::ArrowType::ThickLine => {
+                        stroke.width = 2.5;
+                        marker_end = MarkerKind::None;
+                    }
+                    fm_core::ArrowType::DottedLine => {
+                        stroke.dash_array = vec![6.0, 4.0];
+                        stroke.line_cap = LineCap::Round;
+                        marker_end = MarkerKind::None;
+                    }
+                    fm_core::ArrowType::DoubleArrow => {
+                        marker_start = MarkerKind::Arrow;
+                        marker_end = MarkerKind::Arrow;
+                    }
+                    fm_core::ArrowType::DoubleThickArrow => {
+                        stroke.width = 2.5;
+                        marker_start = MarkerKind::ThickArrow;
+                        marker_end = MarkerKind::ThickArrow;
+                    }
+                    fm_core::ArrowType::DoubleDottedArrow => {
+                        stroke.dash_array = vec![6.0, 4.0];
+                        stroke.line_cap = LineCap::Round;
+                        marker_start = MarkerKind::Arrow;
+                        marker_end = MarkerKind::Arrow;
+                    }
                 }
             }
         }

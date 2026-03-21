@@ -346,6 +346,14 @@ fn render_scene_document_with_ir(
     defs = defs.marker(ArrowheadMarker::standard("arrow-end", &theme.colors.edge));
     defs = defs.marker(ArrowheadMarker::filled("arrow-filled", &theme.colors.edge));
     defs = defs.marker(ArrowheadMarker::open("arrow-open", &theme.colors.edge));
+    defs = defs.marker(
+        ArrowheadMarker::standard("arrow-start", &theme.colors.edge)
+            .with_orient(crate::defs::MarkerOrient::AutoStartReverse),
+    );
+    defs = defs.marker(
+        ArrowheadMarker::filled("arrow-start-filled", &theme.colors.edge)
+            .with_orient(crate::defs::MarkerOrient::AutoStartReverse),
+    );
     defs = defs.marker(ArrowheadMarker::circle_marker(
         "arrow-circle",
         &theme.colors.edge,
@@ -762,6 +770,83 @@ fn sanitize_css_token(value: &str) -> String {
         .collect()
 }
 
+/// Resolve inline style for a node based on `classDef` and `style` directives.
+///
+/// Cascade: classDef properties (by class name) → style properties (by node ID).
+/// Returns a CSS style string suitable for the `style` attribute, or `None`.
+fn resolve_node_inline_style(ir: &MermaidDiagramIr, node_index: usize) -> Option<String> {
+    use fm_core::IrStyleTarget;
+    let node = ir.nodes.get(node_index)?;
+    let node_id = fm_core::IrNodeId(node_index);
+
+    // Collect class definitions.
+    let mut class_defs: std::collections::BTreeMap<&str, &str> = std::collections::BTreeMap::new();
+    for sr in &ir.style_refs {
+        if let IrStyleTarget::Class(ref name) = sr.target {
+            class_defs.insert(name.as_str(), sr.style.as_str());
+        }
+    }
+
+    let mut parts: Vec<&str> = Vec::new();
+
+    // Layer 1: classDef properties (applied in class order for stability).
+    for class_name in &node.classes {
+        if let Some(&style) = class_defs.get(class_name.as_str()) {
+            parts.push(style);
+        }
+    }
+
+    // Layer 2: direct `style nodeId` overrides.
+    for sr in &ir.style_refs {
+        if let IrStyleTarget::Node(target_id) = sr.target {
+            if target_id == node_id {
+                parts.push(sr.style.as_str());
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    // Convert comma-separated CSS to semicolon-separated inline style.
+    let combined = parts.join(",");
+    let inline = combined
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(inline)
+}
+
+/// Resolve inline style for an edge based on `linkStyle` directives.
+fn resolve_edge_inline_style(ir: &MermaidDiagramIr, edge_index: usize) -> Option<String> {
+    use fm_core::IrStyleTarget;
+    let mut parts: Vec<&str> = Vec::new();
+
+    for sr in &ir.style_refs {
+        if let IrStyleTarget::Link(link_idx) = sr.target {
+            if link_idx == edge_index {
+                parts.push(sr.style.as_str());
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    let combined = parts.join(",");
+    let inline = combined
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(inline)
+}
+
 fn truncate_label(label: &str, max_chars: Option<usize>) -> String {
     let Some(limit) = max_chars else {
         return label.to_string();
@@ -981,6 +1066,14 @@ fn render_layout_to_svg(
     defs = defs.marker(ArrowheadMarker::standard("arrow-end", &theme.colors.edge));
     defs = defs.marker(ArrowheadMarker::filled("arrow-filled", &theme.colors.edge));
     defs = defs.marker(ArrowheadMarker::open("arrow-open", &theme.colors.edge));
+    defs = defs.marker(
+        ArrowheadMarker::standard("arrow-start", &theme.colors.edge)
+            .with_orient(crate::defs::MarkerOrient::AutoStartReverse),
+    );
+    defs = defs.marker(
+        ArrowheadMarker::filled("arrow-start-filled", &theme.colors.edge)
+            .with_orient(crate::defs::MarkerOrient::AutoStartReverse),
+    );
     defs = defs.marker(ArrowheadMarker::circle_marker(
         "arrow-circle",
         &theme.colors.edge,
@@ -1837,6 +1930,14 @@ fn render_node(
         shape_elem
     };
 
+    // Apply inline style from classDef/style directives if present.
+    let shape_elem = if let Some(inline_style) = resolve_node_inline_style(ir, node_box.node_index)
+    {
+        shape_elem.attr("style", &inline_style)
+    } else {
+        shape_elem
+    };
+
     group = group.child(shape_elem);
     if is_highlighted && config.glow_enabled {
         group = group.filter("url(#node-glow)");
@@ -2003,26 +2104,51 @@ fn render_edge(
     let path_str = smooth_edge_path(&pts, edge_path.is_self_loop);
 
     // Back-edges get special treatment: dashed + muted color
-    let (base_dasharray, base_marker, base_color): (Option<&str>, Option<&str>, &str) =
-        if is_back_edge {
-            (
-                Some("4,4"),
-                Some("url(#arrow-open)"),
-                &colors.cluster_stroke,
-            )
-        } else {
-            match arrow {
-                ArrowType::Line => (None, None, &colors.edge),
-                ArrowType::Arrow => (None, Some("url(#arrow-end)"), &colors.edge),
-                ArrowType::ThickArrow => (None, Some("url(#arrow-filled)"), &colors.edge),
-                ArrowType::DottedArrow => (Some("5,5"), Some("url(#arrow-end)"), &colors.edge),
-                ArrowType::Circle => (None, Some("url(#arrow-circle)"), &colors.edge),
-                ArrowType::Cross => (None, Some("url(#arrow-cross)"), &colors.edge),
-            }
-        };
+    let (base_dasharray, marker_start, marker_end, base_color): (
+        Option<&str>,
+        Option<&str>,
+        Option<&str>,
+        &str,
+    ) = if is_back_edge {
+        (
+            Some("4,4"),
+            None,
+            Some("url(#arrow-open)"),
+            &colors.cluster_stroke,
+        )
+    } else {
+        match arrow {
+            ArrowType::Line => (None, None, None, &colors.edge),
+            ArrowType::Arrow => (None, None, Some("url(#arrow-end)"), &colors.edge),
+            ArrowType::ThickArrow => (None, None, Some("url(#arrow-filled)"), &colors.edge),
+            ArrowType::DottedArrow => (Some("5,5"), None, Some("url(#arrow-end)"), &colors.edge),
+            ArrowType::Circle => (None, None, Some("url(#arrow-circle)"), &colors.edge),
+            ArrowType::Cross => (None, None, Some("url(#arrow-cross)"), &colors.edge),
+            ArrowType::ThickLine => (None, None, None, &colors.edge),
+            ArrowType::DottedLine => (Some("5,5"), None, None, &colors.edge),
+            ArrowType::DoubleArrow => (
+                None,
+                Some("url(#arrow-start)"),
+                Some("url(#arrow-end)"),
+                &colors.edge,
+            ),
+            ArrowType::DoubleThickArrow => (
+                None,
+                Some("url(#arrow-start-filled)"),
+                Some("url(#arrow-filled)"),
+                &colors.edge,
+            ),
+            ArrowType::DoubleDottedArrow => (
+                Some("5,5"),
+                Some("url(#arrow-start)"),
+                Some("url(#arrow-end)"),
+                &colors.edge,
+            ),
+        }
+    };
 
     let stroke_width = match arrow {
-        ArrowType::ThickArrow => 2.5,
+        ArrowType::ThickArrow | ArrowType::DoubleThickArrow | ArrowType::ThickLine => 2.5,
         _ => 1.8,
     };
 
@@ -2031,8 +2157,12 @@ fn render_edge(
         "fm-edge-back"
     } else {
         match arrow {
-            ArrowType::DottedArrow => "fm-edge-dashed",
-            ArrowType::ThickArrow => "fm-edge-thick",
+            ArrowType::DottedArrow | ArrowType::DottedLine | ArrowType::DoubleDottedArrow => {
+                "fm-edge-dashed"
+            }
+            ArrowType::ThickArrow | ArrowType::DoubleThickArrow | ArrowType::ThickLine => {
+                "fm-edge-thick"
+            }
             _ => "fm-edge-solid",
         }
     };
@@ -2045,16 +2175,20 @@ fn render_edge(
         .class("fm-edge")
         .class(style_class)
         .data("fm-edge-id", &edge_index.to_string());
+
+    if let Some(marker) = marker_start {
+        elem = elem.marker_start(marker);
+    }
+    if let Some(marker) = marker_end {
+        elem = elem.marker_end(marker);
+    }
+
     if config.include_source_spans {
         elem = apply_span_metadata(elem, edge_path.span);
     }
 
     if let Some(dasharray) = base_dasharray {
         elem = elem.stroke_dasharray(dasharray);
-    }
-
-    if let Some(marker) = base_marker {
-        elem = elem.marker_end(marker);
     }
 
     // If edge has a label, wrap in group with text

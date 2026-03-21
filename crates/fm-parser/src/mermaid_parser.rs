@@ -11,13 +11,21 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{DetectedType, ParseResult, ir_builder::IrBuilder};
 
-const FLOW_OPERATORS: [(&str, ArrowType); 6] = [
+const FLOW_OPERATORS: [(&str, ArrowType); 14] = [
     ("-.->", ArrowType::DottedArrow),
+    ("<-.->", ArrowType::DoubleDottedArrow),
+    ("-.-", ArrowType::DottedLine),
     ("==>", ArrowType::ThickArrow),
+    ("<==>", ArrowType::DoubleThickArrow),
     ("-->", ArrowType::Arrow),
+    ("<-->", ArrowType::DoubleArrow),
     ("---", ArrowType::Line),
     ("--o", ArrowType::Circle),
     ("--x", ArrowType::Cross),
+    ("--", ArrowType::Line),
+    ("==", ArrowType::ThickLine),
+    ("-.", ArrowType::DottedLine),
+    ("..", ArrowType::DottedLine),
 ];
 
 const SEQUENCE_OPERATORS: [(&str, ArrowType); 6] = [
@@ -880,17 +888,6 @@ fn parse_flowchart_document_items(
             continue;
         }
 
-        if is_flowchart_header(trimmed) {
-            if !is_root {
-                warnings.push(format!(
-                    "Line {line_number}: nested flowchart header ignored inside subgraph"
-                ));
-            } else {
-                *header_direction = parse_graph_direction(trimmed);
-            }
-            continue;
-        }
-
         let uncommented_line = strip_flowchart_inline_comment(trimmed);
         if uncommented_line.is_empty() {
             continue;
@@ -902,6 +899,18 @@ fn parse_flowchart_document_items(
         for statement in split_statements(uncommented_line) {
             let normalized_statement = statement.trim();
             if normalized_statement.is_empty() {
+                parsed_line = true;
+                continue;
+            }
+
+            if is_flowchart_header(normalized_statement) {
+                if !is_root {
+                    warnings.push(format!(
+                        "Line {line_number}: nested flowchart header ignored inside subgraph"
+                    ));
+                } else if let Some(dir) = parse_graph_direction(normalized_statement) {
+                    *header_direction = Some(dir);
+                }
                 parsed_line = true;
                 continue;
             }
@@ -4665,18 +4674,43 @@ fn parse_edge_statement_asts(
 
     loop {
         let rhs_start = operator_idx + operator.len();
-        let next_operator = find_operator_from_index(statement, rhs_start, operators);
-        let right_segment = match next_operator {
-            Some((next_idx, _, _)) => &statement[rhs_start..next_idx],
-            None => &statement[rhs_start..],
-        }
-        .trim();
+        let mut next_operator = find_operator_from_index(statement, rhs_start, operators);
 
-        if right_segment.is_empty() {
-            return (!asts.is_empty()).then_some(asts);
+        let edge_label;
+        let right_without_label;
+        let mut current_arrow = arrow;
+
+        // Check for A -- label --> B syntax
+        if is_arrow_prefix(operator) && next_operator.is_some() {
+            let (n_idx, n_op, n_arrow) = next_operator.unwrap();
+            let label_part = statement[rhs_start..n_idx].trim();
+            edge_label = clean_label(Some(label_part));
+            current_arrow = n_arrow;
+
+            // Now we need to find the node AFTER the second operator
+            let after_next_start = n_idx + n_op.len();
+            next_operator = find_operator_from_index(statement, after_next_start, operators);
+            right_without_label = match next_operator {
+                Some((next_idx, _, _)) => &statement[after_next_start..next_idx],
+                None => &statement[after_next_start..],
+            }
+            .trim();
+        } else {
+            let right_segment = match next_operator {
+                Some((next_idx, _, _)) => &statement[rhs_start..next_idx],
+                None => &statement[rhs_start..],
+            }
+            .trim();
+
+            if right_segment.is_empty() {
+                return (!asts.is_empty()).then_some(asts);
+            }
+
+            let (label, target) = extract_pipe_label(right_segment);
+            edge_label = label;
+            right_without_label = target;
         }
 
-        let (edge_label, right_without_label) = extract_pipe_label(right_segment);
         let to_node = match parse_node_token(right_without_label) {
             Some(node) => node,
             None => return (!asts.is_empty()).then_some(asts),
@@ -4684,7 +4718,7 @@ fn parse_edge_statement_asts(
 
         asts.push(FlowAst::Edge {
             from: from_node.clone().into(),
-            arrow,
+            arrow: current_arrow,
             label: edge_label,
             to: to_node.clone().into(),
         });
@@ -4700,7 +4734,11 @@ fn parse_edge_statement_asts(
         break;
     }
 
-    Some(asts)
+    (!asts.is_empty()).then_some(asts)
+}
+
+fn is_arrow_prefix(op: &str) -> bool {
+    matches!(op, "--" | "==" | "-." | "..")
 }
 
 fn parse_edge_statement_with_nodes(

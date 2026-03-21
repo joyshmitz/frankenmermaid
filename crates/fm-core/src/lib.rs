@@ -1002,6 +1002,11 @@ pub enum ArrowType {
     DottedArrow,
     Circle,
     Cross,
+    ThickLine,
+    DottedLine,
+    DoubleArrow,
+    DoubleThickArrow,
+    DoubleDottedArrow,
 }
 
 impl ArrowType {
@@ -1014,6 +1019,11 @@ impl ArrowType {
             Self::DottedArrow => "-.->",
             Self::Circle => "--o",
             Self::Cross => "--x",
+            Self::ThickLine => "===",
+            Self::DottedLine => "-.-",
+            Self::DoubleArrow => "<-->",
+            Self::DoubleThickArrow => "<==>",
+            Self::DoubleDottedArrow => "<-.->",
         }
     }
 }
@@ -3742,6 +3752,11 @@ mod tests {
             (ArrowType::DottedArrow, "-.->"),
             (ArrowType::Circle, "--o"),
             (ArrowType::Cross, "--x"),
+            (ArrowType::ThickLine, "==="),
+            (ArrowType::DottedLine, "-.-"),
+            (ArrowType::DoubleArrow, "<-->"),
+            (ArrowType::DoubleThickArrow, "<==>"),
+            (ArrowType::DoubleDottedArrow, "<-.->"),
         ];
 
         for (arrow, expected) in expectations {
