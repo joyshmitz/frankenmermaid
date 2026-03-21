@@ -771,38 +771,120 @@ impl Canvas2dRenderer {
             );
             self.draw_calls += 1;
 
-            // Get label text
-            let label_text = ir_node
-                .and_then(|n| n.label)
-                .and_then(|lid| ir.labels.get(lid.0))
-                .map(|l| l.text.as_str())
-                .or_else(|| ir_node.map(|n| n.id.as_str()))
-                .unwrap_or("");
+            // Check for class diagram three-compartment rendering.
+            let has_class_meta = ir_node
+                .and_then(|n| n.class_meta.as_ref())
+                .is_some_and(|m| !m.attributes.is_empty() || !m.methods.is_empty());
 
-            if !label_text.is_empty() {
-                let cx = x + w / 2.0;
-                let cy = y + h / 2.0;
+            if has_class_meta {
+                let node = ir_node.unwrap();
+                let meta = node.class_meta.as_ref().unwrap();
+                let line_h = self.config.font_size * 1.3;
+                let member_font = self.config.font_size * 0.9;
+                let padding = 6.0;
 
                 ctx.set_fill_style(&self.config.label_color);
+                ctx.set_text_baseline(TextBaseline::Middle);
+
+                // Header: class name centered + bold.
+                let class_name = node
+                    .label
+                    .and_then(|lid| ir.labels.get(lid.0))
+                    .map(|l| l.text.as_str())
+                    .unwrap_or(&node.id);
+                let display_name = if meta.generics.is_empty() {
+                    class_name.to_string()
+                } else {
+                    format!("{class_name}<{}>", meta.generics.join(", "))
+                };
+
                 ctx.set_font(&format!(
-                    "{}px {}",
+                    "bold {}px {}",
                     self.config.font_size, self.config.font_family
                 ));
                 ctx.set_text_align(TextAlign::Center);
-                ctx.set_text_baseline(TextBaseline::Middle);
+                let mut cursor_y = y + line_h;
+                ctx.fill_text(&display_name, x + w / 2.0, cursor_y);
+                self.draw_calls += 1;
+                cursor_y += line_h * 0.5;
 
-                let lines: Vec<&str> = label_text.lines().collect();
-                if lines.len() <= 1 {
-                    ctx.fill_text(label_text, cx, cy);
+                // Separator line.
+                ctx.begin_path();
+                ctx.move_to(x, cursor_y);
+                ctx.line_to(x + w, cursor_y);
+                ctx.stroke();
+                self.draw_calls += 1;
+                cursor_y += member_font * 0.5;
+
+                // Attributes.
+                ctx.set_font(&format!("{}px {}", member_font, self.config.font_family));
+                ctx.set_text_align(TextAlign::Left);
+                for attr in &meta.attributes {
+                    if cursor_y > y + h - line_h * 0.5 {
+                        break;
+                    }
+                    let vis = class_vis_char(attr.visibility);
+                    let text = format!("{vis}{}", attr.name);
+                    ctx.fill_text(&text, x + padding, cursor_y);
                     self.draw_calls += 1;
-                } else {
-                    let line_height = self.config.font_size * 1.2;
-                    let total_height = lines.len() as f64 * line_height;
-                    let start_y = cy - (total_height / 2.0) + (line_height / 2.0);
+                    cursor_y += member_font * 1.2;
+                }
 
-                    for (i, line) in lines.iter().enumerate() {
-                        ctx.fill_text(line, cx, start_y + (i as f64) * line_height);
+                // Separator before methods.
+                if !meta.attributes.is_empty() && !meta.methods.is_empty() {
+                    ctx.begin_path();
+                    ctx.move_to(x, cursor_y);
+                    ctx.line_to(x + w, cursor_y);
+                    ctx.stroke();
+                    self.draw_calls += 1;
+                    cursor_y += member_font * 0.5;
+                }
+
+                // Methods.
+                for method in &meta.methods {
+                    if cursor_y > y + h - member_font * 0.5 {
+                        break;
+                    }
+                    let vis = class_vis_char(method.visibility);
+                    let text = format!("{vis}{}", method.name);
+                    ctx.fill_text(&text, x + padding, cursor_y);
+                    self.draw_calls += 1;
+                    cursor_y += member_font * 1.2;
+                }
+            } else {
+                // Standard single-label rendering.
+                let label_text = ir_node
+                    .and_then(|n| n.label)
+                    .and_then(|lid| ir.labels.get(lid.0))
+                    .map(|l| l.text.as_str())
+                    .or_else(|| ir_node.map(|n| n.id.as_str()))
+                    .unwrap_or("");
+
+                if !label_text.is_empty() {
+                    let cx = x + w / 2.0;
+                    let cy = y + h / 2.0;
+
+                    ctx.set_fill_style(&self.config.label_color);
+                    ctx.set_font(&format!(
+                        "{}px {}",
+                        self.config.font_size, self.config.font_family
+                    ));
+                    ctx.set_text_align(TextAlign::Center);
+                    ctx.set_text_baseline(TextBaseline::Middle);
+
+                    let lines: Vec<&str> = label_text.lines().collect();
+                    if lines.len() <= 1 {
+                        ctx.fill_text(label_text, cx, cy);
                         self.draw_calls += 1;
+                    } else {
+                        let line_height = self.config.font_size * 1.2;
+                        let total_height = lines.len() as f64 * line_height;
+                        let start_y = cy - (total_height / 2.0) + (line_height / 2.0);
+
+                        for (i, line) in lines.iter().enumerate() {
+                            ctx.fill_text(line, cx, start_y + (i as f64) * line_height);
+                            self.draw_calls += 1;
+                        }
                     }
                 }
             }
@@ -811,6 +893,15 @@ impl Canvas2dRenderer {
         }
 
         count
+    }
+}
+
+fn class_vis_char(vis: fm_core::ClassVisibility) -> char {
+    match vis {
+        fm_core::ClassVisibility::Public => '+',
+        fm_core::ClassVisibility::Private => '-',
+        fm_core::ClassVisibility::Protected => '#',
+        fm_core::ClassVisibility::Package => '~',
     }
 }
 
