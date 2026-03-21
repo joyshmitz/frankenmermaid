@@ -1674,15 +1674,10 @@ fn parse_state_statements(line: &str) -> Option<Vec<StateStatement>> {
         let declaration = declaration.trim();
         if declaration.ends_with('{') {
             let name = declaration.trim_end_matches('{').trim();
-            // Handle `"Label" as Name` syntax
-            let id = if let Some((_, rest)) = parse_state_declaration_alias(name) {
-                rest.to_string()
-            } else {
-                name.to_string()
-            };
+            let composite = parse_state_composite_declaration(name)?;
             return Some(vec![
                 StateStatement::Declaration(name.to_string()),
-                StateStatement::CompositeStart(id),
+                StateStatement::CompositeStart(composite),
             ]);
         }
         if !declaration.is_empty() {
@@ -1692,6 +1687,10 @@ fn parse_state_statements(line: &str) -> Option<Vec<StateStatement>> {
 
     if line == "}" {
         return Some(vec![StateStatement::CompositeEnd]);
+    }
+
+    if line == "--" {
+        return Some(vec![StateStatement::RegionSeparator]);
     }
 
     // `[*]` standalone is handled as a node in the edge parsing
@@ -1747,11 +1746,22 @@ fn lower_state_statement(
         StateStatement::Node(node) => {
             lower_state_node(&node.id, node.label.as_deref(), node.shape, builder, span);
         }
-        StateStatement::CompositeStart(name) => {
-            builder.begin_state_cluster(&name, span);
+        StateStatement::CompositeStart(composite) => {
+            builder.begin_state_cluster(&composite.id, composite.title.as_deref(), span);
         }
         StateStatement::CompositeEnd => {
-            builder.end_state_cluster();
+            if !builder.end_state_cluster() {
+                builder.add_warning(format!(
+                    "Line {line_number}: encountered '}}' without matching composite state"
+                ));
+            }
+        }
+        StateStatement::RegionSeparator => {
+            if !builder.advance_state_region(span) {
+                builder.add_warning(format!(
+                    "Line {line_number}: encountered '--' outside a composite state"
+                ));
+            }
         }
         StateStatement::Note { target, text, .. } => {
             // State notes are stored as diagnostics for now
@@ -1787,6 +1797,8 @@ fn lower_state_flow_ast(
             let from_id = builder.intern_node(from_id_key, from_label, from_shape, span);
             let to_id = builder.intern_node(to_id_key, to_label, to_shape, span);
             if let (Some(f), Some(t)) = (from_id, to_id) {
+                builder.attach_state_node(f);
+                builder.attach_state_node(t);
                 builder.push_edge(f, t, *arrow, label.as_deref(), span);
             }
         }
@@ -1808,7 +1820,9 @@ fn lower_state_node(
     } else {
         (id, label, shape)
     };
-    let _ = builder.intern_node(id, label, shape, span);
+    if let Some(node_id) = builder.intern_node(id, label, shape, span) {
+        builder.attach_state_node(node_id);
+    }
 }
 
 fn state_edge_endpoint<'a>(
@@ -3707,8 +3721,9 @@ enum StateStatement {
     Declaration(String),
     Edge(Vec<FlowAst>),
     Node(NodeToken),
-    CompositeStart(String),
+    CompositeStart(StateCompositeDeclaration),
     CompositeEnd,
+    RegionSeparator,
     Note {
         target: String,
         #[allow(dead_code)]
@@ -4576,31 +4591,14 @@ fn register_state_declaration(
     source_line: &str,
     builder: &mut IrBuilder,
 ) -> bool {
-    let body = declaration.trim().trim_end_matches('{').trim();
-    if body.is_empty() {
+    let Some(state_declaration) = parse_state_composite_declaration(declaration) else {
         return false;
-    }
-
-    let (body_without_stereotype, stereotype) = parse_state_stereotype(body);
-    let (raw_id, raw_label) = if let Some((label_part, id_part)) =
-        parse_state_declaration_alias(body_without_stereotype)
-    {
-        (id_part, Some(label_part))
-    } else {
-        (body_without_stereotype, None)
     };
 
-    let id = normalize_identifier(raw_id);
-    if id.is_empty() {
-        return false;
-    }
-
-    let explicit_label = raw_label.is_some();
-    let label = raw_label
-        .and_then(|value| clean_label(Some(value)))
-        .or_else(|| clean_label(Some(raw_id)));
+    let explicit_label = state_declaration.explicit_label;
+    let label = state_declaration.title.clone();
     let span = span_for(line_number, source_line);
-    let (shape, label) = match stereotype {
+    let (shape, label) = match state_declaration.stereotype {
         Some(StatePseudoState::Fork | StatePseudoState::Join) => (NodeShape::HorizontalBar, None),
         Some(StatePseudoState::Choice) => (NodeShape::Diamond, label),
         Some(StatePseudoState::History) => (
@@ -4621,8 +4619,46 @@ fn register_state_declaration(
         ),
         None => (NodeShape::Rounded, label),
     };
-    let _ = builder.intern_node(&id, label.as_deref(), shape, span);
+    let _ = builder.intern_node(&state_declaration.id, label.as_deref(), shape, span);
     true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StateCompositeDeclaration {
+    id: String,
+    title: Option<String>,
+    explicit_label: bool,
+    stereotype: Option<StatePseudoState>,
+}
+
+fn parse_state_composite_declaration(declaration: &str) -> Option<StateCompositeDeclaration> {
+    let body = declaration.trim().trim_end_matches('{').trim();
+    if body.is_empty() {
+        return None;
+    }
+
+    let (body_without_stereotype, stereotype) = parse_state_stereotype(body);
+    let (raw_id, raw_label) = if let Some((label_part, id_part)) =
+        parse_state_declaration_alias(body_without_stereotype)
+    {
+        (id_part, Some(label_part))
+    } else {
+        (body_without_stereotype, None)
+    };
+
+    let id = normalize_identifier(raw_id);
+    if id.is_empty() {
+        return None;
+    }
+
+    Some(StateCompositeDeclaration {
+        id,
+        title: raw_label
+            .and_then(|value| clean_label(Some(value)))
+            .or_else(|| clean_label(Some(raw_id))),
+        explicit_label: raw_label.is_some(),
+        stereotype,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8420,6 +8456,43 @@ Rel_Back(db, app, "Responds")"#,
     }
 
     #[test]
+    fn state_composite_alias_and_regions_preserve_hierarchy() {
+        let input = "stateDiagram-v2\n  state \"Active Mode\" as Active {\n    [*] --> Processing\n    state Worker {\n      [*] --> Busy\n    }\n    --\n    [*] --> Monitoring\n  }";
+        let parsed = parse_mermaid(input);
+
+        let active_cluster = parsed.ir.clusters.first().expect("active cluster");
+        let active_title = active_cluster
+            .title
+            .and_then(|label| parsed.ir.labels.get(label.0))
+            .map(|label| label.text.as_str());
+        assert_eq!(active_title, Some("Active Mode"));
+        assert_eq!(active_cluster.grid_span, 2);
+
+        let active_subgraph = parsed
+            .ir
+            .graph
+            .first_subgraph_by_key("Active")
+            .expect("active subgraph");
+        assert!(active_subgraph.parent.is_none());
+        assert_eq!(active_subgraph.grid_span, 2);
+
+        let child_keys = active_subgraph
+            .children
+            .iter()
+            .filter_map(|child_id| parsed.ir.graph.subgraph(*child_id))
+            .map(|child| child.key.as_str())
+            .collect::<Vec<_>>();
+        assert!(child_keys.contains(&"Worker"));
+        assert_eq!(
+            child_keys
+                .iter()
+                .filter(|key| key.starts_with("__state_region_"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
     fn state_transition_with_label() {
         let input = "stateDiagram-v2\n  Idle --> Active : start";
         let parsed = parse_mermaid(input);
@@ -8494,6 +8567,19 @@ Rel_Back(db, app, "Responds")"#,
             .map(|label| label.text.as_str());
         assert_eq!(history_label, Some("H"));
         assert_eq!(deep_history_label, Some("H*"));
+    }
+
+    #[test]
+    fn state_region_separator_outside_composite_emits_warning() {
+        let parsed = parse_mermaid("stateDiagram-v2\n  --\n  Idle --> Active");
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("outside a composite state")),
+            "expected warning for separator outside composite state, got {:?}",
+            parsed.warnings
+        );
     }
 
     // --- Detection tests per diagram type ---

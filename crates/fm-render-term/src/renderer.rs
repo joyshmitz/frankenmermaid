@@ -58,41 +58,48 @@ impl TermRenderer {
     /// Render a pre-computed layout to terminal output.
     #[must_use]
     pub fn render_layout(&self, ir: &MermaidDiagramIr, layout: &DiagramLayout) -> TermRenderResult {
+        let (cell_width, cell_height, scale_x, scale_y) =
+            self.layout_to_cell_dimensions(&layout.bounds, ir.direction);
+
         // Use cell-based rendering for Compact tier or CellOnly mode.
         if matches!(self.config.tier, MermaidTier::Compact)
             || matches!(self.config.render_mode, MermaidRenderMode::CellOnly)
         {
-            return self.render_cell_mode(ir, layout);
+            return self.render_cell_mode(ir, layout, cell_width, cell_height, scale_x, scale_y);
         }
 
         // Use sub-cell canvas rendering for higher fidelity.
-        self.render_subcell_mode(ir, layout)
+        self.render_subcell_mode(ir, layout, cell_width, cell_height, scale_x, scale_y)
     }
 
     /// Render using character cells (Compact mode).
-    fn render_cell_mode(&self, ir: &MermaidDiagramIr, layout: &DiagramLayout) -> TermRenderResult {
-        // Calculate cell grid dimensions from layout bounds.
-        let (cell_width, cell_height) =
-            self.layout_to_cell_dimensions(&layout.bounds, ir.direction);
-
+    fn render_cell_mode(
+        &self,
+        ir: &MermaidDiagramIr,
+        layout: &DiagramLayout,
+        cell_width: usize,
+        cell_height: usize,
+        scale_x: f32,
+        scale_y: f32,
+    ) -> TermRenderResult {
         // Create character buffer.
         let mut buffer = CellBuffer::new(cell_width, cell_height);
 
         // Render clusters first (background).
         if self.config.show_clusters {
             for cluster_box in &layout.clusters {
-                self.render_cluster_cell(&mut buffer, ir, cluster_box);
+                self.render_cluster_cell(&mut buffer, ir, cluster_box, scale_x, scale_y);
             }
         }
 
         // Render edges.
         for edge_path in &layout.edges {
-            self.render_edge_cell(&mut buffer, ir, edge_path);
+            self.render_edge_cell(&mut buffer, ir, edge_path, scale_x, scale_y);
         }
 
         // Render nodes (foreground).
         for node_box in &layout.nodes {
-            self.render_node_cell(&mut buffer, ir, node_box);
+            self.render_node_cell(&mut buffer, ir, node_box, scale_x, scale_y);
         }
 
         let output = buffer.to_string();
@@ -113,38 +120,71 @@ impl TermRenderer {
         &self,
         ir: &MermaidDiagramIr,
         layout: &DiagramLayout,
+        cell_width: usize,
+        cell_height: usize,
+        scale_x: f32,
+        scale_y: f32,
     ) -> TermRenderResult {
         let (mult_x, mult_y) = self.config.subcell_multiplier();
-
-        // Calculate cell grid dimensions and create canvas.
-        let (cell_width, cell_height) =
-            self.layout_to_cell_dimensions(&layout.bounds, ir.direction);
         let mut canvas = Canvas::new(cell_width, cell_height, self.config.render_mode);
 
-        // Scale factor from layout coordinates to pixels.
-        let scale_x = (cell_width * mult_x) as f32 / layout.bounds.width.max(1.0);
-        let scale_y = (cell_height * mult_y) as f32 / layout.bounds.height.max(1.0);
+        // Scale factors from layout coordinates to pixels.
+        // We scale into the padded area of the cell grid.
+        let pixel_scale_x = scale_x * mult_x as f32;
+        let pixel_scale_y = scale_y * mult_y as f32;
+        let padding_x = self.config.padding * mult_x;
+        let padding_y = self.config.padding * mult_y;
 
         // Render clusters.
         if self.config.show_clusters {
             for cluster_box in &layout.clusters {
-                self.render_cluster_canvas(&mut canvas, cluster_box, scale_x, scale_y);
+                self.render_cluster_canvas(
+                    &mut canvas,
+                    cluster_box,
+                    pixel_scale_x,
+                    pixel_scale_y,
+                    padding_x,
+                    padding_y,
+                );
             }
         }
 
         // Render edges.
         for edge_path in &layout.edges {
-            self.render_edge_canvas(&mut canvas, edge_path, scale_x, scale_y);
+            self.render_edge_canvas(
+                &mut canvas,
+                edge_path,
+                pixel_scale_x,
+                pixel_scale_y,
+                padding_x,
+                padding_y,
+            );
         }
 
         // Render nodes.
         for node_box in &layout.nodes {
-            self.render_node_canvas(&mut canvas, ir, node_box, scale_x, scale_y);
+            self.render_node_canvas(
+                &mut canvas,
+                ir,
+                node_box,
+                pixel_scale_x,
+                pixel_scale_y,
+                padding_x,
+                padding_y,
+            );
         }
 
         // Render canvas to string and overlay labels.
         let base_output = canvas.render();
-        let output = self.overlay_labels(base_output, ir, layout, cell_width, cell_height);
+        let output = self.overlay_labels(
+            base_output,
+            ir,
+            layout,
+            cell_width,
+            cell_height,
+            scale_x,
+            scale_y,
+        );
 
         TermRenderResult {
             output,
@@ -161,18 +201,18 @@ impl TermRenderer {
         &self,
         bounds: &fm_layout::LayoutRect,
         direction: GraphDirection,
-    ) -> (usize, usize) {
-        let padding = self.config.padding * 2;
-        let max_width = self.config.cols.saturating_sub(padding).max(1);
-        let max_height = self.config.rows.saturating_sub(padding).max(1);
-        let scale = match self.config.tier {
+    ) -> (usize, usize, f32, f32) {
+        let padding_total = self.config.padding * 2;
+        let max_width = self.config.cols.saturating_sub(padding_total).max(1);
+        let max_height = self.config.rows.saturating_sub(padding_total).max(1);
+        let base_scale = match self.config.tier {
             MermaidTier::Compact => 0.15,
             MermaidTier::Normal => 0.2,
             MermaidTier::Rich | MermaidTier::Auto => 0.25,
         };
 
-        let base_width = (bounds.width * scale) as usize;
-        let base_height = (bounds.height * scale) as usize;
+        let base_width = (bounds.width * base_scale) as usize;
+        let base_height = (bounds.height * base_scale) as usize;
 
         // Adjust for direction (LR/RL diagrams are wider).
         let (width, height) = match direction {
@@ -186,9 +226,23 @@ impl TermRenderer {
             ),
         };
 
+        // Calculate fitted scale factors for the diagram content.
+        let scale_x = if bounds.width > 0.0 {
+            width as f32 / bounds.width
+        } else {
+            1.0
+        };
+        let scale_y = if bounds.height > 0.0 {
+            height as f32 / bounds.height
+        } else {
+            1.0
+        };
+
         (
-            width.saturating_add(padding),
-            height.saturating_add(padding),
+            width.saturating_add(padding_total),
+            height.saturating_add(padding_total),
+            scale_x,
+            scale_y,
         )
     }
 
@@ -197,8 +251,10 @@ impl TermRenderer {
         buffer: &mut CellBuffer,
         ir: &MermaidDiagramIr,
         cluster_box: &LayoutClusterBox,
+        scale_x: f32,
+        scale_y: f32,
     ) {
-        let (x, y, w, h) = self.bounds_to_cells(&cluster_box.bounds);
+        let (x, y, w, h) = self.bounds_to_cells(&cluster_box.bounds, scale_x, scale_y);
         if w < 3 || h < 3 {
             return;
         }
@@ -241,6 +297,8 @@ impl TermRenderer {
         buffer: &mut CellBuffer,
         ir: &MermaidDiagramIr,
         edge_path: &LayoutEdgePath,
+        scale_x: f32,
+        scale_y: f32,
     ) {
         if edge_path.points.len() < 2 {
             return;
@@ -257,8 +315,8 @@ impl TermRenderer {
 
         // Draw line segments.
         for window in edge_path.points.windows(2) {
-            let (x0, y0) = self.point_to_cells(&window[0]);
-            let (x1, y1) = self.point_to_cells(&window[1]);
+            let (x0, y0) = self.point_to_cells(&window[0], scale_x, scale_y);
+            let (x1, y1) = self.point_to_cells(&window[1], scale_x, scale_y);
             self.draw_line_cell(buffer, x0, y0, x1, y1, glyphs, edge_path.reversed, arrow);
         }
 
@@ -268,10 +326,10 @@ impl TermRenderer {
             ArrowType::DoubleArrow | ArrowType::DoubleThickArrow | ArrowType::DoubleDottedArrow
         ) && let Some(first) = edge_path.points.first()
         {
-            let (x, y) = self.point_to_cells(first);
+            let (x, y) = self.point_to_cells(first, scale_x, scale_y);
             if edge_path.points.len() >= 2 {
                 let next = &edge_path.points[1];
-                let (nx, ny) = self.point_to_cells(next);
+                let (nx, ny) = self.point_to_cells(next, scale_x, scale_y);
                 let arrow_char = self.arrowhead_for_direction(nx, ny, x, y, glyphs, arrow);
                 buffer.set(x, y, arrow_char);
             }
@@ -279,10 +337,10 @@ impl TermRenderer {
 
         // Draw arrowhead at end.
         if let Some(last) = edge_path.points.last() {
-            let (x, y) = self.point_to_cells(last);
+            let (x, y) = self.point_to_cells(last, scale_x, scale_y);
             let arrow_char = if edge_path.points.len() >= 2 {
                 let prev = &edge_path.points[edge_path.points.len() - 2];
-                let (px, py) = self.point_to_cells(prev);
+                let (px, py) = self.point_to_cells(prev, scale_x, scale_y);
                 self.arrowhead_for_direction(px, py, x, y, glyphs, arrow)
             } else {
                 glyphs.arrow_right
@@ -322,10 +380,20 @@ impl TermRenderer {
             glyphs.line_v
         } else if y0 == y1 {
             glyphs.line_h
-        } else if (x1 > x0) == (y1 > y0) {
-            glyphs.line_diag_nw
+        } else if (x1 as isize - x0 as isize).abs() == (y1 as isize - y0 as isize).abs() {
+            // Check for perfect diagonal
+            if (x1 > x0) == (y1 > y0) {
+                glyphs.line_diag_nw
+            } else {
+                glyphs.line_diag_ne
+            }
+        } else if x0 == x1 {
+            glyphs.line_v
+        } else if y0 == y1 {
+            glyphs.line_h
         } else {
-            glyphs.line_diag_ne
+            // Default to horizontal for mixed diagonal segments in cell mode
+            glyphs.line_h
         };
 
         // Bresenham line drawing.
@@ -400,8 +468,10 @@ impl TermRenderer {
         buffer: &mut CellBuffer,
         ir: &MermaidDiagramIr,
         node_box: &LayoutNodeBox,
+        scale_x: f32,
+        scale_y: f32,
     ) {
-        let (x, y, w, h) = self.bounds_to_cells(&node_box.bounds);
+        let (x, y, w, h) = self.bounds_to_cells(&node_box.bounds, scale_x, scale_y);
         if w < 3 || h < 1 {
             return;
         }
@@ -430,7 +500,8 @@ impl TermRenderer {
         let start_y = y + (h.saturating_sub(lines.len())) / 2;
 
         for (i, line) in lines.iter().enumerate() {
-            let label_len = line.chars().count();
+            let label_chars: Vec<char> = line.chars().collect();
+            let label_len = label_chars.len();
             let label_x = x + (w.saturating_sub(label_len)) / 2;
             buffer.set_string(label_x, start_y + i, line);
         }

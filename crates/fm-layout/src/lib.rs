@@ -412,10 +412,18 @@ pub struct LayoutCycleCluster {
     pub bounds: LayoutRect,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutClusterDivider {
+    pub cluster_index: usize,
+    pub start: LayoutPoint,
+    pub end: LayoutPoint,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LayoutExtensions {
     pub bands: Vec<LayoutBand>,
     pub axis_ticks: Vec<LayoutAxisTick>,
+    pub cluster_dividers: Vec<LayoutClusterDivider>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -722,6 +730,28 @@ fn build_cluster_layer(layout: &DiagramLayout) -> RenderGroup {
                 opacity: 0.24,
             }),
             stroke: Some(StrokeStyle::solid("#94a3b8", 1.0)),
+            marker_start: MarkerKind::None,
+            marker_end: MarkerKind::None,
+        }));
+    }
+
+    for divider in &layout.extensions.cluster_dividers {
+        let mut stroke = StrokeStyle::solid("#64748b", 1.0);
+        stroke.dash_array = vec![6.0, 4.0];
+        layer.children.push(RenderItem::Path(RenderPath {
+            source: RenderSource::Cluster(divider.cluster_index),
+            commands: vec![
+                PathCmd::MoveTo {
+                    x: divider.start.x,
+                    y: divider.start.y,
+                },
+                PathCmd::LineTo {
+                    x: divider.end.x,
+                    y: divider.end.y,
+                },
+            ],
+            fill: None,
+            stroke: Some(stroke),
             marker_start: MarkerKind::None,
             marker_end: MarkerKind::None,
         }));
@@ -2018,6 +2048,7 @@ fn layout_diagram_sugiyama_traced_with_config(
     let mut nodes = coordinate_assignment(ir, &node_sizes, &ranks, &ordering_by_rank, spacing);
     let edges = build_edge_paths(ir, &nodes, &cycle_result.highlighted_edge_indexes);
     let mut clusters = build_cluster_boxes(ir, &nodes, spacing);
+    let cluster_dividers = build_state_cluster_dividers(ir, &nodes, &clusters);
     let mut cycle_clusters = Vec::new();
 
     // If cycle clusters are collapsed, group member nodes within their cluster head's bounds.
@@ -2077,7 +2108,10 @@ fn layout_diagram_sugiyama_traced_with_config(
             edges,
             bounds,
             stats,
-            extensions: LayoutExtensions::default(),
+            extensions: LayoutExtensions {
+                cluster_dividers,
+                ..LayoutExtensions::default()
+            },
         },
         trace,
     }
@@ -2923,6 +2957,7 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             extensions: LayoutExtensions {
                 bands: lifeline_bands,
                 axis_ticks: Vec::new(),
+                cluster_dividers: Vec::new(),
             },
         },
         trace,
@@ -7107,6 +7142,82 @@ fn build_cluster_boxes(
         .collect()
 }
 
+fn build_state_cluster_dividers(
+    ir: &MermaidDiagramIr,
+    nodes: &[LayoutNodeBox],
+    clusters: &[LayoutClusterBox],
+) -> Vec<LayoutClusterDivider> {
+    const STATE_REGION_PREFIX: &str = "__state_region_";
+
+    ir.graph
+        .subgraphs
+        .iter()
+        .filter_map(|subgraph| {
+            if subgraph.grid_span <= 1 {
+                return None;
+            }
+
+            let cluster_index = subgraph.cluster?.0;
+            let cluster_bounds = clusters
+                .iter()
+                .find(|cluster| cluster.cluster_index == cluster_index)
+                .map(|cluster| cluster.bounds)?;
+
+            let mut region_vertical_extents = subgraph
+                .children
+                .iter()
+                .filter_map(|child_id| ir.graph.subgraph(*child_id))
+                .filter(|child| child.key.starts_with(STATE_REGION_PREFIX))
+                .filter_map(|child| {
+                    let mut min_y = f32::INFINITY;
+                    let mut max_y = f32::NEG_INFINITY;
+
+                    for member in ir.graph.subgraph_members_recursive(child.id) {
+                        let Some(node_box) = nodes.get(member.0) else {
+                            continue;
+                        };
+                        min_y = min_y.min(node_box.bounds.y);
+                        max_y = max_y.max(node_box.bounds.y + node_box.bounds.height);
+                    }
+
+                    (min_y.is_finite() && max_y.is_finite()).then_some((min_y, max_y))
+                })
+                .collect::<Vec<_>>();
+
+            if region_vertical_extents.len() < 2 {
+                return None;
+            }
+
+            region_vertical_extents.sort_by(|left, right| {
+                left.0
+                    .total_cmp(&right.0)
+                    .then_with(|| left.1.total_cmp(&right.1))
+            });
+
+            Some(
+                region_vertical_extents
+                    .windows(2)
+                    .map(|pair| {
+                        let divider_y = (pair[0].1 + pair[1].0) * 0.5;
+                        LayoutClusterDivider {
+                            cluster_index,
+                            start: LayoutPoint {
+                                x: cluster_bounds.x + 12.0,
+                                y: divider_y,
+                            },
+                            end: LayoutPoint {
+                                x: cluster_bounds.x + cluster_bounds.width - 12.0,
+                                y: divider_y,
+                            },
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .flatten()
+        .collect()
+}
+
 fn compute_bounds(
     nodes: &[LayoutNodeBox],
     clusters: &[LayoutClusterBox],
@@ -10594,6 +10705,99 @@ mod tests {
         assert_eq!(sizes[0], (20.0, 20.0));
         assert_eq!(sizes[1], (24.0, 24.0));
         assert_eq!(sizes[2], (72.0, 16.0));
+    }
+
+    #[test]
+    fn state_layout_extensions_include_concurrency_dividers() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::State);
+        ir.nodes.push(IrNode {
+            id: "Processing".to_string(),
+            ..IrNode::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Monitoring".to_string(),
+            ..IrNode::default()
+        });
+        ir.graph.nodes.push(IrGraphNode {
+            node_id: IrNodeId(0),
+            kind: fm_core::IrNodeKind::State,
+            clusters: vec![IrClusterId(0)],
+            subgraphs: vec![IrSubgraphId(0), IrSubgraphId(1)],
+        });
+        ir.graph.nodes.push(IrGraphNode {
+            node_id: IrNodeId(1),
+            kind: fm_core::IrNodeKind::State,
+            clusters: vec![IrClusterId(0)],
+            subgraphs: vec![IrSubgraphId(0), IrSubgraphId(2)],
+        });
+        ir.clusters.push(IrCluster {
+            id: IrClusterId(0),
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            grid_span: 2,
+            ..IrCluster::default()
+        });
+        ir.graph.clusters.push(IrGraphCluster {
+            cluster_id: IrClusterId(0),
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            subgraph: Some(IrSubgraphId(0)),
+            grid_span: 2,
+            ..IrGraphCluster::default()
+        });
+        ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(0),
+            key: "Active".to_string(),
+            children: vec![IrSubgraphId(1), IrSubgraphId(2)],
+            members: vec![IrNodeId(0), IrNodeId(1)],
+            cluster: Some(IrClusterId(0)),
+            grid_span: 2,
+            ..IrSubgraph::default()
+        });
+        ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(1),
+            key: "__state_region_1".to_string(),
+            parent: Some(IrSubgraphId(0)),
+            members: vec![IrNodeId(0)],
+            ..IrSubgraph::default()
+        });
+        ir.graph.subgraphs.push(IrSubgraph {
+            id: IrSubgraphId(2),
+            key: "__state_region_2".to_string(),
+            parent: Some(IrSubgraphId(0)),
+            members: vec![IrNodeId(1)],
+            ..IrSubgraph::default()
+        });
+
+        let layout = layout_diagram(&ir);
+        assert_eq!(layout.extensions.cluster_dividers.len(), 1);
+        let divider = &layout.extensions.cluster_dividers[0];
+        assert_eq!(divider.cluster_index, 0);
+        assert!(divider.start.x < divider.end.x);
+        assert_eq!(divider.start.y, divider.end.y);
+
+        let scene = build_render_scene(&ir, &layout);
+        let divider_paths = scene
+            .root
+            .children
+            .iter()
+            .filter_map(|item| match item {
+                RenderItem::Group(group) if group.id.as_deref() == Some("clusters") => Some(group),
+                _ => None,
+            })
+            .flat_map(|group| group.children.iter())
+            .filter_map(|child| match child {
+                RenderItem::Path(path)
+                    if matches!(path.source, RenderSource::Cluster(0))
+                        && path
+                            .stroke
+                            .as_ref()
+                            .is_some_and(|stroke| !stroke.dash_array.is_empty()) =>
+                {
+                    Some(path)
+                }
+                _ => None,
+            })
+            .count();
+        assert_eq!(divider_paths, 1);
     }
 
     // ── Auto algorithm selection tests (bd-vb9.7) ──────────────────────

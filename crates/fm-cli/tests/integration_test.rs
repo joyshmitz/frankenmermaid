@@ -1278,6 +1278,31 @@ fn e2e_pipeline_state_pseudo_states_render_distinct_shapes() {
 }
 
 #[test]
+fn e2e_pipeline_state_composite_regions_render_divider() {
+    let input = "stateDiagram-v2\n  state \"Active Mode\" as Active {\n    [*] --> Processing\n    Processing --> Waiting\n    --\n    [*] --> Monitoring\n    Monitoring --> Alert\n  }\n  Idle --> Active";
+    let output_file = NamedTempFile::new().expect("temp render output file");
+    let output_path = output_file
+        .path()
+        .to_str()
+        .expect("temp path must be valid utf-8")
+        .to_string();
+
+    let output = run_cli(
+        &["render", "-", "--format", "svg", "--output", &output_path],
+        input,
+    );
+    assert!(
+        output.status.success(),
+        "state composite region render should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let svg = std::fs::read_to_string(output_path).expect("read svg output");
+    assert!(svg.contains("Active Mode"));
+    assert!(svg.contains("stroke-dasharray=\"6,4\""));
+}
+
+#[test]
 fn e2e_pipeline_er() {
     assert_pipeline_roundtrip(
         "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER ||--|{ LINE-ITEM : contains",

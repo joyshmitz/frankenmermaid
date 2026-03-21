@@ -298,6 +298,7 @@ impl IrBuilder {
             .stereotype = Some(stereotype);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_class_generics(&mut self, class_name: &str, generics: Vec<String>) {
         let Some(&node_id) = self.node_index_by_id.get(class_name) else {
             return;
