@@ -739,9 +739,11 @@ impl TermRenderer {
         cluster_box: &LayoutClusterBox,
         scale_x: f32,
         scale_y: f32,
+        padding_x: usize,
+        padding_y: usize,
     ) {
-        let x = (cluster_box.bounds.x * scale_x) as usize;
-        let y = (cluster_box.bounds.y * scale_y) as usize;
+        let x = (cluster_box.bounds.x * scale_x) as usize + padding_x;
+        let y = (cluster_box.bounds.y * scale_y) as usize + padding_y;
         let w = (cluster_box.bounds.width * scale_x) as usize;
         let h = (cluster_box.bounds.height * scale_y) as usize;
 
@@ -756,12 +758,14 @@ impl TermRenderer {
         edge_path: &LayoutEdgePath,
         scale_x: f32,
         scale_y: f32,
+        padding_x: usize,
+        padding_y: usize,
     ) {
         for window in edge_path.points.windows(2) {
-            let x0 = (window[0].x * scale_x) as isize;
-            let y0 = (window[0].y * scale_y) as isize;
-            let x1 = (window[1].x * scale_x) as isize;
-            let y1 = (window[1].y * scale_y) as isize;
+            let x0 = (window[0].x * scale_x) as isize + padding_x as isize;
+            let y0 = (window[0].y * scale_y) as isize + padding_y as isize;
+            let x1 = (window[1].x * scale_x) as isize + padding_x as isize;
+            let y1 = (window[1].y * scale_y) as isize + padding_y as isize;
             canvas.draw_line(x0, y0, x1, y1);
         }
     }
@@ -773,9 +777,11 @@ impl TermRenderer {
         node_box: &LayoutNodeBox,
         scale_x: f32,
         scale_y: f32,
+        padding_x: usize,
+        padding_y: usize,
     ) {
-        let x = (node_box.bounds.x * scale_x) as usize;
-        let y = (node_box.bounds.y * scale_y) as usize;
+        let x = (node_box.bounds.x * scale_x) as usize + padding_x;
+        let y = (node_box.bounds.y * scale_y) as usize + padding_y;
         let w = (node_box.bounds.width * scale_x) as usize;
         let h = (node_box.bounds.height * scale_y) as usize;
 
@@ -950,6 +956,8 @@ impl TermRenderer {
         layout: &DiagramLayout,
         cell_width: usize,
         cell_height: usize,
+        scale_x: f32,
+        scale_y: f32,
     ) -> String {
         let mut lines: Vec<Vec<char>> = base.lines().map(|l| l.chars().collect()).collect();
 
@@ -965,7 +973,7 @@ impl TermRenderer {
 
         // Overlay node labels.
         for node_box in &layout.nodes {
-            let (x, y, w, h) = self.bounds_to_cells(&node_box.bounds);
+            let (x, y, w, h) = self.bounds_to_cells(&node_box.bounds, scale_x, scale_y);
             let ir_node = ir.nodes.get(node_box.node_index);
 
             // Class diagram nodes with class_meta get three-compartment rendering.
@@ -1019,16 +1027,16 @@ impl TermRenderer {
                     let p2 = &edge_path.points[2];
                     let px = (p1.x + p2.x) / 2.0;
                     let py = (p1.y + p2.y) / 2.0;
-                    self.point_to_cells(&fm_layout::LayoutPoint { x: px, y: py })
+                    self.point_to_cells(&fm_layout::LayoutPoint { x: px, y: py }, scale_x, scale_y)
                 } else if edge_path.points.len() == 2 {
                     let p1 = &edge_path.points[0];
                     let p2 = &edge_path.points[1];
                     let px = (p1.x + p2.x) / 2.0;
                     let py = (p1.y + p2.y) / 2.0;
-                    self.point_to_cells(&fm_layout::LayoutPoint { x: px, y: py })
+                    self.point_to_cells(&fm_layout::LayoutPoint { x: px, y: py }, scale_x, scale_y)
                 } else {
                     let mid_idx = edge_path.points.len() / 2;
-                    self.point_to_cells(&edge_path.points[mid_idx])
+                    self.point_to_cells(&edge_path.points[mid_idx], scale_x, scale_y)
                 };
 
                 let start_y = mid_y.saturating_sub(label_lines.len() / 2);
@@ -1058,30 +1066,28 @@ impl TermRenderer {
             .join("\n")
     }
 
-    fn bounds_to_cells(&self, bounds: &fm_layout::LayoutRect) -> (usize, usize, usize, usize) {
-        let scale = match self.config.tier {
-            MermaidTier::Compact => 0.15,
-            MermaidTier::Normal => 0.2,
-            MermaidTier::Rich | MermaidTier::Auto => 0.25,
-        };
-
-        let x = (bounds.x * scale) as usize + self.config.padding;
-        let y = (bounds.y * scale) as usize + self.config.padding;
-        let w = ((bounds.width * scale) as usize).max(3);
-        let h = ((bounds.height * scale) as usize).max(2);
+    fn bounds_to_cells(
+        &self,
+        bounds: &fm_layout::LayoutRect,
+        scale_x: f32,
+        scale_y: f32,
+    ) -> (usize, usize, usize, usize) {
+        let x = (bounds.x * scale_x) as usize + self.config.padding;
+        let y = (bounds.y * scale_y) as usize + self.config.padding;
+        let w = ((bounds.width * scale_x) as usize).max(3);
+        let h = ((bounds.height * scale_y) as usize).max(2);
 
         (x, y, w, h)
     }
 
-    fn point_to_cells(&self, point: &fm_layout::LayoutPoint) -> (usize, usize) {
-        let scale = match self.config.tier {
-            MermaidTier::Compact => 0.15,
-            MermaidTier::Normal => 0.2,
-            MermaidTier::Rich | MermaidTier::Auto => 0.25,
-        };
-
-        let x = (point.x * scale) as usize + self.config.padding;
-        let y = (point.y * scale) as usize + self.config.padding;
+    fn point_to_cells(
+        &self,
+        point: &fm_layout::LayoutPoint,
+        scale_x: f32,
+        scale_y: f32,
+    ) -> (usize, usize) {
+        let x = (point.x * scale_x) as usize + self.config.padding;
+        let y = (point.y * scale_y) as usize + self.config.padding;
 
         (x, y)
     }

@@ -20,9 +20,9 @@
     "flowchart_cycle": {
       "edge_count": 3,
       "layout_algorithm": "auto",
-      "layout_checksum": "a72e2b20a21ff43c",
+      "layout_checksum": "80a20d3dd2184472",
       "layout_height": 543.5,
-      "layout_width": 204.0,
+      "layout_width": 212.0,
       "node_count": 3
     },
     "flowchart_simple": {
@@ -42,11 +42,11 @@
       "node_count": 6
     },
     "gantt_basic": {
-      "edge_count": 0,
+      "edge_count": 1,
       "layout_algorithm": "auto",
-      "layout_checksum": "bf04b333af677112",
+      "layout_checksum": "2d689bdfe5562db7",
       "layout_height": 252.100006,
-      "layout_width": 524.0,
+      "layout_width": 422.0,
       "node_count": 2
     },
     "malformed_recovery": {
@@ -76,9 +76,9 @@
     "state_basic": {
       "edge_count": 3,
       "layout_algorithm": "auto",
-      "layout_checksum": "41c4f4e0f3fcd4b3",
+      "layout_checksum": "82b7b3f48cf84952",
       "layout_height": 357.0,
-      "layout_width": 485.549988,
+      "layout_width": 445.549988,
       "node_count": 3
     }
   },
