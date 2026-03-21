@@ -2,12 +2,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use fm_core::{
     ArrowType, ClassMemberKind, ClassStereotype, Diagnostic, DiagnosticCategory, DiagramType,
-    FragmentAlternative, FragmentKind, GraphDirection, IrActivation, IrAttributeKey, IrClassMember,
-    IrClassNodeMeta, IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute,
-    IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel, IrLabelId, IrLifecycleEvent, IrNode,
-    IrNodeId, IrNodeKind, IrParticipantGroup, IrSequenceFragment, IrSequenceMeta, IrSequenceNote,
-    IrSubgraph, IrSubgraphId, LifecycleEventKind, MermaidDiagramIr, MermaidError, MermaidParseMode,
-    MermaidWarning, MermaidWarningCode, NodeShape, NotePosition, Span,
+    FragmentAlternative, FragmentKind, GraphDirection, IrActivation, IrAttributeKey,
+    IrClassMember, IrClassNodeMeta, IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint,
+    IrEntityAttribute, IrGanttMeta, IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel, IrLabelId,
+    IrLifecycleEvent, IrNode, IrNodeId, IrNodeKind, IrParticipantGroup, IrSequenceFragment,
+    IrSequenceMeta, IrSequenceNote, IrSubgraph, IrSubgraphId, LifecycleEventKind,
+    MermaidDiagramIr, MermaidError, MermaidParseMode, MermaidWarning, MermaidWarningCode,
+    NodeShape, NotePosition, Span,
 };
 
 use crate::ParseResult;
@@ -71,6 +72,10 @@ impl IrBuilder {
 
     pub(crate) fn set_block_beta_columns(&mut self, columns: usize) {
         self.ir.meta.block_beta_columns = Some(columns.max(1));
+    }
+
+    pub(crate) fn set_gantt_meta(&mut self, gantt_meta: IrGanttMeta) {
+        self.ir.gantt_meta = Some(gantt_meta);
     }
 
     pub(crate) fn set_init_theme(&mut self, theme: String) {

@@ -750,7 +750,7 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
         theme
     };
     let (rendered, actual_width, actual_height) =
-        render_format(&parsed.ir, layout, format, effective_theme, width, height)?;
+        render_format(&parsed.ir, layout, format, effective_theme, font_size, width, height)?;
     let render_time = render_start.elapsed();
     budget_broker.record_render(render_time.as_millis().min(u128::from(u64::MAX)) as u64);
     guard_report.budget_broker = budget_broker.clone();
@@ -842,17 +842,21 @@ fn render_format(
     layout: &fm_layout::DiagramLayout,
     format: OutputFormat,
     theme: &str,
+    font_size: Option<f32>,
     width: Option<u32>,
     height: Option<u32>,
 ) -> Result<(Vec<u8>, Option<u32>, Option<u32>)> {
     match format {
         OutputFormat::Svg => {
             let base = SvgRenderConfig::default();
-            let svg_config = SvgRenderConfig {
+            let mut svg_config = SvgRenderConfig {
                 theme: resolve_theme_preset(theme, base.theme),
                 include_source_spans: true,
                 ..base
             };
+            if let Some(size) = font_size {
+                svg_config.font_size = size;
+            }
             let svg = render_svg_with_layout(ir, layout, &svg_config);
             // Extract dimensions from SVG if available
             let (w, h) = extract_svg_dimensions(&svg);
@@ -1759,6 +1763,7 @@ mod render_tests {
             &empty_layout,
             OutputFormat::Term,
             "default",
+            None,
             Some(80),
             Some(24),
         )
@@ -1837,7 +1842,7 @@ fn render_and_output(
     let source = load_input(input)?;
     let parsed = fm_parser::parse(&source);
     let layout = fm_layout::layout_diagram(&parsed.ir);
-    let (rendered, _, _) = render_format(&parsed.ir, &layout, format, "default", None, None)?;
+    let (rendered, _, _) = render_format(&parsed.ir, &layout, format, "default", None, None, None)?;
 
     match format {
         OutputFormat::Png => write_output_bytes(output, &rendered)?,
