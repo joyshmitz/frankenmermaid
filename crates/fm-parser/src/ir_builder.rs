@@ -6,8 +6,9 @@ use fm_core::{
     IrClassNodeMeta, IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute,
     IrGanttMeta, IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel, IrLabelId, IrLifecycleEvent,
     IrNode, IrNodeId, IrNodeKind, IrParticipantGroup, IrSequenceFragment, IrSequenceMeta,
-    IrSequenceNote, IrSubgraph, IrSubgraphId, LifecycleEventKind, MermaidDiagramIr, MermaidError,
-    MermaidParseMode, MermaidWarning, MermaidWarningCode, NodeShape, NotePosition, Span,
+    IrSequenceNote, IrStyleRef, IrStyleTarget, IrSubgraph, IrSubgraphId, LifecycleEventKind,
+    MermaidDiagramIr, MermaidError, MermaidParseMode, MermaidWarning, MermaidWarningCode,
+    NodeShape, NotePosition, Span,
 };
 
 use crate::ParseResult;
@@ -419,6 +420,11 @@ impl IrBuilder {
 
     pub(crate) fn edge_count(&self) -> usize {
         self.ir.edges.len()
+    }
+
+    /// Look up a node ID by its string key (as used in the diagram source).
+    pub(crate) fn node_id_by_key(&self, key: &str) -> Option<&IrNodeId> {
+        self.node_index_by_id.get(key)
     }
 
     /// Get a node by its IrNodeId.
@@ -842,6 +848,14 @@ impl IrBuilder {
             name: name.to_string(),
             key,
             comment: comment.map(|s| s.to_string()),
+        });
+    }
+
+    pub(crate) fn push_style_ref(&mut self, target: IrStyleTarget, style: String, span: Span) {
+        self.ir.style_refs.push(IrStyleRef {
+            target,
+            style,
+            span,
         });
     }
 

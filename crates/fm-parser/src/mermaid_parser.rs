@@ -827,6 +827,10 @@ fn parse_flowchart(input: &str, builder: &mut IrBuilder) {
     for item in &document.items {
         lower_flow_document_item(item, builder, &[], &[]);
     }
+
+    // Extract style directives from the raw input and add to IR.
+    // This runs AFTER lowering so node IDs are resolved for `style nodeId` lookups.
+    extract_style_directives(input, builder);
 }
 
 fn parse_flowchart_document(input: &str) -> FlowDocumentParseResult {
@@ -986,6 +990,9 @@ fn parse_flowchart_statement_asts(
         return Some(vec![ast]);
     }
     if is_non_graph_statement(statement) {
+        // Parse the style directive into IR style refs instead of discarding.
+        // We still return StyleOrLinkStyle to the chumsky lowerer (which skips it),
+        // but the side effect populates ir.style_refs via the builder.
         return Some(vec![FlowAst::StyleOrLinkStyle]);
     }
     if let Some(asts) = parse_edge_statement_asts(statement, &FLOW_OPERATORS) {
@@ -5905,6 +5912,63 @@ fn is_flowchart_header(line: &str) -> bool {
 
 fn is_non_graph_statement(line: &str) -> bool {
     line.starts_with("style ") || line.starts_with("classDef ") || line.starts_with("linkStyle ")
+}
+
+/// Extract `classDef`, `style`, and `linkStyle` directives from raw input
+/// and add them as `IrStyleRef` entries to the IR via the builder.
+fn extract_style_directives(input: &str, builder: &mut IrBuilder) {
+    for (line_number, raw_line) in input.lines().enumerate() {
+        let line = raw_line.trim();
+        let span = span_for(line_number + 1, raw_line);
+
+        if let Some(rest) = line.strip_prefix("classDef ") {
+            // classDef className fill:#fff,stroke:#000,...
+            let rest = rest.trim();
+            if let Some((name, style)) = rest.split_once(' ') {
+                let name = name.trim();
+                let style = style.trim();
+                if !name.is_empty() && !style.is_empty() {
+                    builder.push_style_ref(
+                        fm_core::IrStyleTarget::Class(name.to_string()),
+                        style.to_string(),
+                        span,
+                    );
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("style ") {
+            // style nodeId fill:#fff,...
+            let rest = rest.trim();
+            if let Some((target, style)) = rest.split_once(' ') {
+                let target = target.trim();
+                let style = style.trim();
+                if !target.is_empty() && !style.is_empty() {
+                    if let Some(&node_id) = builder.node_id_by_key(target) {
+                        builder.push_style_ref(
+                            fm_core::IrStyleTarget::Node(node_id),
+                            style.to_string(),
+                            span,
+                        );
+                    }
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("linkStyle ") {
+            // linkStyle 0 stroke:#f00,...
+            let rest = rest.trim();
+            if let Some((index_str, style)) = rest.split_once(' ') {
+                let index_str = index_str.trim();
+                let style = style.trim();
+                if let Ok(link_index) = index_str.parse::<usize>() {
+                    if !style.is_empty() {
+                        builder.push_style_ref(
+                            fm_core::IrStyleTarget::Link(link_index),
+                            style.to_string(),
+                            span,
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn is_comment(line: &str) -> bool {
