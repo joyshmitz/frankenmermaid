@@ -185,6 +185,9 @@ impl Canvas2dRenderer {
         // Draw layout bands (sequence lifelines, gantt sections, etc.)
         self.draw_bands(layout, ctx, offset_x, offset_y);
 
+        // Draw sequence activation bars.
+        self.draw_activation_bars(layout, ctx, offset_x, offset_y);
+
         // Draw edges
         let edges_drawn = self.draw_edges(layout, ir, ctx, offset_x, offset_y, &mut labels_drawn);
 
@@ -649,6 +652,32 @@ impl Canvas2dRenderer {
         }
     }
 
+    /// Draw sequence activation bars from layout extensions.
+    fn draw_activation_bars<C: Canvas2dContext>(
+        &mut self,
+        layout: &DiagramLayout,
+        ctx: &mut C,
+        offset_x: f64,
+        offset_y: f64,
+    ) {
+        for bar in &layout.extensions.activation_bars {
+            let x = f64::from(bar.bounds.x) + offset_x;
+            let y = f64::from(bar.bounds.y) + offset_y;
+            let w = f64::from(bar.bounds.width);
+            let h = f64::from(bar.bounds.height);
+            if w <= 0.0 || h <= 0.0 {
+                continue;
+            }
+
+            ctx.set_fill_style(&self.config.node_fill);
+            ctx.fill_rect(x, y, w, h);
+            ctx.set_stroke_style(&self.config.node_stroke);
+            ctx.set_line_width(self.config.node_stroke_width);
+            ctx.stroke_rect(x, y, w, h);
+            self.draw_calls += 2;
+        }
+    }
+
     /// Draw all edges.
     fn draw_edges<C: Canvas2dContext>(
         &mut self,
@@ -999,7 +1028,10 @@ mod tests {
     use super::*;
     use crate::context::{DrawOperation, MockCanvas2dContext};
     use fm_core::DiagramType;
-    use fm_layout::{build_render_scene, layout_diagram};
+    use fm_layout::{
+        LayoutActivationBar, LayoutExtensions, LayoutRect, LayoutStats, build_render_scene,
+        layout_diagram,
+    };
 
     #[test]
     fn renderer_handles_empty_diagram() {
@@ -1158,5 +1190,60 @@ mod tests {
                 .iter()
                 .any(|operation| matches!(operation, DrawOperation::FillText(_, _, _)))
         );
+    }
+
+    #[test]
+    fn render_draws_activation_bar_rectangles() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        let layout = DiagramLayout {
+            nodes: Vec::new(),
+            clusters: Vec::new(),
+            cycle_clusters: Vec::new(),
+            edges: Vec::new(),
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0,
+            },
+            stats: LayoutStats::default(),
+            extensions: LayoutExtensions {
+                activation_bars: vec![LayoutActivationBar {
+                    participant_index: 0,
+                    depth: 0,
+                    bounds: LayoutRect {
+                        x: 10.0,
+                        y: 20.0,
+                        width: 8.0,
+                        height: 30.0,
+                    },
+                }],
+                ..Default::default()
+            },
+        };
+        let config = CanvasRenderConfig {
+            auto_fit: false,
+            padding: 0.0,
+            ..Default::default()
+        };
+        let mut ctx = MockCanvas2dContext::new(200.0, 200.0);
+        let mut renderer = Canvas2dRenderer::new(config);
+
+        let _result = renderer.render(&layout, &ir, &mut ctx);
+
+        assert!(ctx.operations().iter().any(|operation| {
+            matches!(operation, DrawOperation::FillRect(x, y, w, h)
+                if (*x - 10.0).abs() < 0.001
+                    && (*y - 20.0).abs() < 0.001
+                    && (*w - 8.0).abs() < 0.001
+                    && (*h - 30.0).abs() < 0.001)
+        }));
+        assert!(ctx.operations().iter().any(|operation| {
+            matches!(operation, DrawOperation::StrokeRect(x, y, w, h)
+                if (*x - 10.0).abs() < 0.001
+                    && (*y - 20.0).abs() < 0.001
+                    && (*w - 8.0).abs() < 0.001
+                    && (*h - 30.0).abs() < 0.001)
+        }));
     }
 }

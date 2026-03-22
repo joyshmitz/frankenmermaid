@@ -7,8 +7,56 @@ on:
     branches: [main]
 
 jobs:
-  check:
-    name: Check (${{ matrix.fnx_mode }})
+  quality-gate-config:
+    name: Quality Gate Config
+    runs-on: ubuntu-latest
+    outputs:
+      proptest_cases: ${{ steps.parse.outputs.proptest_cases }}
+      benchmark_command: ${{ steps.parse.outputs.benchmark_command }}
+      benchmark_warn_pct: ${{ steps.parse.outputs.benchmark_warn_pct }}
+      benchmark_fail_pct: ${{ steps.parse.outputs.benchmark_fail_pct }}
+      determinism_command: ${{ steps.parse.outputs.determinism_command }}
+      golden_enabled: ${{ steps.parse.outputs.golden_enabled }}
+      property_enabled: ${{ steps.parse.outputs.property_enabled }}
+      performance_enabled: ${{ steps.parse.outputs.performance_enabled }}
+      determinism_enabled: ${{ steps.parse.outputs.determinism_enabled }}
+      evidence_enabled: ${{ steps.parse.outputs.evidence_enabled }}
+      decision_enabled: ${{ steps.parse.outputs.decision_enabled }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse quality-gates.toml
+        id: parse
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          config = tomllib.loads(Path(".ci/quality-gates.toml").read_text())
+          outputs = {
+              "proptest_cases": str(config["property_test"]["cases"]),
+              "benchmark_command": config["performance_regression"]["benchmark_command"],
+              "benchmark_warn_pct": str(config["performance_regression"]["warn_threshold_pct"]),
+              "benchmark_fail_pct": str(config["performance_regression"]["fail_threshold_pct"]),
+              "determinism_command": config["determinism"]["command"],
+              "golden_enabled": str(config["golden_checksum"]["enabled"]).lower(),
+              "property_enabled": str(config["property_test"]["enabled"]).lower(),
+              "performance_enabled": str(config["performance_regression"]["enabled"]).lower(),
+              "determinism_enabled": str(config["determinism"]["enabled"]).lower(),
+              "evidence_enabled": str(config["evidence_ledger"]["enabled"]).lower(),
+              "decision_enabled": str(config["decision_contract"]["enabled"]).lower(),
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              for key, value in outputs.items():
+                  print(f"{key}={value}", file=fh)
+          PY
+
+  core-check:
+    name: Core Check (${{ matrix.fnx_mode }})
+    needs: quality-gate-config
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -45,6 +93,172 @@ jobs:
       - name: Test (fnx on)
         if: matrix.fnx_mode == 'on'
         run: cargo test --workspace --all-targets --features fnx-integration
+
+  golden-checksum-guard:
+    name: Golden Checksum Guard
+    needs: quality-gate-config
+    if: needs.quality-gate-config.outputs.golden_enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: SVG golden guard
+        run: cargo test -p fm-cli --test golden_svg_test -- --nocapture
+
+      - name: Layout golden guard
+        run: cargo test -p fm-cli --test golden_layout_test -- --nocapture
+
+  property-test-guard:
+    name: Property Test Guard
+    needs: quality-gate-config
+    if: needs.quality-gate-config.outputs.property_enabled == 'true'
+    runs-on: ubuntu-latest
+    env:
+      PROPTEST_CASES: ${{ needs.quality-gate-config.outputs.proptest_cases }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run property-heavy workspace tests
+        run: cargo test --workspace --all-targets -- --nocapture
+
+  determinism-guard:
+    name: Determinism Guard
+    needs: quality-gate-config
+    if: needs.quality-gate-config.outputs.determinism_enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run determinism guard
+        run: ${{ needs.quality-gate-config.outputs.determinism_command }}
+
+      - name: Run pipeline determinism smoke
+        run: cargo test -p fm-cli --test integration_test e2e_pipeline_determinism_all_types -- --nocapture
+
+  performance-regression-guard:
+    name: Performance Regression Guard
+    needs: quality-gate-config
+    if: needs.quality-gate-config.outputs.performance_enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmark evidence command
+        run: ${{ needs.quality-gate-config.outputs.benchmark_command }}
+
+  evidence-ledger-guard:
+    name: Evidence Ledger Guard
+    needs: quality-gate-config
+    if: needs.quality-gate-config.outputs.evidence_enabled == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify evidence corpus exists
+        shell: bash
+        run: |
+          test -d evidence
+          test -f evidence/TEMPLATE.md
+          test -d evidence/contracts
+          find evidence/contracts -maxdepth 1 -name '*.md' | grep -q .
+
+  decision-contract-guard:
+    name: Decision Contract Guard
+    needs: quality-gate-config
+    if: needs.quality-gate-config.outputs.decision_enabled == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify decision contracts exist
+        shell: bash
+        run: |
+          find evidence/contracts -maxdepth 1 -name '*.md' | grep -q .
+
+  quality-summary:
+    name: Quality Summary
+    needs:
+      - quality-gate-config
+      - core-check
+      - golden-checksum-guard
+      - property-test-guard
+      - determinism-guard
+      - performance-regression-guard
+      - evidence-ledger-guard
+      - decision-contract-guard
+      - wasm-build
+      - coverage
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize gate results
+        shell: bash
+        run: |
+          {
+            echo "## Quality Gates"
+            echo ""
+            echo "| Gate | Result |"
+            echo "| --- | --- |"
+            echo "| core-check | ${{ needs.core-check.result }} |"
+            echo "| golden-checksum-guard | ${{ needs.golden-checksum-guard.result }} |"
+            echo "| property-test-guard | ${{ needs.property-test-guard.result }} |"
+            echo "| determinism-guard | ${{ needs.determinism-guard.result }} |"
+            echo "| performance-regression-guard | ${{ needs.performance-regression-guard.result }} |"
+            echo "| evidence-ledger-guard | ${{ needs.evidence-ledger-guard.result }} |"
+            echo "| decision-contract-guard | ${{ needs.decision-contract-guard.result }} |"
+            echo "| wasm-build | ${{ needs.wasm-build.result }} |"
+            echo "| coverage | ${{ needs.coverage.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce blocking gate status
+        shell: bash
+        run: |
+          failures=0
+          for result in \
+            "${{ needs.core-check.result }}" \
+            "${{ needs.golden-checksum-guard.result }}" \
+            "${{ needs.property-test-guard.result }}" \
+            "${{ needs.determinism-guard.result }}" \
+            "${{ needs.performance-regression-guard.result }}" \
+            "${{ needs.wasm-build.result }}" \
+            "${{ needs.coverage.result }}"; do
+            if [ "$result" != "success" ]; then
+              failures=1
+            fi
+          done
+          exit "$failures"
 
   wasm-build:
     name: WASM Build

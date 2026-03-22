@@ -770,6 +770,65 @@ fn sanitize_css_token(value: &str) -> String {
         .collect()
 }
 
+fn split_inline_style_declarations(style: &str) -> Vec<&str> {
+    let mut declarations = Vec::new();
+    let mut start = 0_usize;
+    let mut paren_depth = 0_usize;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+
+    for (index, ch) in style.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if quote.is_some() => escaped = true,
+            '"' | '\'' => {
+                if quote == Some(ch) {
+                    quote = None;
+                } else if quote.is_none() {
+                    quote = Some(ch);
+                }
+            }
+            '(' if quote.is_none() => paren_depth += 1,
+            ')' if quote.is_none() => paren_depth = paren_depth.saturating_sub(1),
+            ',' | ';' if quote.is_none() && paren_depth == 0 => {
+                let declaration = style[start..index].trim();
+                if !declaration.is_empty() {
+                    declarations.push(declaration);
+                }
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+
+    let tail = style[start..].trim();
+    if !tail.is_empty() {
+        declarations.push(tail);
+    }
+
+    declarations
+}
+
+fn normalize_inline_style(parts: &[&str]) -> Option<String> {
+    let inline = parts
+        .iter()
+        .flat_map(|part| split_inline_style_declarations(part))
+        .map(str::trim)
+        .filter(|declaration| !declaration.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    if inline.is_empty() {
+        None
+    } else {
+        Some(inline)
+    }
+}
+
 /// Resolve inline style for a node based on `classDef` and `style` directives.
 ///
 /// Cascade: classDef properties (by class name) → style properties (by node ID).
@@ -809,19 +868,7 @@ fn resolve_node_inline_style(ir: &MermaidDiagramIr, node_index: usize) -> Option
         return None;
     }
 
-    // Convert comma-separated CSS to semicolon-separated inline style.
-    let combined = parts.join(",");
-    let inline = combined
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("; ");
-    if inline.is_empty() {
-        None
-    } else {
-        Some(inline)
-    }
+    normalize_inline_style(&parts)
 }
 
 /// Resolve inline style for an edge based on `linkStyle` directives.
@@ -841,18 +888,7 @@ fn resolve_edge_inline_style(ir: &MermaidDiagramIr, edge_index: usize) -> Option
         return None;
     }
 
-    let combined = parts.join(",");
-    let inline = combined
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("; ");
-    if inline.is_empty() {
-        None
-    } else {
-        Some(inline)
-    }
+    normalize_inline_style(&parts)
 }
 
 fn truncate_label(label: &str, max_chars: Option<usize>) -> String {
@@ -2982,8 +3018,9 @@ mod tests {
     use super::*;
     use fm_core::{
         ArrowType, DiagramType, IrCluster, IrClusterId, IrEdge, IrEndpoint, IrGraphCluster,
-        IrGraphNode, IrLabel, IrLabelId, IrNode, IrNodeId, IrSubgraph, IrSubgraphId, IrXyAxis,
-        IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr, NodeShape, Span,
+        IrGraphNode, IrLabel, IrLabelId, IrNode, IrNodeId, IrStyleRef, IrStyleTarget, IrSubgraph,
+        IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr,
+        NodeShape, Span,
     };
     use fm_layout::{
         FillStyle, LayoutAxisTick, LayoutBand, LayoutBandKind, LineCap as RenderLineCap,
@@ -3516,6 +3553,49 @@ mod tests {
         let svg = render_svg(&ir);
         // Standard clusters should have translucent fill
         assert!(svg.contains("rgba("));
+    }
+
+    #[test]
+    fn node_inline_style_preserves_rgba_values() {
+        let mut ir = create_ir_with_single_node("node-alpha", NodeShape::Rect);
+        ir.style_refs.push(IrStyleRef {
+            target: IrStyleTarget::Node(IrNodeId(0)),
+            style: "fill:rgba(226,232,240,0.3),stroke:#334155".to_string(),
+            span: Span::default(),
+        });
+
+        let inline = resolve_node_inline_style(&ir, 0).expect("node style should resolve");
+
+        assert_eq!(inline, "fill:rgba(226,232,240,0.3); stroke:#334155");
+    }
+
+    #[test]
+    fn edge_inline_style_preserves_css_function_commas() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.style_refs.push(IrStyleRef {
+            target: IrStyleTarget::Link(0),
+            style: "stroke:rgba(12,34,56,0.5),filter:drop-shadow(0px,1px,2px,#000)".to_string(),
+            span: Span::default(),
+        });
+
+        let inline = resolve_edge_inline_style(&ir, 0).expect("edge style should resolve");
+
+        assert_eq!(
+            inline,
+            "stroke:rgba(12,34,56,0.5); filter:drop-shadow(0px,1px,2px,#000)"
+        );
+    }
+
+    #[test]
+    fn inline_style_preserves_commas_inside_escaped_quoted_strings() {
+        let declarations = split_inline_style_declarations(
+            r#"label:"value with \"quote, comma\"",stroke:#334155"#,
+        );
+
+        assert_eq!(
+            declarations,
+            vec![r#"label:"value with \"quote, comma\"""#, "stroke:#334155"]
+        );
     }
 
     #[test]
