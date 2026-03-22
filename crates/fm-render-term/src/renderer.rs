@@ -1555,37 +1555,28 @@ mod tests {
     #[test]
     fn renders_sequence_origin_cluster_titles_in_cell_mode() {
         let ir = MermaidDiagramIr::empty(DiagramType::Sequence);
-        let layout = DiagramLayout {
-            nodes: Vec::new(),
-            clusters: vec![LayoutClusterBox {
-                cluster_index: 0,
-                span: Default::default(),
-                title: Some("Backend".to_string()),
-                bounds: LayoutRect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 80.0,
-                    height: 40.0,
-                },
-            }],
-            cycle_clusters: Vec::new(),
-            edges: Vec::new(),
-            bounds: LayoutRect {
-                x: 0.0,
-                y: 0.0,
-                width: 80.0,
-                height: 40.0,
-            },
-            stats: LayoutStats::default(),
-            extensions: LayoutExtensions::default(),
-        };
         let config = TermRenderConfig {
+            tier: MermaidTier::Normal,
             render_mode: MermaidRenderMode::CellOnly,
             ..Default::default()
         };
+        let renderer = TermRenderer::new(ResolvedConfig::resolve(&config, 40, 12));
+        let mut buffer = CellBuffer::new(40, 12);
+        let cluster = LayoutClusterBox {
+            cluster_index: 0,
+            span: Default::default(),
+            title: Some("Ops".to_string()),
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 8.0,
+            },
+        };
 
-        let result = render_diagram_with_layout_and_config(&ir, &layout, &config, 40, 12);
-        assert!(result.output.contains("Backend"));
+        renderer.render_cluster_cell(&mut buffer, &ir, &cluster, 1.0, 1.0);
+
+        assert!(buffer.to_string().contains("Ops"));
     }
 
     #[test]

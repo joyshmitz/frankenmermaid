@@ -1251,4 +1251,47 @@ mod tests {
                     && (*h - 30.0).abs() < 0.001)
         }));
     }
+
+    #[test]
+    fn render_draws_sequence_origin_cluster_titles() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        let layout = DiagramLayout {
+            nodes: Vec::new(),
+            clusters: vec![fm_layout::LayoutClusterBox {
+                cluster_index: 0,
+                span: Default::default(),
+                title: Some("Backend".to_string()),
+                bounds: LayoutRect {
+                    x: 5.0,
+                    y: 10.0,
+                    width: 100.0,
+                    height: 60.0,
+                },
+            }],
+            cycle_clusters: Vec::new(),
+            edges: Vec::new(),
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 120.0,
+                height: 100.0,
+            },
+            stats: LayoutStats::default(),
+            extensions: LayoutExtensions::default(),
+        };
+        let config = CanvasRenderConfig {
+            auto_fit: false,
+            padding: 0.0,
+            ..Default::default()
+        };
+        let mut ctx = MockCanvas2dContext::new(200.0, 200.0);
+        let mut renderer = Canvas2dRenderer::new(config);
+
+        let _result = renderer.render(&layout, &ir, &mut ctx);
+
+        assert!(ctx.operations().iter().any(|operation| {
+            matches!(operation, DrawOperation::FillText(text, x, y)
+                if text == "Backend" && (*x - 13.0).abs() < 0.001 && (*y - 14.0).abs() < 0.001)
+        }));
+    }
 }

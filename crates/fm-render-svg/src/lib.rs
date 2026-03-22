@@ -3028,11 +3028,11 @@ mod tests {
         NodeShape, Span,
     };
     use fm_layout::{
-        FillStyle, LayoutAxisTick, LayoutBand, LayoutBandKind, LayoutClusterBox,
+        FillStyle, LayoutAxisTick, LayoutBand, LayoutBandKind, LayoutClusterBox, LayoutRect,
         LineCap as RenderLineCap, LineJoin as RenderLineJoin, PathCmd, RenderClip, RenderGroup,
-        RenderItem, RenderPath, RenderRect, RenderScene, RenderSource, RenderText,
-        RenderTransform, StrokeStyle, TextAlign as RenderTextAlign,
-        TextBaseline as RenderTextBaseline, layout_diagram,
+        RenderItem, RenderPath, RenderRect, RenderScene, RenderSource, RenderText, RenderTransform,
+        StrokeStyle, TextAlign as RenderTextAlign, TextBaseline as RenderTextBaseline,
+        layout_diagram,
     };
     use proptest::prelude::*;
 

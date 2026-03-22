@@ -3175,8 +3175,11 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 .iter()
                 .enumerate()
                 .filter_map(|(group_index, group)| {
-                    let member_indexes: Vec<usize> =
-                        group.participants.iter().map(|participant| participant.0).collect();
+                    let member_indexes: Vec<usize> = group
+                        .participants
+                        .iter()
+                        .map(|participant| participant.0)
+                        .collect();
                     let first_member = member_indexes.first().copied()?;
                     let last_member = member_indexes.last().copied()?;
                     let first_box = nodes.get(first_member)?;
@@ -3206,24 +3209,27 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         })
         .unwrap_or_default();
 
-    let cluster_bounds = participant_group_clusters.iter().fold(None, |acc, cluster| {
-        let cluster_max_x = cluster.bounds.x + cluster.bounds.width;
-        let cluster_max_y = cluster.bounds.y + cluster.bounds.height;
-        Some(match acc {
-            Some((min_x, min_y, max_x, max_y)) => (
-                min_x.min(cluster.bounds.x),
-                min_y.min(cluster.bounds.y),
-                max_x.max(cluster_max_x),
-                max_y.max(cluster_max_y),
-            ),
-            None => (
-                cluster.bounds.x,
-                cluster.bounds.y,
-                cluster_max_x,
-                cluster_max_y,
-            ),
-        })
-    });
+    let cluster_bounds =
+        participant_group_clusters
+            .iter()
+            .fold(None::<(f32, f32, f32, f32)>, |acc, cluster| {
+                let cluster_max_x = cluster.bounds.x + cluster.bounds.width;
+                let cluster_max_y = cluster.bounds.y + cluster.bounds.height;
+                Some(match acc {
+                    Some((min_x, min_y, max_x, max_y)) => (
+                        min_x.min(cluster.bounds.x),
+                        min_y.min(cluster.bounds.y),
+                        max_x.max(cluster_max_x),
+                        max_y.max(cluster_max_y),
+                    ),
+                    None => (
+                        cluster.bounds.x,
+                        cluster.bounds.y,
+                        cluster_max_x,
+                        cluster_max_y,
+                    ),
+                })
+            });
 
     let bounds = if let Some((cluster_min_x, cluster_min_y, cluster_max_x, cluster_max_y)) =
         cluster_bounds
@@ -8301,8 +8307,9 @@ mod tests {
     use fm_core::{
         ArrowType, DiagramType, GraphDirection, IrCluster, IrClusterId, IrEdge, IrEndpoint,
         IrGanttMeta, IrGanttSection, IrGanttTask, IrGraphCluster, IrGraphNode, IrLabel, IrLabelId,
-        IrNode, IrNodeId, IrSubgraph, IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries,
-        IrXySeriesKind, MermaidDiagramIr, MermaidPressureTier, NodeShape, Span,
+        IrNode, IrNodeId, IrParticipantGroup, IrSequenceMeta, IrSubgraph, IrSubgraphId, IrXyAxis,
+        IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr, MermaidPressureTier,
+        NodeShape, Span,
     };
     use proptest::prelude::*;
     use std::collections::{BTreeMap, BTreeSet};
@@ -11221,7 +11228,10 @@ mod tests {
             .expect("sequence participant group should create a layout cluster");
 
         assert_eq!(cluster.title.as_deref(), Some("Backend"));
-        assert!(cluster.bounds.y < 0.0, "group should reserve label space above headers");
+        assert!(
+            cluster.bounds.y < 0.0,
+            "group should reserve label space above headers"
+        );
         assert!(cluster.bounds.x <= layout.nodes[0].bounds.x);
         assert!(
             cluster.bounds.x + cluster.bounds.width
