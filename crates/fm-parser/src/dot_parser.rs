@@ -28,7 +28,6 @@ pub fn parse_dot(input: &str) -> ParseResult {
     let normalized_body = normalize_dot_body(&body_without_comments);
     let mut active_clusters: Vec<usize> = Vec::new();
     let mut active_subgraphs: Vec<usize> = Vec::new();
-    let mut subgraph_serial = 0usize;
 
     for (index, line) in normalized_body.lines().enumerate() {
         let line_number = index + 1;
@@ -54,8 +53,10 @@ pub fn parse_dot(input: &str) -> ParseResult {
             if let Some((cluster_key, cluster_title, opens_scope)) =
                 parse_subgraph_start(statement, line_number)
             {
-                subgraph_serial += 1;
-                let lookup_key = format!("{cluster_key}@dot:{subgraph_serial}");
+                // Use the cluster_key directly for named clusters to allow merging.
+                // For anonymous ones, the key already includes the line number.
+                let lookup_key = cluster_key.clone();
+
                 if let Some(cluster_index) = builder.ensure_cluster(
                     &lookup_key,
                     cluster_title.as_deref(),
@@ -741,21 +742,20 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_dot_subgraph_keys_remain_distinct_groups() {
+    fn duplicate_dot_subgraph_keys_merge_into_single_group() {
         let parsed =
             parse_dot("digraph G { subgraph cluster_0 { a; } subgraph cluster_0 { b; } a -> b; }");
 
-        assert_eq!(parsed.ir.clusters.len(), 2);
-        assert_eq!(parsed.ir.graph.subgraphs.len(), 2);
+        // Should now only have 1 cluster and 1 subgraph entry (merged)
+        assert_eq!(parsed.ir.clusters.len(), 1);
+        assert_eq!(parsed.ir.graph.subgraphs.len(), 1);
         assert_eq!(parsed.ir.graph.subgraphs[0].key, "cluster_0");
-        assert_eq!(parsed.ir.graph.subgraphs[1].key, "cluster_0");
-        assert_eq!(parsed.ir.graph.subgraphs[0].members.len(), 1);
-        assert_eq!(parsed.ir.graph.subgraphs[1].members.len(), 1);
+        assert_eq!(parsed.ir.graph.subgraphs[0].members.len(), 2);
 
         let first_member = parsed.ir.nodes[parsed.ir.graph.subgraphs[0].members[0].0]
             .id
             .as_str();
-        let second_member = parsed.ir.nodes[parsed.ir.graph.subgraphs[1].members[0].0]
+        let second_member = parsed.ir.nodes[parsed.ir.graph.subgraphs[0].members[1].0]
             .id
             .as_str();
         assert_eq!(first_member, "a");

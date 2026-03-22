@@ -1113,6 +1113,16 @@ pub struct IrClassNodeMeta {
     pub generics: Vec<String>,
 }
 
+/// C4-diagram-specific metadata for a node.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrC4NodeMeta {
+    pub element_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub technology: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct IrNode {
     pub id: String,
@@ -1129,6 +1139,9 @@ pub struct IrNode {
     /// Class-diagram-specific metadata (attributes, methods, stereotypes)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class_meta: Option<IrClassNodeMeta>,
+    /// C4-diagram-specific metadata (element type, technology, description)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub c4_meta: Option<IrC4NodeMeta>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
@@ -2592,6 +2605,7 @@ pub struct MermaidDiagramMeta {
     pub block_beta_columns: Option<usize>,
     pub init: MermaidInitParse,
     pub theme_overrides: MermaidThemeOverrides,
+    pub c4_show_legend: bool,
     pub guard: MermaidGuardReport,
 }
 
@@ -3129,6 +3143,7 @@ impl MermaidDiagramIr {
                 block_beta_columns: None,
                 init: MermaidInitParse::default(),
                 theme_overrides: MermaidThemeOverrides::default(),
+                c4_show_legend: false,
                 guard: MermaidGuardReport::default(),
             },
             sequence_meta: None,

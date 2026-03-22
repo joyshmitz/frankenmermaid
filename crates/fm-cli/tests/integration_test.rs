@@ -2,10 +2,10 @@
 //!
 //! These tests verify the end-to-end flow from parsing to layout to rendering.
 
-use fm_core::{DiagramType, GraphDirection};
+use fm_core::{DiagramType, GraphDirection, MermaidTier};
 use fm_layout::{layout_diagram, layout_diagram_traced};
 use fm_parser::parse;
-use fm_render_svg::render_svg;
+use fm_render_svg::{SvgRenderConfig, render_svg, render_svg_with_config};
 use fm_render_term::render_term;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -102,6 +102,40 @@ fn flowchart_renders_to_terminal() {
         term_output.lines().count() > 0,
         "Should have multiple lines"
     );
+}
+
+#[test]
+fn c4_render_honors_layout_and_legend_directives() {
+    let input = r#"C4Container
+LAYOUT_LEFT_RIGHT()
+SHOW_LEGEND()
+Person(customer, "Customer")
+Container(api, "Payments API", "Rust", "Handles payment requests")
+Rel(customer, api, "Uses", "HTTPS")"#;
+
+    let parse_result = parse(input);
+    assert_eq!(parse_result.ir.direction, GraphDirection::LR);
+    assert!(parse_result.ir.meta.c4_show_legend);
+    let edge_label = parse_result.ir.edges[0]
+        .label
+        .and_then(|label_id| parse_result.ir.labels.get(label_id.0))
+        .map(|label| label.text.as_str());
+    assert_eq!(edge_label, Some("Uses [HTTPS]"));
+
+    let layout = layout_diagram(&parse_result.ir);
+    let svg = render_svg_with_config(
+        &parse_result.ir,
+        &SvgRenderConfig {
+            detail_tier: MermaidTier::Rich,
+            ..SvgRenderConfig::default()
+        },
+    );
+
+    assert_eq!(layout.nodes.len(), 2);
+    assert!(svg.contains("fm-c4-legend"));
+    assert!(svg.contains("fm-c4-type-label"));
+    assert!(svg.contains("[Rust]"));
+    assert!(svg.contains("class=\"edge-label\""));
 }
 
 /// Test determinism: same input produces same layout.

@@ -2,13 +2,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use fm_core::{
     ArrowType, ClassMemberKind, ClassStereotype, Diagnostic, DiagnosticCategory, DiagramType,
-    FragmentAlternative, FragmentKind, GraphDirection, IrActivation, IrAttributeKey, IrClassMember,
-    IrClassNodeMeta, IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute,
-    IrGanttMeta, IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel, IrLabelId, IrLifecycleEvent,
-    IrNode, IrNodeId, IrNodeKind, IrParticipantGroup, IrSequenceFragment, IrSequenceMeta,
-    IrSequenceNote, IrStyleRef, IrStyleTarget, IrSubgraph, IrSubgraphId, IrXyChartMeta,
-    LifecycleEventKind, MermaidDiagramIr, MermaidError, MermaidParseMode, MermaidWarning,
-    MermaidWarningCode, NodeShape, NotePosition, Span,
+    FragmentAlternative, FragmentKind, GraphDirection, IrActivation, IrAttributeKey, IrC4NodeMeta,
+    IrClassMember, IrClassNodeMeta, IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint,
+    IrEntityAttribute, IrGanttMeta, IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel, IrLabelId,
+    IrLifecycleEvent, IrNode, IrNodeId, IrNodeKind, IrParticipantGroup, IrSequenceFragment,
+    IrSequenceMeta, IrSequenceNote, IrStyleRef, IrStyleTarget, IrSubgraph, IrSubgraphId,
+    IrXyChartMeta, LifecycleEventKind, MermaidDiagramIr, MermaidError, MermaidParseMode,
+    MermaidWarning, MermaidWarningCode, NodeShape, NotePosition, Span,
 };
 
 use crate::ParseResult;
@@ -124,6 +124,10 @@ impl IrBuilder {
 
     pub(crate) fn set_init_sequence_mirror_actors(&mut self, mirror_actors: bool) {
         self.ir.meta.init.config.sequence_mirror_actors = Some(mirror_actors);
+    }
+
+    pub(crate) fn set_c4_show_legend(&mut self, show_legend: bool) {
+        self.ir.meta.c4_show_legend = show_legend;
     }
 
     pub(crate) fn enable_autonumber(&mut self) {
@@ -681,6 +685,13 @@ impl IrBuilder {
                 if existing_node.shape == NodeShape::Rect && shape != NodeShape::Rect {
                     existing_node.shape = shape;
                 }
+
+                // If this call is NOT auto-created but the existing node IS,
+                // "upgrade" it to an explicit node and remove from tracking.
+                if !is_auto_created && existing_node.implicit {
+                    existing_node.implicit = false;
+                    self.auto_created_nodes.retain(|&id| id != existing_id);
+                }
             }
             return Some(existing_id);
         }
@@ -699,6 +710,7 @@ impl IrBuilder {
             implicit: is_auto_created,
             members: Vec::new(),
             class_meta: None,
+            c4_meta: None,
         };
 
         self.ir.nodes.push(node);
@@ -947,6 +959,13 @@ impl IrBuilder {
         if let Some(node) = self.ir.nodes.get_mut(node_id.0) {
             node.href = Some(target.to_string());
         }
+    }
+
+    pub(crate) fn set_c4_node_meta(&mut self, node_id: IrNodeId, meta: IrC4NodeMeta) {
+        let Some(node) = self.ir.nodes.get_mut(node_id.0) else {
+            return;
+        };
+        node.c4_meta = Some(meta);
     }
 
     /// Add an entity attribute to a node (for ER diagrams).

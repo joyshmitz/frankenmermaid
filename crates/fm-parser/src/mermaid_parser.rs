@@ -3,14 +3,16 @@ use std::collections::{BTreeMap, HashMap};
 use chumsky::prelude::*;
 use fm_core::{
     ArrowType, Diagnostic, DiagnosticCategory, DiagramType, GraphDirection, IrAttributeKey,
-    IrGanttMeta, IrGanttSection, IrGanttTask, IrNodeId, IrXyAxis, IrXyChartMeta, IrXySeries,
-    IrXySeriesKind, MermaidParseMode, MermaidSupportLevel, NodeShape, Span,
+    IrC4NodeMeta, IrGanttMeta, IrGanttSection, IrGanttTask, IrNodeId, IrXyAxis, IrXyChartMeta,
+    IrXySeries, IrXySeriesKind, MermaidParseMode, MermaidSupportLevel, NodeShape, Span,
     parse_mermaid_js_config_value, to_init_parse,
 };
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{DetectedType, ParseResult, ir_builder::IrBuilder};
+use crate::{
+    DetectedType, ParseResult, ir_builder::IrBuilder, is_sankey_header, matches_keyword_header,
+};
 
 const FLOW_OPERATORS: [(&str, ArrowType); 14] = [
     ("-.->", ArrowType::DottedArrow),
@@ -125,68 +127,6 @@ enum ClassStatement {
     Member(fm_core::IrClassMember),
     Stereotype(String, fm_core::ClassStereotype),
     End,
-}
-
-/// Simple type detection (used by tests).
-#[must_use]
-#[allow(dead_code)] // Used by tests
-pub fn detect_type(input: &str) -> DiagramType {
-    let Some(first_line) = first_significant_line(input) else {
-        return DiagramType::Unknown;
-    };
-    let lower = first_line.to_ascii_lowercase();
-
-    if lower.starts_with("flowchart") || lower == "graph" || lower.starts_with("graph ") {
-        DiagramType::Flowchart
-    } else if lower.starts_with("sequencediagram") {
-        DiagramType::Sequence
-    } else if lower.starts_with("classdiagram") {
-        DiagramType::Class
-    } else if lower.starts_with("statediagram") {
-        DiagramType::State
-    } else if lower.starts_with("gantt") {
-        DiagramType::Gantt
-    } else if lower.starts_with("erdiagram") {
-        DiagramType::Er
-    } else if lower.starts_with("mindmap") {
-        DiagramType::Mindmap
-    } else if lower.starts_with("pie") {
-        DiagramType::Pie
-    } else if lower.starts_with("gitgraph") {
-        DiagramType::GitGraph
-    } else if lower.starts_with("journey") {
-        DiagramType::Journey
-    } else if lower.starts_with("requirementdiagram") {
-        DiagramType::Requirement
-    } else if lower.starts_with("timeline") {
-        DiagramType::Timeline
-    } else if lower.starts_with("quadrantchart") {
-        DiagramType::QuadrantChart
-    } else if lower.starts_with("sankey") {
-        DiagramType::Sankey
-    } else if lower.starts_with("xychart") {
-        DiagramType::XyChart
-    } else if is_block_beta_header(&lower) {
-        DiagramType::BlockBeta
-    } else if lower.starts_with("packet-beta") {
-        DiagramType::PacketBeta
-    } else if lower.starts_with("architecture-beta") {
-        DiagramType::ArchitectureBeta
-    } else if first_line.starts_with("C4Context") {
-        DiagramType::C4Context
-    } else if first_line.starts_with("C4Container") {
-        DiagramType::C4Container
-    } else if first_line.starts_with("C4Component") {
-        DiagramType::C4Component
-    } else if first_line.starts_with("C4Dynamic") {
-        DiagramType::C4Dynamic
-    } else if first_line.starts_with("C4Deployment") {
-        DiagramType::C4Deployment
-    } else if lower.starts_with("kanban") {
-        DiagramType::Kanban
-    } else {
-        DiagramType::Unknown
-    }
 }
 
 /// Parse mermaid input (used by tests, delegates to parse_mermaid_with_detection).
@@ -3523,14 +3463,31 @@ fn parse_c4(input: &str, builder: &mut IrBuilder) {
             continue;
         }
 
-        if is_c4_header(trimmed)
-            || trimmed.starts_with("title ")
-            || matches!(
-                trimmed,
-                "LAYOUT_TOP_DOWN()" | "LAYOUT_LEFT_RIGHT()" | "SHOW_LEGEND()" | "HIDE_LEGEND()"
-            )
-            || trimmed.starts_with("UpdateLayoutConfig(")
-        {
+        if is_c4_header(trimmed) || trimmed.starts_with("title ") {
+            continue;
+        }
+
+        match trimmed {
+            "LAYOUT_TOP_DOWN()" => {
+                builder.set_direction(GraphDirection::TB);
+                continue;
+            }
+            "LAYOUT_LEFT_RIGHT()" => {
+                builder.set_direction(GraphDirection::LR);
+                continue;
+            }
+            "SHOW_LEGEND()" => {
+                builder.set_c4_show_legend(true);
+                continue;
+            }
+            "HIDE_LEGEND()" => {
+                builder.set_c4_show_legend(false);
+                continue;
+            }
+            _ => {}
+        }
+
+        if trimmed.starts_with("UpdateLayoutConfig(") {
             continue;
         }
 
@@ -3548,9 +3505,11 @@ fn parse_c4(input: &str, builder: &mut IrBuilder) {
 
         let span = span_for(line_number, raw_line);
         match function_name.as_str() {
-            "Person" | "Person_Ext" | "System" | "System_Ext" | "SystemDb" | "SystemQueue"
-            | "Container" | "Container_Ext" | "ContainerDb" | "ContainerQueue" | "Component"
-            | "Component_Ext" | "ComponentDb" | "ComponentQueue" => {
+            "Person" | "Person_Ext" | "System" | "System_Ext" | "SystemDb" | "SystemDb_Ext"
+            | "SystemQueue" | "SystemQueue_Ext" | "Container" | "Container_Ext" | "ContainerDb"
+            | "ContainerDb_Ext" | "ContainerQueue" | "ContainerQueue_Ext" | "Component"
+            | "Component_Ext" | "ComponentDb" | "ComponentDb_Ext" | "ComponentQueue"
+            | "ComponentQueue_Ext" => {
                 if let Some(node_id) = parse_c4_node(&function_name, &arguments, span, builder) {
                     add_node_to_active_c4_boundaries(&boundary_stack, node_id, builder);
                 } else {
@@ -5884,6 +5843,7 @@ fn parse_c4_node(
         clean_label(arguments.get(1).map(String::as_str)).unwrap_or_else(|| node_id.clone());
     let shape = c4_node_shape(function_name);
     let node_id_value = builder.intern_node(&node_id, Some(&label), shape, span)?;
+    builder.set_c4_node_meta(node_id_value, c4_node_meta(function_name, arguments));
 
     for class_name in c4_node_classes(function_name) {
         builder.add_class_to_node(&node_id, class_name, span);
@@ -5893,10 +5853,10 @@ fn parse_c4_node(
 }
 
 fn c4_node_shape(function_name: &str) -> NodeShape {
-    if function_name.ends_with("Db") {
+    if function_name.contains("Db") {
         NodeShape::Cylinder
     } else if function_name.contains("Queue") {
-        NodeShape::Stadium
+        NodeShape::Parallelogram
     } else if function_name.starts_with("Person") {
         NodeShape::Rounded
     } else {
@@ -5911,16 +5871,43 @@ fn c4_node_classes(function_name: &str) -> &'static [&'static str] {
         "System" => &["c4", "c4-system"],
         "System_Ext" => &["c4", "c4-system", "c4-external"],
         "SystemDb" => &["c4", "c4-system", "c4-database"],
+        "SystemDb_Ext" => &["c4", "c4-system", "c4-database", "c4-external"],
         "SystemQueue" => &["c4", "c4-system", "c4-queue"],
+        "SystemQueue_Ext" => &["c4", "c4-system", "c4-queue", "c4-external"],
         "Container" => &["c4", "c4-container"],
         "Container_Ext" => &["c4", "c4-container", "c4-external"],
         "ContainerDb" => &["c4", "c4-container", "c4-database"],
+        "ContainerDb_Ext" => &["c4", "c4-container", "c4-database", "c4-external"],
         "ContainerQueue" => &["c4", "c4-container", "c4-queue"],
+        "ContainerQueue_Ext" => &["c4", "c4-container", "c4-queue", "c4-external"],
         "Component" => &["c4", "c4-component"],
         "Component_Ext" => &["c4", "c4-component", "c4-external"],
         "ComponentDb" => &["c4", "c4-component", "c4-database"],
+        "ComponentDb_Ext" => &["c4", "c4-component", "c4-database", "c4-external"],
         "ComponentQueue" => &["c4", "c4-component", "c4-queue"],
+        "ComponentQueue_Ext" => &["c4", "c4-component", "c4-queue", "c4-external"],
         _ => &["c4"],
+    }
+}
+
+fn c4_node_meta(function_name: &str, arguments: &[String]) -> IrC4NodeMeta {
+    let (element_type, technology_index, description_index) = match function_name {
+        "Person" | "Person_Ext" => ("Person", None, Some(2)),
+        "System" | "System_Ext" | "SystemDb" | "SystemDb_Ext" | "SystemQueue"
+        | "SystemQueue_Ext" => ("System", None, Some(2)),
+        "Container" | "Container_Ext" | "ContainerDb" | "ContainerDb_Ext" | "ContainerQueue"
+        | "ContainerQueue_Ext" => ("Container", Some(2), Some(3)),
+        "Component" | "Component_Ext" | "ComponentDb" | "ComponentDb_Ext" | "ComponentQueue"
+        | "ComponentQueue_Ext" => ("Component", Some(2), Some(3)),
+        _ => ("C4", None, None),
+    };
+
+    IrC4NodeMeta {
+        element_type: element_type.to_string(),
+        technology: technology_index
+            .and_then(|index| clean_label(arguments.get(index).map(String::as_str))),
+        description: description_index
+            .and_then(|index| clean_label(arguments.get(index).map(String::as_str))),
     }
 }
 
@@ -5937,13 +5924,22 @@ fn parse_c4_relationship(
         return false;
     };
 
-    let description = clean_label(arguments.get(2).map(String::as_str));
+    let label = clean_label(arguments.get(2).map(String::as_str));
     let technology = clean_label(arguments.get(3).map(String::as_str));
-    let combined_label = match (description, technology) {
-        (Some(description), Some(technology)) => Some(format!("{description} ({technology})")),
-        (Some(description), None) => Some(description),
-        (None, Some(technology)) => Some(technology),
-        (None, None) => None,
+    let description = clean_label(arguments.get(4).map(String::as_str));
+    let combined_label = match (label, technology, description) {
+        (Some(label), Some(technology), Some(description)) => {
+            Some(format!("{label} [{technology}] - {description}"))
+        }
+        (Some(label), Some(technology), None) => Some(format!("{label} [{technology}]")),
+        (Some(label), None, Some(description)) => Some(format!("{label} - {description}")),
+        (Some(label), None, None) => Some(label),
+        (None, Some(technology), Some(description)) => {
+            Some(format!("[{technology}] - {description}"))
+        }
+        (None, Some(technology), None) => Some(format!("[{technology}]")),
+        (None, None, Some(description)) => Some(description),
+        (None, None, None) => None,
     };
 
     let Some(from_node) = builder.intern_node(&from_id, Some(&from_id), NodeShape::Rect, span)
@@ -6200,23 +6196,6 @@ fn parse_graph_direction(header: &str) -> Option<GraphDirection> {
     None
 }
 
-fn is_block_beta_header(line: &str) -> bool {
-    matches_keyword_header(line, "block-beta") || matches_keyword_header(line, "block")
-}
-
-fn is_sankey_header(line: &str) -> bool {
-    let lower = line.to_ascii_lowercase();
-    matches_keyword_header(&lower, "sankey") || matches_keyword_header(&lower, "sankey-beta")
-}
-
-fn matches_keyword_header(line: &str, keyword: &str) -> bool {
-    line == keyword
-        || line
-            .strip_prefix(keyword)
-            .and_then(|rest| rest.chars().next())
-            .is_some_and(|c| c.is_whitespace() || c == '-')
-}
-
 fn span_for(line_number: usize, line: &str) -> Span {
     Span::at_line(line_number, line.chars().count())
 }
@@ -6310,7 +6289,8 @@ fn is_comment(line: &str) -> bool {
 mod tests {
     use fm_core::{ArrowType, DiagramType, GraphDirection, IrXySeriesKind, NodeShape};
 
-    use super::{detect_type, parse_mermaid};
+    use super::parse_mermaid;
+    use crate::detect_type;
 
     #[test]
     fn detects_supported_headers() {
@@ -8007,7 +7987,43 @@ Rel(customer, core, "Uses", "HTTPS")"#,
             .label
             .and_then(|label_id| parsed.ir.labels.get(label_id.0))
             .map(|label| label.text.as_str());
-        assert_eq!(edge_label, Some("Uses (HTTPS)"));
+        assert_eq!(edge_label, Some("Uses [HTTPS]"));
+        }
+
+    #[test]
+    fn c4_container_preserves_technology_and_description_in_node_meta() {
+        let parsed = parse_mermaid(
+            r#"C4Container
+Container(api, "Payments API", "Rust", "Handles payment requests")"#,
+        );
+
+        let api = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "api")
+            .expect("api node");
+        let c4_meta = api.c4_meta.as_ref().expect("c4 metadata");
+        assert_eq!(c4_meta.element_type, "Container");
+        assert_eq!(c4_meta.technology.as_deref(), Some("Rust"));
+        assert_eq!(
+            c4_meta.description.as_deref(),
+            Some("Handles payment requests")
+        );
+    }
+
+    #[test]
+    fn c4_layout_and_legend_directives_update_ir_meta() {
+        let parsed = parse_mermaid(
+            r#"C4Context
+LAYOUT_LEFT_RIGHT()
+SHOW_LEGEND()
+Person(user, "User")"#,
+        );
+
+        assert_eq!(parsed.ir.direction, GraphDirection::LR);
+        assert_eq!(parsed.ir.meta.direction, GraphDirection::LR);
+        assert!(parsed.ir.meta.c4_show_legend);
     }
 
     #[test]

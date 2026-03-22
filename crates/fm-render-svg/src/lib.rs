@@ -25,7 +25,7 @@ pub use text::{TextAnchor, TextBuilder};
 pub use theme::{FontConfig, Theme, ThemeColors, ThemePreset, generate_palette};
 pub use transform::{Transform, TransformBuilder};
 
-use fm_core::{IrXyChartMeta, IrXySeriesKind, MermaidDiagramIr, MermaidTier, Span};
+use fm_core::{DiagramType, IrXyChartMeta, IrXySeriesKind, MermaidDiagramIr, MermaidTier, Span};
 use fm_layout::{
     DiagramLayout, FillStyle, LayoutBand, LayoutBandKind, LayoutEdgePath, LayoutNodeBox,
     LineCap as RenderLineCap, LineJoin as RenderLineJoin, MarkerKind, PathCmd, RenderClip,
@@ -1060,8 +1060,11 @@ fn render_layout_to_svg(
     config: &SvgRenderConfig,
 ) -> String {
     let padding = config.padding;
-    let width = layout.bounds.width + padding * 2.0;
-    let height = layout.bounds.height + padding * 2.0;
+    let legend_enabled = is_c4_legend_enabled(ir);
+    let legend_width = if legend_enabled { 320.0 } else { 0.0 };
+    let legend_height = if legend_enabled { 128.0 } else { 0.0 };
+    let width = (layout.bounds.width + padding * 2.0).max(legend_width + padding * 2.0);
+    let height = layout.bounds.height + padding * 2.0 + legend_height;
     let detail = resolve_detail_profile(width, height, config);
 
     let mut doc = SvgDocument::new()
@@ -1420,6 +1423,18 @@ fn render_layout_to_svg(
             &theme.colors,
         );
         doc = doc.child(node_elem);
+    }
+
+    if legend_enabled {
+        doc = doc.child(render_c4_legend(
+            ir,
+            padding,
+            layout.bounds.height + padding + 18.0,
+            width - (padding * 2.0),
+            legend_height - 18.0,
+            config,
+            &theme.colors,
+        ));
     }
 
     doc.to_string()
@@ -1926,6 +1941,9 @@ fn render_node(
                 is_inactive = true;
             }
             if normalized.contains("dashed-border") || normalized.contains("border-dashed") {
+                dashed_border = true;
+            }
+            if normalized == "c4-external" {
                 dashed_border = true;
             }
             if normalized.contains("double-border") || normalized.contains("border-double") {
@@ -2435,6 +2453,22 @@ fn render_node(
                 config,
                 colors,
             );
+        } else if let Some(node) = ir_node
+            && let Some(ref c4_meta) = node.c4_meta
+        {
+            group = render_c4_node_content(
+                group,
+                node,
+                c4_meta,
+                ir,
+                x,
+                y,
+                w,
+                h,
+                node_font_size,
+                config,
+                colors,
+            );
         } else {
             let lines_count = label_text.lines().count().max(1) as f32;
             let total_text_height = (lines_count - 1.0) * node_font_size * config.line_height;
@@ -2644,6 +2678,326 @@ fn render_class_compartments(
     }
 
     group
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_c4_node_content(
+    mut group: Element,
+    node: &fm_core::IrNode,
+    c4_meta: &fm_core::IrC4NodeMeta,
+    ir: &MermaidDiagramIr,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    font_size: f32,
+    config: &SvgRenderConfig,
+    colors: &ThemeColors,
+) -> Element {
+    let label_text = node
+        .label
+        .and_then(|lid| ir.labels.get(lid.0))
+        .map(|label| label.text.as_str())
+        .unwrap_or(node.id.as_str());
+
+    let line_h = font_size * config.line_height;
+    let small_font = clamp_font_size(font_size * 0.78, config.min_font_size);
+    let description_font = clamp_font_size(font_size * 0.72, config.min_font_size);
+    let mut cursor_y = y + (small_font * 1.25);
+
+    group = group.child(
+        TextBuilder::new(&format!("<<{}>>", c4_meta.element_type))
+            .x(x + w / 2.0)
+            .y(cursor_y)
+            .font_family(&config.font_family)
+            .font_size(small_font)
+            .font_weight("600")
+            .anchor(TextAnchor::Middle)
+            .fill(&colors.cluster_stroke)
+            .class("fm-c4-type-label")
+            .build(),
+    );
+
+    if node
+        .classes
+        .iter()
+        .any(|class_name| class_name == "c4-person")
+    {
+        group = group.child(render_c4_person_icon(
+            x + 18.0,
+            y + 18.0,
+            colors.node_stroke.as_str(),
+        ));
+    }
+
+    cursor_y += line_h * 0.95;
+    group = group.child(
+        TextBuilder::new(label_text)
+            .x(x + w / 2.0)
+            .y(cursor_y)
+            .font_family(&config.font_family)
+            .font_size(font_size)
+            .font_weight("600")
+            .anchor(TextAnchor::Middle)
+            .fill(&colors.text)
+            .class("fm-c4-name")
+            .build(),
+    );
+
+    if let Some(technology) = &c4_meta.technology {
+        cursor_y += line_h * 0.9;
+        group = group.child(
+            TextBuilder::new(&format!("[{technology}]"))
+                .x(x + w / 2.0)
+                .y(cursor_y)
+                .font_family(&config.font_family)
+                .font_size(small_font)
+                .anchor(TextAnchor::Middle)
+                .fill(&colors.edge)
+                .class("fm-c4-technology")
+                .build(),
+        );
+    }
+
+    if let Some(description) = &c4_meta.description {
+        cursor_y += line_h * 0.9;
+        let available_width = (w - 20.0).max(32.0);
+        let description_lines =
+            wrap_text_to_lines(description, available_width, config.avg_char_width * 0.92);
+        if !description_lines.is_empty() {
+            let description_text = description_lines.join("\n");
+            let description_height = (description_lines.len().saturating_sub(1) as f32)
+                * description_font
+                * config.line_height;
+            let baseline_y =
+                (cursor_y + description_height.min((h * 0.35).max(0.0))).min(y + h - 8.0);
+            group = group.child(
+                TextBuilder::new(&description_text)
+                    .x(x + w / 2.0)
+                    .y(baseline_y)
+                    .font_family(&config.font_family)
+                    .font_size(description_font)
+                    .line_height(config.line_height)
+                    .anchor(TextAnchor::Middle)
+                    .fill(&colors.text)
+                    .class("fm-c4-description")
+                    .build(),
+            );
+        }
+    }
+
+    group
+}
+
+fn render_c4_person_icon(x: f32, y: f32, stroke: &str) -> Element {
+    let mut icon = Element::group().class("fm-c4-person-icon");
+    icon = icon.child(
+        Element::circle()
+            .cx(x)
+            .cy(y - 6.0)
+            .r(3.0)
+            .fill("none")
+            .stroke(stroke)
+            .stroke_width(1.1),
+    );
+    icon = icon.child(
+        Element::line()
+            .x1(x)
+            .y1(y - 2.0)
+            .x2(x)
+            .y2(y + 7.0)
+            .stroke(stroke)
+            .stroke_width(1.1),
+    );
+    icon = icon.child(
+        Element::line()
+            .x1(x - 5.0)
+            .y1(y + 1.0)
+            .x2(x + 5.0)
+            .y2(y + 1.0)
+            .stroke(stroke)
+            .stroke_width(1.1),
+    );
+    icon = icon.child(
+        Element::line()
+            .x1(x)
+            .y1(y + 7.0)
+            .x2(x - 4.5)
+            .y2(y + 13.0)
+            .stroke(stroke)
+            .stroke_width(1.1),
+    );
+    icon.child(
+        Element::line()
+            .x1(x)
+            .y1(y + 7.0)
+            .x2(x + 4.5)
+            .y2(y + 13.0)
+            .stroke(stroke)
+            .stroke_width(1.1),
+    )
+}
+
+fn wrap_text_to_lines(text: &str, max_width: f32, avg_char_width: f32) -> Vec<String> {
+    if text.trim().is_empty() {
+        return Vec::new();
+    }
+    let max_chars = ((max_width / avg_char_width).floor() as usize).max(8);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+
+    for word in text.split_whitespace() {
+        let next_len = if current.is_empty() {
+            word.chars().count()
+        } else {
+            current.chars().count() + 1 + word.chars().count()
+        };
+        if next_len > max_chars && !current.is_empty() {
+            lines.push(current);
+            current = word.to_string();
+        } else {
+            if !current.is_empty() {
+                current.push(' ');
+            }
+            current.push_str(word);
+        }
+    }
+
+    if !current.is_empty() {
+        lines.push(current);
+    }
+
+    lines
+}
+
+fn is_c4_legend_enabled(ir: &MermaidDiagramIr) -> bool {
+    matches!(
+        ir.diagram_type,
+        DiagramType::C4Context
+            | DiagramType::C4Container
+            | DiagramType::C4Component
+            | DiagramType::C4Dynamic
+            | DiagramType::C4Deployment
+    ) && ir.meta.c4_show_legend
+}
+
+fn render_c4_legend(
+    ir: &MermaidDiagramIr,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    config: &SvgRenderConfig,
+    colors: &ThemeColors,
+) -> Element {
+    let mut legend = Element::group().class("fm-c4-legend");
+    let box_width = width.min(320.0);
+    let box_height = height.max(96.0);
+
+    legend = legend.child(
+        Element::rect()
+            .x(x)
+            .y(y)
+            .width(box_width)
+            .height(box_height)
+            .fill("rgba(248,249,250,0.96)")
+            .stroke(&colors.cluster_stroke)
+            .stroke_width(1.0)
+            .rx(8.0)
+            .class("fm-c4-legend-box"),
+    );
+
+    legend = legend.child(
+        TextBuilder::new("C4 Legend")
+            .x(x + 14.0)
+            .y(y + 18.0)
+            .font_family(&config.font_family)
+            .font_size(clamp_font_size(
+                config.font_size * 0.82,
+                config.min_font_size,
+            ))
+            .font_weight("600")
+            .fill(&colors.text)
+            .class("fm-c4-legend-title")
+            .build(),
+    );
+
+    let entries = c4_legend_entries(ir);
+    let left_x = x + 14.0;
+    let right_x = x + (box_width / 2.0) + 8.0;
+    let mut left_y = y + 36.0;
+    let mut right_y = y + 36.0;
+
+    for (index, (sample, label)) in entries.iter().enumerate() {
+        let (entry_x, entry_y) = if index % 2 == 0 {
+            let current = (left_x, left_y);
+            left_y += 18.0;
+            current
+        } else {
+            let current = (right_x, right_y);
+            right_y += 18.0;
+            current
+        };
+        legend = legend.child(
+            TextBuilder::new(&format!("{sample} {label}"))
+                .x(entry_x)
+                .y(entry_y)
+                .font_family(&config.font_family)
+                .font_size(clamp_font_size(
+                    config.font_size * 0.72,
+                    config.min_font_size,
+                ))
+                .fill(&colors.text)
+                .class("fm-c4-legend-entry")
+                .build(),
+        );
+    }
+
+    legend
+}
+
+fn c4_legend_entries(ir: &MermaidDiagramIr) -> Vec<(&'static str, &'static str)> {
+    let has_class = |needle: &str| {
+        ir.nodes
+            .iter()
+            .flat_map(|node| node.classes.iter())
+            .any(|class_name| class_name == needle)
+    };
+    let has_boundary = ir.clusters.iter().any(|cluster| {
+        cluster
+            .title
+            .and_then(|label_id| ir.labels.get(label_id.0))
+            .is_some_and(|label| {
+                label.text.contains("Boundary") || label.text.contains("Deployment_Node")
+            })
+    });
+
+    let mut entries = Vec::new();
+    if has_class("c4-person") {
+        entries.push(("◉", "Person"));
+    }
+    if has_class("c4-system") {
+        entries.push(("▭", "System"));
+    }
+    if has_class("c4-container") {
+        entries.push(("▣", "Container"));
+    }
+    if has_class("c4-component") {
+        entries.push(("◫", "Component"));
+    }
+    if has_class("c4-database") {
+        entries.push(("◌", "Database"));
+    }
+    if has_class("c4-queue") {
+        entries.push(("▱", "Queue"));
+    }
+    if has_class("c4-external") {
+        entries.push(("╌", "External"));
+    }
+    if has_boundary {
+        entries.push(("⬚", "Boundary"));
+    }
+    entries
 }
 
 fn visibility_symbol(vis: fm_core::ClassVisibility) -> &'static str {
@@ -3022,10 +3376,10 @@ fn render_edge(
 mod tests {
     use super::*;
     use fm_core::{
-        ArrowType, DiagramType, IrCluster, IrClusterId, IrEdge, IrEndpoint, IrGraphCluster,
-        IrGraphNode, IrLabel, IrLabelId, IrNode, IrNodeId, IrStyleRef, IrStyleTarget, IrSubgraph,
-        IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr,
-        NodeShape, Span,
+        ArrowType, DiagramType, IrC4NodeMeta, IrCluster, IrClusterId, IrEdge, IrEndpoint,
+        IrGraphCluster, IrGraphNode, IrLabel, IrLabelId, IrNode, IrNodeId, IrStyleRef,
+        IrStyleTarget, IrSubgraph, IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries,
+        IrXySeriesKind, MermaidDiagramIr, NodeShape, Span,
     };
     use fm_layout::{
         FillStyle, LayoutAxisTick, LayoutBand, LayoutBandKind, LayoutClusterBox, LayoutRect,
@@ -3093,6 +3447,48 @@ mod tests {
         if let Some(node) = ir.nodes.first_mut() {
             node.classes = classes.iter().map(|value| (*value).to_string()).collect();
         }
+        ir
+    }
+
+    fn create_c4_ir_with_legend() -> MermaidDiagramIr {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::C4Container);
+        ir.meta.c4_show_legend = true;
+        ir.labels.push(IrLabel {
+            text: "Payments API".to_string(),
+            span: Span::default(),
+        });
+        ir.labels.push(IrLabel {
+            text: "Customer".to_string(),
+            span: Span::default(),
+        });
+        ir.nodes.push(IrNode {
+            id: "api".to_string(),
+            label: Some(IrLabelId(0)),
+            shape: NodeShape::Rect,
+            classes: vec!["c4".to_string(), "c4-container".to_string()],
+            c4_meta: Some(IrC4NodeMeta {
+                element_type: "Container".to_string(),
+                technology: Some("Rust".to_string()),
+                description: Some("Handles payment requests".to_string()),
+            }),
+            ..IrNode::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "customer".to_string(),
+            label: Some(IrLabelId(1)),
+            shape: NodeShape::Rounded,
+            classes: vec![
+                "c4".to_string(),
+                "c4-person".to_string(),
+                "c4-external".to_string(),
+            ],
+            c4_meta: Some(IrC4NodeMeta {
+                element_type: "Person".to_string(),
+                technology: None,
+                description: Some("External user".to_string()),
+            }),
+            ..IrNode::default()
+        });
         ir
     }
 
@@ -3568,6 +3964,21 @@ mod tests {
         let svg = render_svg(&ir);
         assert!(svg.contains("fm-cluster-c4"));
         assert!(svg.contains("stroke-dasharray"));
+    }
+
+    #[test]
+    fn renders_c4_node_metadata_person_icon_and_legend() {
+        let ir = create_c4_ir_with_legend();
+        let svg = render_svg(&ir);
+        assert!(svg.contains("fm-c4-type-label"));
+        assert!(svg.contains("&lt;&lt;Container>>"));
+        assert!(svg.contains("[Rust]"));
+        assert!(svg.contains("Handles payment"));
+        assert!(svg.contains("requests"));
+        assert!(svg.contains("fm-c4-person-icon"));
+        assert!(svg.contains("fm-node-border-dashed"));
+        assert!(svg.contains("fm-c4-legend"));
+        assert!(svg.contains("C4 Legend"));
     }
 
     #[test]

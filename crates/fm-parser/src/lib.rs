@@ -224,11 +224,16 @@ const DIAGRAM_KEYWORDS: &[(&str, DiagramType)] = &[
     ("kanban", DiagramType::Kanban),
 ];
 
-fn is_block_beta_header(line: &str) -> bool {
+pub(crate) fn is_sankey_header(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    matches_keyword_header(&lower, "sankey") || matches_keyword_header(&lower, "sankey-beta")
+}
+
+pub(crate) fn is_block_beta_header(line: &str) -> bool {
     matches_keyword_header(line, "block-beta") || matches_keyword_header(line, "block")
 }
 
-fn matches_keyword_header(line: &str, keyword: &str) -> bool {
+pub(crate) fn matches_keyword_header(line: &str, keyword: &str) -> bool {
     line == keyword
         || line
             .strip_prefix(keyword)
