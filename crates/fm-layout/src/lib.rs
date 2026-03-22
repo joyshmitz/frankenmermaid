@@ -597,6 +597,26 @@ pub struct LayoutExtensions {
     /// Activation bars for sequence diagrams — narrow rectangles on lifelines
     /// indicating when a participant is active (processing a message).
     pub activation_bars: Vec<LayoutActivationBar>,
+    /// Sequence diagram notes — text boxes positioned near participant lifelines.
+    pub sequence_notes: Vec<LayoutSequenceNote>,
+    /// Sequence diagram interaction fragments (loop, alt, par, etc.).
+    pub sequence_fragments: Vec<LayoutSequenceFragment>,
+}
+
+/// A sequence diagram note positioned near a participant's lifeline.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutSequenceNote {
+    pub position: fm_core::NotePosition,
+    pub text: String,
+    pub bounds: LayoutRect,
+}
+
+/// A sequence diagram interaction fragment box (loop, alt, par, etc.).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutSequenceFragment {
+    pub kind: fm_core::FragmentKind,
+    pub label: String,
+    pub bounds: LayoutRect,
 }
 
 /// A sequence diagram activation bar positioned on a participant's lifeline.
@@ -3264,10 +3284,154 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 axis_ticks: Vec::new(),
                 cluster_dividers: Vec::new(),
                 activation_bars,
+                sequence_notes: build_sequence_note_geometry(
+                    ir,
+                    &participant_x_centers,
+                    &node_sizes,
+                    &message_y_positions,
+                    first_message_y,
+                    message_gap,
+                ),
+                sequence_fragments: build_sequence_fragment_geometry(
+                    ir,
+                    &participant_x_centers,
+                    &node_sizes,
+                    &message_y_positions,
+                    first_message_y,
+                    diagram_bottom,
+                    message_gap,
+                ),
             },
         },
         trace,
     }
+}
+
+fn build_sequence_note_geometry(
+    ir: &MermaidDiagramIr,
+    participant_x_centers: &[f32],
+    node_sizes: &[(f32, f32)],
+    message_y_positions: &[f32],
+    first_message_y: f32,
+    message_gap: f32,
+) -> Vec<LayoutSequenceNote> {
+    let Some(meta) = &ir.sequence_meta else {
+        return Vec::new();
+    };
+    let note_width = 120.0_f32;
+    let note_height = message_gap * 0.7;
+
+    meta.notes
+        .iter()
+        .enumerate()
+        .filter_map(|(note_index, note)| {
+            // Position the note at the edge after which it appears.
+            // Notes are interleaved with messages, so use note_index as edge hint.
+            let y = message_y_positions
+                .get(note_index)
+                .copied()
+                .unwrap_or(first_message_y + note_index as f32 * message_gap);
+
+            // Determine x position based on participants and note position.
+            let first_pid = note.participants.first().map(|p| p.0).unwrap_or(0);
+            let last_pid = note.participants.last().map(|p| p.0).unwrap_or(first_pid);
+            let first_cx = participant_x_centers.get(first_pid).copied().unwrap_or(0.0);
+            let last_cx = participant_x_centers
+                .get(last_pid)
+                .copied()
+                .unwrap_or(first_cx);
+            let first_half_w = node_sizes
+                .get(first_pid)
+                .map(|(w, _)| w / 2.0)
+                .unwrap_or(50.0);
+
+            let x = match note.position {
+                fm_core::NotePosition::LeftOf => first_cx - first_half_w - note_width - 10.0,
+                fm_core::NotePosition::RightOf => {
+                    let last_half_w = node_sizes
+                        .get(last_pid)
+                        .map(|(w, _)| w / 2.0)
+                        .unwrap_or(50.0);
+                    last_cx + last_half_w + 10.0
+                }
+                fm_core::NotePosition::Over => {
+                    let span_width = (last_cx - first_cx).abs() + note_width;
+                    let center = (first_cx + last_cx) / 2.0;
+                    center - span_width / 2.0
+                }
+            };
+
+            let w = match note.position {
+                fm_core::NotePosition::Over if first_pid != last_pid => {
+                    (last_cx - first_cx).abs() + note_width
+                }
+                _ => note_width,
+            };
+
+            Some(LayoutSequenceNote {
+                position: note.position,
+                text: note.text.clone(),
+                bounds: LayoutRect {
+                    x,
+                    y: y - note_height / 2.0,
+                    width: w,
+                    height: note_height,
+                },
+            })
+        })
+        .collect()
+}
+
+fn build_sequence_fragment_geometry(
+    ir: &MermaidDiagramIr,
+    participant_x_centers: &[f32],
+    node_sizes: &[(f32, f32)],
+    message_y_positions: &[f32],
+    first_message_y: f32,
+    diagram_bottom: f32,
+    message_gap: f32,
+) -> Vec<LayoutSequenceFragment> {
+    let Some(meta) = &ir.sequence_meta else {
+        return Vec::new();
+    };
+
+    let total_width = if participant_x_centers.is_empty() {
+        200.0
+    } else {
+        let last_idx = participant_x_centers.len() - 1;
+        let last_cx = participant_x_centers[last_idx];
+        let last_half_w = node_sizes
+            .get(last_idx)
+            .map(|(w, _)| w / 2.0)
+            .unwrap_or(50.0);
+        last_cx + last_half_w
+    };
+
+    meta.fragments
+        .iter()
+        .filter_map(|fragment| {
+            let start_y = message_y_positions
+                .get(fragment.start_edge)
+                .copied()
+                .unwrap_or(first_message_y);
+            let end_y = message_y_positions
+                .get(fragment.end_edge)
+                .copied()
+                .unwrap_or(diagram_bottom - message_gap * 0.5);
+
+            let padding = 20.0;
+            Some(LayoutSequenceFragment {
+                kind: fragment.kind,
+                label: fragment.label.clone(),
+                bounds: LayoutRect {
+                    x: -padding,
+                    y: start_y - message_gap * 0.3,
+                    width: total_width + padding * 2.0,
+                    height: (end_y - start_y + message_gap * 0.6).max(message_gap * 0.5),
+                },
+            })
+        })
+        .collect()
 }
 
 #[must_use]
