@@ -583,7 +583,7 @@ impl Canvas2dRenderer {
             });
 
             if let Some(title_text) = title_text {
-                ctx.set_fill_style("#6c757d");
+                ctx.set_fill_style(&self.config.label_color);
                 ctx.set_font(&format!(
                     "{}px {}",
                     self.config.font_size * 0.9,
@@ -620,7 +620,7 @@ impl Canvas2dRenderer {
                 LayoutBandKind::Lane => {
                     // Sequence lifeline: dashed vertical center line.
                     let cx = x + w / 2.0;
-                    ctx.set_stroke_style("#94a3b8");
+                    ctx.set_stroke_style(&self.config.node_stroke);
                     ctx.set_line_width(1.0);
                     ctx.set_line_dash(&[6.0, 4.0]);
                     ctx.begin_path();
@@ -635,7 +635,7 @@ impl Canvas2dRenderer {
                     ctx.set_fill_style("rgba(226,232,240,0.3)");
                     ctx.fill_rect(x, y, w, h);
                     if !band.label.is_empty() {
-                        ctx.set_fill_style("#6c757d");
+                        ctx.set_fill_style(&self.config.label_color);
                         ctx.set_font(&format!(
                             "bold {}px {}",
                             self.config.font_size * 0.85,
@@ -706,7 +706,7 @@ impl Canvas2dRenderer {
             ctx.fill_rect(x, y, w, h);
 
             // Dashed border.
-            ctx.set_stroke_style("#94a3b8");
+            ctx.set_stroke_style(&self.config.node_stroke);
             ctx.set_line_width(1.0);
             ctx.set_line_dash(&[4.0, 4.0]);
             ctx.stroke_rect(x, y, w, h);
@@ -719,7 +719,7 @@ impl Canvas2dRenderer {
                     fragment_kind_label(fragment.kind),
                     fragment.label
                 );
-                ctx.set_fill_style("#475569");
+                ctx.set_fill_style(&self.config.label_color);
                 ctx.set_font(&format!(
                     "bold {}px {}",
                     self.config.font_size * 0.8,
@@ -730,7 +730,7 @@ impl Canvas2dRenderer {
                 ctx.fill_text(&label, x + 6.0, y + 4.0);
             } else {
                 let label = fragment_kind_label(fragment.kind);
-                ctx.set_fill_style("#475569");
+                ctx.set_fill_style(&self.config.label_color);
                 ctx.set_font(&format!(
                     "bold {}px {}",
                     self.config.font_size * 0.8,
@@ -922,7 +922,7 @@ impl Canvas2dRenderer {
                 let total_height = lines.len() as f64 * line_height;
                 let label_height = total_height + 4.0;
 
-                ctx.set_fill_style("#ffffff");
+                ctx.set_fill_style(&self.config.node_fill);
                 ctx.fill_rect(
                     lx - label_width / 2.0,
                     ly - label_height / 2.0,
@@ -932,7 +932,7 @@ impl Canvas2dRenderer {
                 self.draw_calls += 1;
 
                 // Label text
-                ctx.set_fill_style("#666666");
+                ctx.set_fill_style(&self.config.label_color);
                 ctx.set_font(&format!(
                     "{}px {}",
                     self.config.font_size * 0.85,

@@ -45,9 +45,12 @@ impl Viewport {
     }
 
     /// Set the device pixel ratio for high-DPI displays.
+    ///
+    /// Values are clamped to the range `[0.25, 4.0]` to prevent rendering
+    /// artifacts from zero, negative, or extreme ratios.
     #[must_use]
-    pub const fn with_dpr(mut self, dpr: f64) -> Self {
-        self.device_pixel_ratio = dpr;
+    pub fn with_dpr(mut self, dpr: f64) -> Self {
+        self.device_pixel_ratio = dpr.clamp(0.25, 4.0);
         self
     }
 
