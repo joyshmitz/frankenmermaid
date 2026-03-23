@@ -8120,7 +8120,7 @@ pub fn build_layout_decision_ledger(
     }
 }
 
-fn concrete_layout_algorithms() -> [LayoutAlgorithm; 11] {
+fn concrete_layout_algorithms() -> [LayoutAlgorithm; 12] {
     [
         LayoutAlgorithm::Sugiyama,
         LayoutAlgorithm::Force,
@@ -8133,6 +8133,7 @@ fn concrete_layout_algorithms() -> [LayoutAlgorithm; 11] {
         LayoutAlgorithm::Kanban,
         LayoutAlgorithm::Grid,
         LayoutAlgorithm::Sequence,
+        LayoutAlgorithm::Pie,
     ]
 }
 
