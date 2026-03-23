@@ -188,6 +188,7 @@ pub enum LayoutAlgorithm {
     Kanban,
     Grid,
     Sequence,
+    Pie,
 }
 
 impl LayoutAlgorithm {
@@ -206,6 +207,7 @@ impl LayoutAlgorithm {
             Self::Kanban => "kanban",
             Self::Grid => "grid",
             Self::Sequence => "sequence",
+            Self::Pie => "pie",
         }
     }
 }
@@ -1343,6 +1345,7 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
         LayoutAlgorithm::Kanban => layout_diagram_kanban_traced(ir),
         LayoutAlgorithm::Grid => layout_diagram_grid_traced(ir),
         LayoutAlgorithm::Sequence => layout_diagram_sequence_traced(ir),
+        LayoutAlgorithm::Pie => layout_diagram_pie_traced(ir),
         LayoutAlgorithm::Auto => unreachable!("dispatch must resolve auto to a concrete layout"),
     };
     traced.trace.dispatch = guarded_dispatch;
@@ -1410,6 +1413,7 @@ fn auto_selection_reason(ir: &MermaidDiagramIr, selected: LayoutAlgorithm) -> &'
         DiagramType::Mindmap => return "auto_diagram_type_mindmap",
         DiagramType::Timeline => return "auto_diagram_type_timeline",
         DiagramType::Gantt => return "auto_diagram_type_gantt",
+        DiagramType::Pie => return "auto_diagram_type_pie",
         DiagramType::XyChart => return "auto_diagram_type_xychart",
         DiagramType::Sankey => return "auto_diagram_type_sankey",
         DiagramType::Journey | DiagramType::Kanban => return "auto_diagram_type_kanban",
@@ -1441,6 +1445,7 @@ fn preferred_layout_algorithm(ir: &MermaidDiagramIr) -> LayoutAlgorithm {
         DiagramType::Journey | DiagramType::Kanban => LayoutAlgorithm::Kanban,
         DiagramType::BlockBeta => LayoutAlgorithm::Grid,
         DiagramType::Sequence => LayoutAlgorithm::Sequence,
+        DiagramType::Pie => LayoutAlgorithm::Pie,
         _ => select_general_graph_algorithm(ir),
     }
 }
@@ -1493,6 +1498,7 @@ fn algorithm_available_for_diagram(diagram_type: DiagramType, algorithm: LayoutA
         }
         LayoutAlgorithm::Grid => matches!(diagram_type, DiagramType::BlockBeta),
         LayoutAlgorithm::Sequence => matches!(diagram_type, DiagramType::Sequence),
+        LayoutAlgorithm::Pie => matches!(diagram_type, DiagramType::Pie),
     }
 }
 
@@ -1575,7 +1581,8 @@ fn estimate_layout_cost(ir: &MermaidDiagramIr, algorithm: LayoutAlgorithm) -> La
         | LayoutAlgorithm::XyChart
         | LayoutAlgorithm::Kanban
         | LayoutAlgorithm::Grid
-        | LayoutAlgorithm::Sequence => LayoutCostEstimate {
+        | LayoutAlgorithm::Sequence
+        | LayoutAlgorithm::Pie => LayoutCostEstimate {
             time_ms: nodes
                 .saturating_mul(3)
                 .saturating_add(edges.saturating_mul(2))

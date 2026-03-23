@@ -95,6 +95,10 @@ impl IrBuilder {
         self.ir.xy_chart_meta = Some(xy_chart_meta);
     }
 
+    pub(crate) fn set_pie_meta(&mut self, pie_meta: fm_core::IrPieMeta) {
+        self.ir.pie_meta = Some(pie_meta);
+    }
+
     pub(crate) fn set_init_theme(&mut self, theme: String) {
         self.ir.meta.init.config.theme = Some(theme.clone());
         self.ir.meta.theme_overrides.theme = Some(theme);

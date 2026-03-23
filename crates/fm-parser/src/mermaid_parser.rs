@@ -3212,19 +3212,37 @@ fn parse_gantt_duration_days(token: &str) -> Option<u32> {
 }
 
 fn parse_pie(input: &str, builder: &mut IrBuilder) {
+    let mut pie_meta = fm_core::IrPieMeta::default();
+
     for (index, line) in input.lines().enumerate() {
         let line_number = index + 1;
         let trimmed = line.trim();
         if trimmed.is_empty() || is_comment(trimmed) {
             continue;
         }
-        if trimmed.starts_with("pie")
-            || trimmed.starts_with("title ")
-            || trimmed.starts_with("showData")
-        {
+
+        // Header line — may include "showData" on the same line.
+        if trimmed.starts_with("pie") {
+            if trimmed.contains("showData") {
+                pie_meta.show_data = true;
+            }
             continue;
         }
 
+        // Title directive.
+        if let Some(rest) = trimmed.strip_prefix("title ") {
+            let title = rest.trim();
+            if !title.is_empty() {
+                pie_meta.title = Some(title.to_string());
+            }
+            continue;
+        }
+        if trimmed == "showData" {
+            pie_meta.show_data = true;
+            continue;
+        }
+
+        // Slice: "Label" : value
         let Some(slice_name) = parse_name_before_colon(trimmed) else {
             builder.add_warning(format!(
                 "Line {line_number}: unsupported pie syntax: {trimmed}"
@@ -3239,8 +3257,25 @@ fn parse_pie(input: &str, builder: &mut IrBuilder) {
             ));
             continue;
         }
+
+        // Extract numeric value after the colon.
+        let value = trimmed
+            .splitn(2, ':')
+            .nth(1)
+            .and_then(|v| v.trim().parse::<f32>().ok())
+            .unwrap_or(0.0);
+
+        pie_meta.slices.push(fm_core::IrPieSlice {
+            label: slice_name.to_string(),
+            value,
+        });
+
         let span = span_for(line_number, line);
         let _ = builder.intern_node(&slice_id, Some(slice_name), NodeShape::Circle, span);
+    }
+
+    if !pie_meta.slices.is_empty() || pie_meta.title.is_some() {
+        builder.set_pie_meta(pie_meta);
     }
 }
 
