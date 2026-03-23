@@ -1012,6 +1012,7 @@ pub enum ArrowType {
     ThickArrow,
     DottedArrow,
     DottedOpenArrow,
+    DottedCross,
     HalfArrowTopDotted,
     HalfArrowBottomDotted,
     HalfArrowTopReverseDotted,
@@ -1047,6 +1048,7 @@ impl ArrowType {
             Self::ThickArrow => "==>",
             Self::DottedArrow => "-.->",
             Self::DottedOpenArrow => "--)",
+            Self::DottedCross => "--x",
             Self::HalfArrowTopDotted => "--|\\",
             Self::HalfArrowBottomDotted => "--|/",
             Self::HalfArrowTopReverseDotted => "/|--",
@@ -1606,6 +1608,8 @@ pub struct MermaidConfig {
     pub flowchart_curve: Option<String>,
     /// Mermaid-style sequence mirror actors toggle.
     pub sequence_mirror_actors: Option<bool>,
+    /// Mermaid-style sequence message numbering toggle.
+    pub sequence_show_sequence_numbers: Option<bool>,
 }
 
 impl Default for MermaidConfig {
@@ -1640,6 +1644,7 @@ impl Default for MermaidConfig {
             flowchart_direction: None,
             flowchart_curve: None,
             sequence_mirror_actors: None,
+            sequence_show_sequence_numbers: None,
         }
     }
 }
@@ -1671,6 +1676,7 @@ pub struct MermaidInitConfig {
     pub flowchart_direction: Option<GraphDirection>,
     pub flowchart_curve: Option<String>,
     pub sequence_mirror_actors: Option<bool>,
+    pub sequence_show_sequence_numbers: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1784,6 +1790,7 @@ pub fn to_init_parse(parsed_config: MermaidConfigParse) -> MermaidInitParse {
         flowchart_direction: parsed_config.config.flowchart_direction,
         flowchart_curve: parsed_config.config.flowchart_curve.clone(),
         sequence_mirror_actors: parsed_config.config.sequence_mirror_actors,
+        sequence_show_sequence_numbers: parsed_config.config.sequence_show_sequence_numbers,
     };
 
     let errors = parsed_config
@@ -1860,6 +1867,18 @@ fn parse_sequence_config(value: &Value, parsed: &mut MermaidConfigParse) {
                     push_type_error(
                         parsed,
                         "sequence.mirrorActors",
+                        raw_value,
+                        "must be a boolean",
+                    );
+                }
+            }
+            "showSequenceNumbers" => {
+                if let Some(show_numbers) = raw_value.as_bool() {
+                    parsed.config.sequence_show_sequence_numbers = Some(show_numbers);
+                } else {
+                    push_type_error(
+                        parsed,
+                        "sequence.showSequenceNumbers",
                         raw_value,
                         "must be a boolean",
                     );
@@ -3647,7 +3666,8 @@ mod tests {
                 "curve": "basis"
             },
             "sequence": {
-                "mirrorActors": true
+                "mirrorActors": true,
+                "showSequenceNumbers": true
             },
             "securityLevel": "loose"
         }));
@@ -3677,6 +3697,7 @@ mod tests {
         assert_eq!(parsed.config.flowchart_direction, Some(GraphDirection::RL));
         assert_eq!(parsed.config.flowchart_curve.as_deref(), Some("basis"));
         assert_eq!(parsed.config.sequence_mirror_actors, Some(true));
+        assert_eq!(parsed.config.sequence_show_sequence_numbers, Some(true));
         assert_eq!(parsed.config.sanitize_mode, MermaidSanitizeMode::Lenient);
     }
 
@@ -3685,7 +3706,7 @@ mod tests {
         let parsed = parse_mermaid_js_config_value(&json!({
             "theme": 42,
             "flowchart": "not-an-object",
-            "sequence": { "mirrorActors": "yes" },
+            "sequence": { "mirrorActors": "yes", "showSequenceNumbers": "yes" },
             "unknownKey": true
         }));
 
@@ -3697,6 +3718,12 @@ mod tests {
                 .errors
                 .iter()
                 .any(|e| e.field == "sequence.mirrorActors")
+        );
+        assert!(
+            parsed
+                .errors
+                .iter()
+                .any(|e| e.field == "sequence.showSequenceNumbers")
         );
         assert!(
             parsed
@@ -3712,7 +3739,7 @@ mod tests {
             "theme": "corporate",
             "themeVariables": { "primaryColor": "#0ff" },
             "flowchart": { "rankDir": "LR", "curve": "linear" },
-            "sequence": { "mirrorActors": false }
+            "sequence": { "mirrorActors": false, "showSequenceNumbers": true }
         }));
         let init_parse = to_init_parse(parsed);
 
@@ -3732,6 +3759,7 @@ mod tests {
         );
         assert_eq!(init_parse.config.flowchart_curve.as_deref(), Some("linear"));
         assert_eq!(init_parse.config.sequence_mirror_actors, Some(false));
+        assert_eq!(init_parse.config.sequence_show_sequence_numbers, Some(true));
     }
 
     #[test]
@@ -3957,6 +3985,7 @@ mod tests {
             (ArrowType::ThickArrow, "==>"),
             (ArrowType::DottedArrow, "-.->"),
             (ArrowType::DottedOpenArrow, "--)"),
+            (ArrowType::DottedCross, "--x"),
             (ArrowType::HalfArrowTopDotted, "--|\\"),
             (ArrowType::HalfArrowBottomDotted, "--|/"),
             (ArrowType::HalfArrowTopReverseDotted, "/|--"),

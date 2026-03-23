@@ -152,6 +152,13 @@ impl IrBuilder {
         self.ir.meta.init.config.sequence_mirror_actors = Some(mirror_actors);
     }
 
+    pub(crate) fn set_init_sequence_show_sequence_numbers(&mut self, show_numbers: bool) {
+        self.ir.meta.init.config.sequence_show_sequence_numbers = Some(show_numbers);
+        if self.ir.diagram_type == DiagramType::Sequence && show_numbers {
+            self.enable_autonumber();
+        }
+    }
+
     pub(crate) fn set_c4_show_legend(&mut self, show_legend: bool) {
         self.ir.meta.c4_show_legend = show_legend;
     }
@@ -464,6 +471,9 @@ impl IrBuilder {
         if let Some((_, _, _, alternatives, _)) = self.fragment_stack.last_mut() {
             let start_edge = self.ir.edges.len();
             // Close the previous section's end_edge
+            if let Some(last_alt) = alternatives.last_mut() {
+                last_alt.end_edge = start_edge;
+            }
             // The alternative starts at the current edge index
             alternatives.push(FragmentAlternative {
                 label,
@@ -711,6 +721,8 @@ impl IrBuilder {
                 if existing_node.shape == NodeShape::Rect && shape != NodeShape::Rect {
                     existing_node.shape = shape;
                 }
+
+                existing_node.span_all.push(span);
 
                 // If this call is NOT auto-created but the existing node IS,
                 // "upgrade" it to an explicit node and remove from tracking.

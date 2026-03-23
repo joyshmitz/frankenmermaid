@@ -56,7 +56,7 @@ const SEQUENCE_OPERATORS: [(&str, ArrowType); 26] = [
     ("-)", ArrowType::OpenArrow),
     ("-->", ArrowType::DottedLine),
     ("->", ArrowType::Line),
-    ("--x", ArrowType::Cross),
+    ("--x", ArrowType::DottedCross),
     ("-x", ArrowType::Cross),
 ];
 
@@ -5731,6 +5731,9 @@ fn apply_mermaid_config_value(value: Value, context: &str, span: Span, builder: 
     if let Some(mirror_actors) = parsed.config.sequence_mirror_actors {
         builder.set_init_sequence_mirror_actors(mirror_actors);
     }
+    if let Some(show_numbers) = parsed.config.sequence_show_sequence_numbers {
+        builder.set_init_sequence_show_sequence_numbers(show_numbers);
+    }
 
     for warning in parsed.warnings {
         let message = format!("{context}: {}", warning.message);
@@ -7009,6 +7012,15 @@ mod tests {
     }
 
     #[test]
+    fn sequence_distinguishes_solid_and_dotted_cross() {
+        let solid = parse_mermaid("sequenceDiagram\nAlice-xBob: Stop");
+        assert_eq!(solid.ir.edges[0].arrow, ArrowType::Cross);
+
+        let dotted = parse_mermaid("sequenceDiagram\nAlice--xBob: Stop");
+        assert_eq!(dotted.ir.edges[0].arrow, ArrowType::DottedCross);
+    }
+
+    #[test]
     fn sequence_supports_half_arrow_variants() {
         let top = parse_mermaid("sequenceDiagram\nAlice-|\\Bob: HalfTop");
         assert_eq!(top.ir.edges[0].arrow, ArrowType::HalfArrowTop);
@@ -7834,7 +7846,7 @@ mod tests {
     #[test]
     fn init_directive_maps_curve_and_sequence_options() {
         let parsed = parse_mermaid(
-            "%%{init: {\"flowchart\":{\"curve\":\"basis\",\"rankDir\":\"LR\"},\"sequence\":{\"mirrorActors\":true}}}%%\nflowchart TB\nA-->B",
+            "%%{init: {\"flowchart\":{\"curve\":\"basis\",\"rankDir\":\"LR\"},\"sequence\":{\"mirrorActors\":true,\"showSequenceNumbers\":true}}}%%\nflowchart TB\nA-->B",
         );
         assert_eq!(
             parsed.ir.meta.init.config.flowchart_curve.as_deref(),
@@ -7846,6 +7858,10 @@ mod tests {
         );
         assert_eq!(
             parsed.ir.meta.init.config.sequence_mirror_actors,
+            Some(true)
+        );
+        assert_eq!(
+            parsed.ir.meta.init.config.sequence_show_sequence_numbers,
             Some(true)
         );
         assert!(parsed.ir.meta.init.errors.is_empty());
@@ -7880,9 +7896,51 @@ mod tests {
             parsed.ir.meta.init.config.sequence_mirror_actors,
             Some(false)
         );
+        assert_eq!(
+            parsed.ir.meta.init.config.sequence_show_sequence_numbers,
+            None
+        );
         assert_eq!(parsed.ir.nodes.len(), 2);
         assert_eq!(parsed.ir.edges.len(), 1);
         assert!(parsed.ir.meta.init.errors.is_empty());
+    }
+
+    #[test]
+    fn sequence_init_show_sequence_numbers_enables_autonumber() {
+        let parsed = parse_mermaid(
+            "%%{init: {\"sequence\":{\"showSequenceNumbers\":true}}}%%\nsequenceDiagram\n  Alice->>Bob: Hello\n  Bob->>Alice: Hi",
+        );
+
+        assert_eq!(
+            parsed.ir.meta.init.config.sequence_show_sequence_numbers,
+            Some(true)
+        );
+        assert!(
+            parsed
+                .ir
+                .sequence_meta
+                .as_ref()
+                .is_some_and(|meta| meta.autonumber)
+        );
+    }
+
+    #[test]
+    fn sequence_front_matter_show_sequence_numbers_enables_autonumber() {
+        let parsed = parse_mermaid(
+            "---\nconfig:\n  sequence:\n    showSequenceNumbers: true\n---\nsequenceDiagram\n  Alice->>Bob: Hello",
+        );
+
+        assert_eq!(
+            parsed.ir.meta.init.config.sequence_show_sequence_numbers,
+            Some(true)
+        );
+        assert!(
+            parsed
+                .ir
+                .sequence_meta
+                .as_ref()
+                .is_some_and(|meta| meta.autonumber)
+        );
     }
 
     #[test]

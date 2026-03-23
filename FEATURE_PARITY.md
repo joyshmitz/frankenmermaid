@@ -27,74 +27,102 @@ Current status in this file is grounded in:
 
 ### Parser Families
 
-| Diagram family | Detection | Dedicated parser | Current status | Notes |
-|---|---|---|---|---|
-| Flowchart | Yes | Yes | Partial | Most advanced parser path; recursive document AST work in progress |
-| Sequence | Yes | Yes | Partial | Dedicated parser exists |
-| Class | Yes | Yes | Partial | Dedicated parser exists |
-| State | Yes | Yes | Partial | Dedicated parser exists |
-| ER | Yes | Yes | Partial | Dedicated parser exists |
-| Requirement | Yes | Yes | Partial | Dedicated parser exists |
-| Mindmap | Yes | Yes | Partial | Dedicated parser exists |
-| Journey | Yes | Yes | Partial | Dedicated parser exists |
-| Timeline | Yes | Yes | Partial | Dedicated parser exists |
-| Packet Beta | Yes | Yes | Partial | Dedicated parser exists |
-| Gantt | Yes | Yes | Partial | Dedicated parser exists |
-| Pie | Yes | Yes | Partial | Dedicated parser exists |
-| Quadrant Chart | Yes | Yes | Partial | Dedicated parser exists |
-| Git Graph | Yes | Yes | Partial | Dedicated parser exists; CLI still marks it unsupported |
-| Sankey | Yes | No | Fallback | Detected but routed through generic flowchart fallback |
-| XY Chart | Yes | No | Fallback | Detected but routed through generic flowchart fallback |
-| Block Beta | Yes | No | Fallback | Detected but routed through generic flowchart fallback |
-| Architecture Beta | Yes | No | Fallback | Detected but routed through generic flowchart fallback |
-| C4 family | Yes | No | Fallback | Detected but routed through generic flowchart fallback |
-| DOT bridge | Yes | Yes | Partial | Dedicated parser exists via `dot_parser` |
+| Diagram family | Detection | Dedicated parser | Dedicated layout | SVG render | Current status | Notes |
+|---|---|---|---|---|---|---|
+| Flowchart | Yes | Yes | Sugiyama | Yes | Partial | Most advanced path; recursive document AST, edge bundling, layout constraints |
+| Sequence | Yes | Yes | Sequence | Yes | Partial | Participants, messages, notes, fragments (loop/alt/par/opt/critical/break), activations, lifecycle events, participant groups |
+| Class | Yes | Yes | Sugiyama | Yes | Partial | Members, inheritance, stereotypes, generics, compartment rendering |
+| State | Yes | Yes | Sugiyama | Yes | Partial | Transitions, composites, fork/join, history states, choice |
+| ER | Yes | Yes | Sugiyama | Yes | Partial | Entity attributes with PK/FK/UK, cardinality labels on edges |
+| Requirement | Yes | Yes | Sugiyama | Yes | Partial | Requirement types, id/text/risk/verifyMethod metadata extraction |
+| Mindmap | Yes | Yes | Radial | Yes | Partial | Indentation-based hierarchy, node shapes |
+| Journey | Yes | Yes | Kanban | Yes | Partial | Steps, sections |
+| Timeline | Yes | Yes | Timeline | Yes | Partial | Periods with events |
+| Packet Beta | Yes | Yes | Packet (Grid) | Yes | Partial | Field parsing, grid-based layout |
+| Gantt | Yes | Yes | Gantt | Yes | Partial | Tasks, sections, durations, task types, date metadata |
+| Pie | Yes | Yes | Pie | Yes | Partial | Slice values, title, showData, wedge SVG rendering with accent colors |
+| Quadrant Chart | Yes | Yes | Quadrant | Yes | Partial | Axis labels, quadrant labels, data points with [0,1] coords, scatter SVG |
+| Git Graph | Yes | Yes | GitGraph | Yes | Partial | Commits, branches, merges, cherry-pick, lane-based layout |
+| Sankey | Yes | Yes | Sankey | Yes | Partial | Dedicated parser and flow-preserving layout |
+| XY Chart | Yes | Yes | XyChart | Yes | Partial | Axis/series metadata, bar/line/area rendering |
+| Block Beta | Yes | Yes | Grid | Yes | Partial | Column spanning, space blocks, group nesting |
+| Architecture Beta | Yes | Yes | Sugiyama | Yes | Partial | Groups, services, junctions, icon classes |
+| C4 family | Yes | Yes | Sugiyama | Yes | Partial | Boundary detection, C4 node metadata |
+| Kanban | Yes | Yes | Kanban | Yes | Partial | Columns and cards via clusters |
+| DOT bridge | Yes | Yes | Sugiyama | Yes | Partial | Graphviz DOT format to shared IR |
 
-### Layout And Rendering
+### Layout Algorithms
+
+| Algorithm | Diagram types | Status | Notes |
+|---|---|---|---|
+| Sugiyama (hierarchical) | Flowchart, Class, State, ER, C4, Requirement, Architecture | Complete | Cycle breaking (4 strategies), crossing minimization, Brandes-Kopf coordinate assignment, edge bundling |
+| Force-directed | General (fallback for dense/cyclic) | Complete | Fruchterman-Reingold with Barnes-Hut, cluster cohesion |
+| Tree | Tree-like graphs | Complete | Reingold-Tilford variant with direction support |
+| Radial | Mindmap | Complete | Leaf-weighted angle allocation |
+| Sequence | Sequence diagrams | Complete | Participant columns, message stacking, activation bars, notes, fragments |
+| Timeline | Timeline | Complete | Horizontal periods with vertical events |
+| Gantt | Gantt charts | Complete | Time-axis bar layout with sections |
+| Sankey | Sankey diagrams | Complete | Flow-preserving column layout |
+| Kanban | Journey, Kanban | Complete | Fixed-column card stacking |
+| Grid | Block-beta | Complete | CSS-grid-like positioning with column spans |
+| Pie | Pie charts | Complete | Wedge angle computation, perimeter label positioning |
+| Quadrant | Quadrant charts | Complete | 2D scatter on [0,1] axes |
+| GitGraph | Git graphs | Complete | Lane-based commit positioning |
+| Packet | Packet-beta | Complete | Grid-based field layout |
+| XyChart | XY charts | Complete | Cartesian coordinate mapping |
+| Auto | All types | Complete | Intelligent selection based on diagram type and graph topology |
+
+### Cross-Cutting Features
+
+| Feature | Status | Notes |
+|---|---|---|
+| Edge bundling | Complete | Groups parallel edges, collapses to representative with count label |
+| Layout constraints (SameRank, MinLength) | Complete | Applied after rank assignment in Sugiyama |
+| accTitle/accDescr directives | Complete | Parsed and propagated to SVG title/desc |
+| Subgraph direction override | Complete | `direction LR` inside subgraph blocks |
+| linkStyle default | Complete | Default style for all unindexed edges |
+| Click directives with tooltips | Complete | `click nodeId "url" "tooltip"` |
+| ER cardinality labels | Complete | Notation parsed and rendered as endpoint labels |
+| Theme variable overrides | Complete | primaryColor, lineColor, clusterBkg, etc. mapped to palette |
+| Sequence notes SVG | Complete | Rounded-corner boxes near lifelines |
+| Sequence fragments SVG | Complete | Dashed-border rectangles with kind/label tabs |
+
+### Rendering Surfaces
 
 | Surface | Current status | Notes |
 |---|---|---|
-| Shared IR pipeline | Partial | Strong base exists, including graph/subgraph IR work |
-| Deterministic layout | Partial | Multiple specialized paths exist; parity still unproved |
-| SVG renderer | Partial | Mature surface, but no parity proof against FrankenTUI yet |
-| Terminal renderer | Partial | Present, but no conformance ledger yet |
-| Canvas/WASM | Partial | Present, but no parity ledger yet |
-| Diff/minimap parity | Missing | Legacy reference files exist, but parity extraction has not been documented yet |
+| Shared IR pipeline | Complete | `MermaidDiagramIr` feeds all renderers |
+| Deterministic layout | Complete | BTreeMap everywhere, stable tie-breaking, 16 algorithms |
+| SVG renderer | Partial | 21 node shapes, gradients, shadows, themes, accessibility, pie/quadrant/xychart specializations |
+| Terminal renderer | Partial | 4 sub-cell modes, diff engine, minimap, glyphs |
+| Canvas/WASM | Partial | Canvas2D with mock context, viewport transforms |
+| Diff engine | Complete | Structural node/edge diffing with change classification |
+| Minimap | Complete | Density-aware scaling with viewport indicator |
 
-### CLI/User-Facing Claims
+## Remaining Gaps vs FrankenTUI
 
-Current CLI support reporting in [`crates/fm-cli/src/main.rs`](/data/projects/frankenmermaid/crates/fm-cli/src/main.rs) already contradicts any blanket "100% parity" claim:
+### Parser-Level
 
-- `Flowchart`: `full`
-- `Sequence`, `Class`, `State`, `ER`: `partial`
-- `Pie`, `Gantt`, `Journey`, `Mindmap`, `Timeline`, `QuadrantChart`, `Requirement`, `PacketBeta`: `basic`
-- `GitGraph`, `Sankey`, `XYChart`, `BlockBeta`, `ArchitectureBeta`, all `C4*`: `unsupported`
+- Click callbacks (`click nodeId call functionName`) — explicitly unsupported (warning emitted)
+- `classDef default` — neither FrankenTUI nor frankenmermaid supports this
 
-That is the current hard baseline until implementation and tests prove otherwise.
+### Rendering-Level
 
-## Highest-Value Gaps
+- Terminal pie chart rendering (wedge-by-pixel, legend) — SVG only
+- Terminal gantt chart rendering (task bars, date axis) — SVG only
+- Debug overlay panel (crossings, bends, symmetry metrics) — TUI-specific
+- Fidelity tier selection for terminal (Outline/Compact/Normal/Fine) — not applicable to SVG
+- Interactive selection state (node highlight, directional navigation) — TUI-specific
 
-1. Parser parity for detected-but-fallback families:
-   `Sankey`, `XYChart`, `BlockBeta`, `ArchitectureBeta`, `C4*`
-2. CLI support metadata drift:
-   `GitGraph` has a dedicated parser but is still reported as unsupported
-3. Missing reference-spec documents:
-   no `EXISTING_*_STRUCTURE.md` or `PROPOSED_ARCHITECTURE.md` yet
-4. Missing conformance infrastructure:
-   no fixture-based parity harness against the FrankenTUI reference surfaces
+### Areas Where frankenmermaid Is Ahead of FrankenTUI
 
-## Required Next Documents
-
-- `EXISTING_FRANKENTUI_MERMAID_STRUCTURE.md`
-- `PROPOSED_ARCHITECTURE.md`
-
-Those two documents are required before any honest claim of 100% parity.
-
-## Exit Condition For 100%
-
-This file can only move to "100% feature parity" when:
-
-- every in-scope legacy/reference feature is documented,
-- every documented feature is implemented in Rust,
-- every implementation is backed by conformance tests,
-- no row above remains `Partial`, `Fallback`, or `Missing`.
+- Participant groups with color support
+- Lifecycle events (create/destroy)
+- Fragment alternatives with labeled sections
+- Fragment nesting (children tracking)
+- 16 dedicated layout algorithms (vs ~6 in FrankenTUI)
+- SVG gradients, shadows, glow effects
+- Canvas2D rendering backend
+- WASM/JavaScript API
+- 10 theme presets (vs 6 in FrankenTUI)
+- Accessibility (ARIA labels, accTitle/accDescr, keyboard nav)

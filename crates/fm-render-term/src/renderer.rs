@@ -97,6 +97,18 @@ impl TermRenderer {
             self.render_edge_cell(&mut buffer, ir, edge_path, scale_x, scale_y);
         }
 
+        for marker in &layout.extensions.sequence_lifecycle_markers {
+            match marker.kind {
+                fm_layout::LayoutSequenceLifecycleMarkerKind::Destroy => {
+                    let x = (marker.center.x * scale_x) as usize;
+                    let y = (marker.center.y * scale_y) as usize;
+                    if x < cell_width && y < cell_height {
+                        buffer.set(x, y, 'X');
+                    }
+                }
+            }
+        }
+
         // Render nodes (foreground).
         for node_box in &layout.nodes {
             self.render_node_cell(&mut buffer, ir, node_box, scale_x, scale_y);
@@ -209,6 +221,19 @@ impl TermRenderer {
             let nh = (note.bounds.height * pixel_scale_y) as usize;
             if nw > 1 && nh > 1 {
                 canvas.draw_rect(nx, ny, nw.max(1), nh.max(1));
+            }
+        }
+
+        for marker in &layout.extensions.sequence_lifecycle_markers {
+            match marker.kind {
+                fm_layout::LayoutSequenceLifecycleMarkerKind::Destroy => {
+                    let half = ((marker.size * pixel_scale_x.max(pixel_scale_y)) * 0.5) as isize;
+                    let cx = (marker.center.x * pixel_scale_x) as isize + padding_x as isize;
+                    let cy = (marker.center.y * pixel_scale_y) as isize + padding_y as isize;
+                    let reach = half.max(1);
+                    canvas.draw_line(cx - reach, cy - reach, cx + reach, cy + reach);
+                    canvas.draw_line(cx - reach, cy + reach, cx + reach, cy - reach);
+                }
             }
         }
 
@@ -521,7 +546,7 @@ impl TermRenderer {
 
         match arrow {
             ArrowType::Circle => glyphs.circle_head,
-            ArrowType::Cross => glyphs.cross_head,
+            ArrowType::Cross | ArrowType::DottedCross => glyphs.cross_head,
             _ => {
                 if dx.abs() > dy.abs() {
                     if dx > 0 {
@@ -1680,6 +1705,42 @@ mod tests {
     }
 
     #[test]
+    fn renders_sequence_destroy_marker_in_cell_mode() {
+        let ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        let layout = DiagramLayout {
+            nodes: Vec::new(),
+            clusters: Vec::new(),
+            cycle_clusters: Vec::new(),
+            edges: Vec::new(),
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 40.0,
+                height: 20.0,
+            },
+            stats: LayoutStats::default(),
+            extensions: LayoutExtensions {
+                sequence_lifecycle_markers: vec![fm_layout::LayoutSequenceLifecycleMarker {
+                    participant_index: 0,
+                    kind: fm_layout::LayoutSequenceLifecycleMarkerKind::Destroy,
+                    center: fm_layout::LayoutPoint { x: 12.0, y: 8.0 },
+                    size: 6.0,
+                }],
+                ..Default::default()
+            },
+        };
+        let config = TermRenderConfig {
+            tier: MermaidTier::Normal,
+            render_mode: MermaidRenderMode::CellOnly,
+            ..Default::default()
+        };
+
+        let result = render_diagram_with_layout_and_config(&ir, &layout, &config, 40, 20);
+
+        assert!(result.output.contains('X'));
+    }
+
+    #[test]
     fn block_beta_space_nodes_are_hidden_in_compact_term_output() {
         let mut ir = MermaidDiagramIr::empty(DiagramType::BlockBeta);
         ir.nodes.push(IrNode {
@@ -1706,6 +1767,11 @@ mod tests {
         let config = TermRenderConfig::rich();
         let result = render_diagram_with_config(&ir, &config, 40, 12);
         assert!(!result.output.contains("__space_34"));
-        assert!(!result.output.chars().any(|ch| !ch.is_whitespace()));
+        assert!(
+            result
+                .output
+                .chars()
+                .all(|ch| ch.is_whitespace() || ch == '⠀')
+        );
     }
 }

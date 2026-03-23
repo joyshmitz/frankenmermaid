@@ -722,6 +722,7 @@ fn truncate_display(value: &str, max_width: usize) -> String {
     let mut current_width = 0;
     let mut in_escape = false;
     let mut in_bracket = false;
+    let mut has_ansi = false;
 
     for c in value.chars() {
         if in_escape {
@@ -744,6 +745,7 @@ fn truncate_display(value: &str, max_width: usize) -> String {
         if c == '\x1b' {
             result.push(c);
             in_escape = true;
+            has_ansi = true;
             continue;
         }
 
@@ -754,6 +756,10 @@ fn truncate_display(value: &str, max_width: usize) -> String {
 
         result.push(c);
         current_width += 1;
+    }
+
+    if has_ansi {
+        result.push_str("\x1b[0m");
     }
 
     result

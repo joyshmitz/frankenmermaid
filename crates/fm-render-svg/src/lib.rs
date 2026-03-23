@@ -1325,6 +1325,143 @@ fn render_layout_to_svg(
         doc = doc.child(rect);
     }
 
+    for marker in &layout.extensions.sequence_lifecycle_markers {
+        match marker.kind {
+            fm_layout::LayoutSequenceLifecycleMarkerKind::Destroy => {
+                let half = marker.size * 0.5;
+                let x0 = marker.center.x + offset_x - half;
+                let y0 = marker.center.y + offset_y - half;
+                let x1 = marker.center.x + offset_x + half;
+                let y1 = marker.center.y + offset_y + half;
+                doc = doc.child(
+                    Element::line()
+                        .x1(x0)
+                        .y1(y0)
+                        .x2(x1)
+                        .y2(y1)
+                        .stroke(&theme.colors.edge)
+                        .stroke_width(1.5)
+                        .class("fm-sequence-destroy-marker"),
+                );
+                doc = doc.child(
+                    Element::line()
+                        .x1(x0)
+                        .y1(y1)
+                        .x2(x1)
+                        .y2(y0)
+                        .stroke(&theme.colors.edge)
+                        .stroke_width(1.5)
+                        .class("fm-sequence-destroy-marker"),
+                );
+            }
+        }
+    }
+
+    // Render sequence diagram notes.
+    for note in &layout.extensions.sequence_notes {
+        let nx = note.bounds.x + offset_x;
+        let ny = note.bounds.y + offset_y;
+        let nw = note.bounds.width;
+        let nh = note.bounds.height;
+
+        // Note background with rounded corners.
+        doc = doc.child(
+            Element::rect()
+                .x(nx)
+                .y(ny)
+                .width(nw)
+                .height(nh)
+                .rx(4.0)
+                .ry(4.0)
+                .fill("#fffde7")
+                .stroke("#f9a825")
+                .stroke_width(1.0)
+                .class("fm-sequence-note"),
+        );
+
+        // Note text.
+        if !note.text.is_empty() {
+            doc = doc.child(
+                Element::text()
+                    .x(nx + 6.0)
+                    .y(ny + nh / 2.0)
+                    .content(&note.text)
+                    .attr("dominant-baseline", "middle")
+                    .attr_num("font-size", config.font_size * 0.8)
+                    .attr("font-family", &config.font_family)
+                    .fill(&theme.colors.text)
+                    .class("fm-sequence-note-text"),
+            );
+        }
+    }
+
+    // Render sequence diagram interaction fragments (loop, alt, par, etc.).
+    for fragment in &layout.extensions.sequence_fragments {
+        let fx = fragment.bounds.x + offset_x;
+        let fy = fragment.bounds.y + offset_y;
+        let fw = fragment.bounds.width;
+        let fh = fragment.bounds.height;
+
+        // Fragment background.
+        doc = doc.child(
+            Element::rect()
+                .x(fx)
+                .y(fy)
+                .width(fw)
+                .height(fh)
+                .rx(2.0)
+                .ry(2.0)
+                .fill("none")
+                .stroke(&theme.colors.cluster_stroke)
+                .stroke_width(1.0)
+                .stroke_dasharray("6,4")
+                .class("fm-sequence-fragment"),
+        );
+
+        // Fragment kind label in top-left corner.
+        let kind_label = match fragment.kind {
+            fm_core::FragmentKind::Loop => "loop",
+            fm_core::FragmentKind::Alt => "alt",
+            fm_core::FragmentKind::Opt => "opt",
+            fm_core::FragmentKind::Par => "par",
+            fm_core::FragmentKind::Critical => "critical",
+            fm_core::FragmentKind::Break => "break",
+            fm_core::FragmentKind::Rect => "rect",
+        };
+        let label_text = if fragment.label.is_empty() {
+            kind_label.to_string()
+        } else {
+            format!("{kind_label} [{0}]", fragment.label)
+        };
+
+        // Label background tab.
+        let label_width = label_text.len() as f32 * config.avg_char_width + 16.0;
+        let label_height = config.font_size + 8.0;
+        doc = doc.child(
+            Element::rect()
+                .x(fx)
+                .y(fy)
+                .width(label_width)
+                .height(label_height)
+                .fill(&theme.colors.cluster_fill)
+                .stroke(&theme.colors.cluster_stroke)
+                .stroke_width(1.0)
+                .class("fm-sequence-fragment-label-bg"),
+        );
+        doc = doc.child(
+            Element::text()
+                .x(fx + 6.0)
+                .y(fy + label_height / 2.0)
+                .content(&label_text)
+                .attr("dominant-baseline", "middle")
+                .attr_num("font-size", config.font_size * 0.75)
+                .attr("font-weight", "bold")
+                .attr("font-family", &config.font_family)
+                .fill(&theme.colors.text)
+                .class("fm-sequence-fragment-label"),
+        );
+    }
+
     // Render clusters (subgraphs) as background rectangles
     // Sort clusters by size (largest first) for proper z-ordering of nested clusters
     let mut sorted_clusters: Vec<_> = layout.clusters.iter().enumerate().collect();
@@ -3650,6 +3787,7 @@ fn render_edge(
             ArrowType::DottedOpenArrow => {
                 (Some("5,5"), None, Some("url(#arrow-open)"), &colors.edge)
             }
+            ArrowType::DottedCross => (Some("5,5"), None, Some("url(#arrow-cross)"), &colors.edge),
             ArrowType::HalfArrowTopDotted => (
                 Some("5,5"),
                 None,
@@ -3735,6 +3873,7 @@ fn render_edge(
         match arrow {
             ArrowType::DottedArrow
             | ArrowType::DottedOpenArrow
+            | ArrowType::DottedCross
             | ArrowType::HalfArrowTopDotted
             | ArrowType::HalfArrowBottomDotted
             | ArrowType::HalfArrowTopReverseDotted
@@ -3948,9 +4087,9 @@ mod tests {
     use super::*;
     use fm_core::{
         ArrowType, DiagramType, IrC4NodeMeta, IrCluster, IrClusterId, IrEdge, IrEndpoint,
-        IrGraphCluster, IrGraphNode, IrLabel, IrLabelId, IrNode, IrNodeId, IrStyleRef,
-        IrStyleTarget, IrSubgraph, IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries,
-        IrXySeriesKind, MermaidDiagramIr, NodeShape, Span,
+        IrGraphCluster, IrGraphNode, IrLabel, IrLabelId, IrLifecycleEvent, IrNode, IrNodeId,
+        IrSequenceMeta, IrStyleRef, IrStyleTarget, IrSubgraph, IrSubgraphId, IrXyAxis,
+        IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr, NodeShape, Span,
     };
     use fm_layout::{
         FillStyle, LayoutAxisTick, LayoutBand, LayoutBandKind, LayoutClusterBox, LayoutRect,
@@ -4967,6 +5106,59 @@ mod tests {
         assert!(svg.contains("marker-end=\"url(#arrow-half-top)\""));
         assert!(svg.contains("marker-start=\"url(#arrow-stick-top)\""));
         assert!(svg.contains("stroke-dasharray=\"5,5\""));
+    }
+
+    #[test]
+    fn renders_dotted_cross_with_dashed_stroke() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            ..IrNode::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            ..IrNode::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::DottedCross,
+            ..IrEdge::default()
+        });
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains("marker-end=\"url(#arrow-cross)\""));
+        assert!(svg.contains("stroke-dasharray=\"5,5\""));
+    }
+
+    #[test]
+    fn renders_sequence_destroy_marker() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            ..IrNode::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            ..IrNode::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            ..IrEdge::default()
+        });
+        ir.sequence_meta = Some(IrSequenceMeta {
+            lifecycle_events: vec![IrLifecycleEvent {
+                kind: fm_core::LifecycleEventKind::Destroy,
+                participant: IrNodeId(1),
+                at_edge: 0,
+            }],
+            ..Default::default()
+        });
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains("fm-sequence-destroy-marker"));
     }
 
     proptest! {
