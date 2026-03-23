@@ -79,6 +79,16 @@ impl IrBuilder {
         self.ir.meta.direction = direction;
     }
 
+    pub(crate) fn set_subgraph_direction(
+        &mut self,
+        subgraph_index: usize,
+        direction: GraphDirection,
+    ) {
+        if let Some(subgraph) = self.ir.graph.subgraphs.get_mut(subgraph_index) {
+            subgraph.direction = Some(direction);
+        }
+    }
+
     pub(crate) fn set_parse_mode(&mut self, parse_mode: MermaidParseMode) {
         self.ir.meta.parse_mode = parse_mode;
     }
@@ -97,6 +107,18 @@ impl IrBuilder {
 
     pub(crate) fn set_pie_meta(&mut self, pie_meta: fm_core::IrPieMeta) {
         self.ir.pie_meta = Some(pie_meta);
+    }
+
+    pub(crate) fn set_quadrant_meta(&mut self, quadrant_meta: fm_core::IrQuadrantMeta) {
+        self.ir.quadrant_meta = Some(quadrant_meta);
+    }
+
+    pub(crate) fn set_acc_title(&mut self, title: String) {
+        self.ir.meta.acc_title = Some(title);
+    }
+
+    pub(crate) fn set_acc_descr(&mut self, descr: String) {
+        self.ir.meta.acc_descr = Some(descr);
     }
 
     pub(crate) fn set_init_theme(&mut self, theme: String) {
@@ -864,6 +886,7 @@ impl IrBuilder {
             cluster: cluster_id,
             grid_span: 1,
             span,
+            direction: None,
         });
         if let Some(parent_index) = parent
             && let Some(parent_graph) = self.ir.graph.subgraphs.get_mut(parent_index)

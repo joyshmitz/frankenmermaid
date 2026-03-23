@@ -190,6 +190,9 @@ pub fn parse_mermaid_with_detection(
         }
     }
 
+    // Extract accessibility directives (accTitle / accDescr) from any diagram type.
+    extract_accessibility_directives(content, &mut builder);
+
     if builder.node_count() == 0 && builder.edge_count() == 0 {
         builder.add_warning("No parseable nodes or edges were found");
     }
@@ -641,7 +644,13 @@ fn lower_flow_ast(
 
     match ast {
         FlowAst::Direction(dir) => {
-            builder.set_direction(*dir);
+            // If inside a subgraph, set the subgraph's direction override;
+            // otherwise set the global diagram direction.
+            if let Some(&subgraph_index) = active_subgraphs.last() {
+                builder.set_subgraph_direction(subgraph_index, *dir);
+            } else {
+                builder.set_direction(*dir);
+            }
         }
         FlowAst::Node(n) => {
             if let Some(node_id) = builder.intern_node(&n.id, n.label.as_deref(), n.shape, span) {
@@ -3280,21 +3289,61 @@ fn parse_pie(input: &str, builder: &mut IrBuilder) {
 }
 
 fn parse_quadrant(input: &str, builder: &mut IrBuilder) {
+    let mut meta = fm_core::IrQuadrantMeta::default();
+
     for (index, line) in input.lines().enumerate() {
         let line_number = index + 1;
         let trimmed = line.trim();
         if trimmed.is_empty() || is_comment(trimmed) {
             continue;
         }
-        if trimmed == "quadrantChart"
-            || trimmed.starts_with("x-axis ")
-            || trimmed.starts_with("y-axis ")
-            || trimmed.starts_with("quadrant-")
-            || trimmed.starts_with("title ")
-        {
+        if trimmed == "quadrantChart" {
             continue;
         }
 
+        // Title directive.
+        if let Some(rest) = trimmed.strip_prefix("title ") {
+            let title = rest.trim();
+            if !title.is_empty() {
+                meta.title = Some(title.to_string());
+            }
+            continue;
+        }
+
+        // Axis labels: "x-axis Label Left --> Label Right"
+        if let Some(rest) = trimmed.strip_prefix("x-axis ") {
+            let rest = rest.trim();
+            if let Some((left, right)) = rest.split_once("-->") {
+                meta.x_axis_left = Some(left.trim().to_string());
+                meta.x_axis_right = Some(right.trim().to_string());
+            } else {
+                meta.x_axis_left = Some(rest.to_string());
+            }
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("y-axis ") {
+            let rest = rest.trim();
+            if let Some((bottom, top)) = rest.split_once("-->") {
+                meta.y_axis_bottom = Some(bottom.trim().to_string());
+                meta.y_axis_top = Some(top.trim().to_string());
+            } else {
+                meta.y_axis_bottom = Some(rest.to_string());
+            }
+            continue;
+        }
+
+        // Quadrant labels: "quadrant-1 Label", "quadrant-2 Label", etc.
+        if let Some(rest) = trimmed.strip_prefix("quadrant-") {
+            if let Some((_digit, label)) = rest.split_once(' ') {
+                let label = label.trim();
+                if !label.is_empty() {
+                    meta.quadrant_labels.push(label.to_string());
+                }
+            }
+            continue;
+        }
+
+        // Data point: "Label: [x, y]"
         let Some(point_name) = parse_name_before_colon(trimmed) else {
             builder.add_warning(format!(
                 "Line {line_number}: unsupported quadrant syntax: {trimmed}"
@@ -3309,8 +3358,37 @@ fn parse_quadrant(input: &str, builder: &mut IrBuilder) {
             ));
             continue;
         }
+
+        // Parse "[x, y]" after the colon.
+        let coords = trimmed.split_once(':').map(|(_, v)| v.trim()).unwrap_or("");
+        let coords = coords.trim_start_matches('[').trim_end_matches(']').trim();
+        let (x, y) = if let Some((xs, ys)) = coords.split_once(',') {
+            (
+                xs.trim().parse::<f32>().unwrap_or(0.5),
+                ys.trim().parse::<f32>().unwrap_or(0.5),
+            )
+        } else {
+            // Single value: try to parse as x, default y=0.5
+            let x = coords.parse::<f32>().unwrap_or(0.5);
+            (x, 0.5)
+        };
+
+        meta.points.push(fm_core::IrQuadrantPoint {
+            label: point_name.to_string(),
+            x: x.clamp(0.0, 1.0),
+            y: y.clamp(0.0, 1.0),
+        });
+
         let span = span_for(line_number, line);
         let _ = builder.intern_node(&point_id, Some(point_name), NodeShape::Circle, span);
+    }
+
+    if !meta.points.is_empty()
+        || meta.title.is_some()
+        || !meta.quadrant_labels.is_empty()
+        || meta.x_axis_left.is_some()
+    {
+        builder.set_quadrant_meta(meta);
     }
 }
 
@@ -6255,6 +6333,50 @@ fn extract_style_directives(input: &str, builder: &mut IrBuilder) {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Extract `accTitle` and `accDescr` accessibility directives.
+///
+/// Supported syntax:
+/// - `accTitle: My Title`
+/// - `accDescr: Single-line description`
+/// - `accDescr { multi-line description }`
+fn extract_accessibility_directives(input: &str, builder: &mut IrBuilder) {
+    let mut in_acc_descr_block = false;
+    let mut descr_lines: Vec<&str> = Vec::new();
+
+    for line in input.lines() {
+        let trimmed = line.trim();
+
+        if in_acc_descr_block {
+            if trimmed == "}" {
+                in_acc_descr_block = false;
+                let descr = descr_lines.join("\n");
+                if !descr.is_empty() {
+                    builder.set_acc_descr(descr);
+                }
+                descr_lines.clear();
+            } else {
+                descr_lines.push(trimmed);
+            }
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("accTitle:") {
+            let title = rest.trim();
+            if !title.is_empty() {
+                builder.set_acc_title(title.to_string());
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("accDescr:") {
+            let descr = rest.trim();
+            if !descr.is_empty() {
+                builder.set_acc_descr(descr.to_string());
+            }
+        } else if trimmed.starts_with("accDescr") && trimmed.ends_with('{') {
+            in_acc_descr_block = true;
+            descr_lines.clear();
         }
     }
 }

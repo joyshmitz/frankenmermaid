@@ -1094,17 +1094,24 @@ fn render_layout_to_svg(
     }
 
     if config.accessible {
-        // Use enhanced accessibility description if ARIA labels are enabled
-        let desc = if config.a11y.aria_labels {
-            describe_diagram(ir)
-        } else {
-            format!(
-                "Diagram with {} nodes and {} edges",
-                ir.nodes.len(),
-                ir.edges.len()
-            )
-        };
-        doc = doc.accessible(format!("{} diagram", ir.diagram_type.as_str()), desc);
+        // Prefer explicit accTitle/accDescr directives, falling back to auto-generated.
+        let title = ir
+            .meta
+            .acc_title
+            .clone()
+            .unwrap_or_else(|| format!("{} diagram", ir.diagram_type.as_str()));
+        let desc = ir.meta.acc_descr.clone().unwrap_or_else(|| {
+            if config.a11y.aria_labels {
+                describe_diagram(ir)
+            } else {
+                format!(
+                    "Diagram with {} nodes and {} edges",
+                    ir.nodes.len(),
+                    ir.edges.len()
+                )
+            }
+        });
+        doc = doc.accessible(title, desc);
     }
 
     for class in &config.root_classes {
@@ -1244,6 +1251,12 @@ fn render_layout_to_svg(
     // Pie chart rendering: draw wedges from pie metadata.
     if let Some(pie_meta) = ir.pie_meta.as_ref().filter(|meta| !meta.slices.is_empty()) {
         doc = render_pie_svg(doc, layout, pie_meta, offset_x, offset_y, config, &theme);
+        return doc.to_string();
+    }
+
+    // Quadrant chart rendering.
+    if let Some(quad_meta) = ir.quadrant_meta.as_ref() {
+        doc = render_quadrant_svg(doc, layout, quad_meta, offset_x, offset_y, config, &theme);
         return doc.to_string();
     }
 
@@ -1542,6 +1555,183 @@ fn render_layout_axis_tick(label: &str, x: f32, y: f32, config: &SvgRenderConfig
             .class("fm-axis-tick-label")
             .build(),
     )
+}
+
+fn render_quadrant_svg(
+    mut doc: SvgDocument,
+    layout: &DiagramLayout,
+    quad_meta: &fm_core::IrQuadrantMeta,
+    offset_x: f32,
+    offset_y: f32,
+    config: &SvgRenderConfig,
+    theme: &Theme,
+) -> SvgDocument {
+    let _bounds = &layout.bounds;
+    let chart_w = 400.0_f32;
+    let chart_h = 400.0_f32;
+    let margin_left = 80.0_f32 + offset_x;
+    let margin_top = 60.0_f32 + offset_y;
+
+    let quadrant_fills = ["#e8f5e9", "#fff3e0", "#e3f2fd", "#fce4ec"];
+
+    // Draw quadrant backgrounds.
+    let half_w = chart_w / 2.0;
+    let half_h = chart_h / 2.0;
+    let quadrant_rects = [
+        (margin_left + half_w, margin_top, half_w, half_h), // Q1 top-right
+        (margin_left, margin_top, half_w, half_h),          // Q2 top-left
+        (margin_left, margin_top + half_h, half_w, half_h), // Q3 bottom-left
+        (margin_left + half_w, margin_top + half_h, half_w, half_h), // Q4 bottom-right
+    ];
+    for (i, (x, y, w, h)) in quadrant_rects.iter().enumerate() {
+        doc = doc.child(
+            Element::rect()
+                .x(*x)
+                .y(*y)
+                .width(*w)
+                .height(*h)
+                .fill(quadrant_fills[i])
+                .attr("fill-opacity", "0.4")
+                .class("fm-quadrant-bg"),
+        );
+    }
+
+    // Quadrant labels in each section.
+    let label_positions = [
+        (
+            margin_left + half_w + half_w / 2.0,
+            margin_top + half_h / 2.0,
+        ),
+        (margin_left + half_w / 2.0, margin_top + half_h / 2.0),
+        (
+            margin_left + half_w / 2.0,
+            margin_top + half_h + half_h / 2.0,
+        ),
+        (
+            margin_left + half_w + half_w / 2.0,
+            margin_top + half_h + half_h / 2.0,
+        ),
+    ];
+    for (i, label) in quad_meta.quadrant_labels.iter().enumerate() {
+        if let Some((lx, ly)) = label_positions.get(i) {
+            doc = doc.child(
+                Element::text()
+                    .x(*lx)
+                    .y(*ly)
+                    .content(label)
+                    .attr("text-anchor", "middle")
+                    .attr("dominant-baseline", "middle")
+                    .attr_num("font-size", config.font_size * 0.9)
+                    .attr("font-family", &config.font_family)
+                    .attr("fill-opacity", "0.5")
+                    .fill(&theme.colors.text)
+                    .class("fm-quadrant-label"),
+            );
+        }
+    }
+
+    // Axes.
+    let axis_color = &theme.colors.edge;
+    doc = doc.child(
+        Element::line()
+            .x1(margin_left)
+            .y1(margin_top + half_h)
+            .x2(margin_left + chart_w)
+            .y2(margin_top + half_h)
+            .stroke(axis_color)
+            .stroke_width(1.0)
+            .class("fm-quadrant-axis"),
+    );
+    doc = doc.child(
+        Element::line()
+            .x1(margin_left + half_w)
+            .y1(margin_top)
+            .x2(margin_left + half_w)
+            .y2(margin_top + chart_h)
+            .stroke(axis_color)
+            .stroke_width(1.0)
+            .class("fm-quadrant-axis"),
+    );
+
+    // Axis labels.
+    if let Some(left) = &quad_meta.x_axis_left {
+        doc = doc.child(
+            Element::text()
+                .x(margin_left)
+                .y(margin_top + chart_h + 20.0)
+                .content(left)
+                .attr("text-anchor", "start")
+                .attr_num("font-size", config.font_size * 0.8)
+                .attr("font-family", &config.font_family)
+                .fill(&theme.colors.text)
+                .class("fm-quadrant-axis-label"),
+        );
+    }
+    if let Some(right) = &quad_meta.x_axis_right {
+        doc = doc.child(
+            Element::text()
+                .x(margin_left + chart_w)
+                .y(margin_top + chart_h + 20.0)
+                .content(right)
+                .attr("text-anchor", "end")
+                .attr_num("font-size", config.font_size * 0.8)
+                .attr("font-family", &config.font_family)
+                .fill(&theme.colors.text)
+                .class("fm-quadrant-axis-label"),
+        );
+    }
+
+    // Title.
+    if let Some(title) = &quad_meta.title {
+        doc = doc.child(
+            Element::text()
+                .x(margin_left + half_w)
+                .y(margin_top - 20.0)
+                .content(title)
+                .attr("text-anchor", "middle")
+                .attr_num("font-size", config.font_size + 4.0)
+                .attr("font-family", &config.font_family)
+                .fill(&theme.colors.text)
+                .class("fm-quadrant-title"),
+        );
+    }
+
+    // Data points.
+    let accent_colors: Vec<&str> = theme.colors.accents.iter().map(String::as_str).collect();
+    for (i, node_box) in layout.nodes.iter().enumerate() {
+        let cx = node_box.bounds.x + node_box.bounds.width / 2.0 + offset_x;
+        let cy = node_box.bounds.y + node_box.bounds.height / 2.0 + offset_y;
+        let color = accent_colors[i % accent_colors.len()];
+        doc = doc.child(
+            Element::circle()
+                .cx(cx)
+                .cy(cy)
+                .r(6.0)
+                .fill(color)
+                .stroke(&theme.colors.background)
+                .stroke_width(1.5)
+                .class("fm-quadrant-point"),
+        );
+        // Point label from quadrant metadata or node ID.
+        let label = quad_meta
+            .points
+            .get(i)
+            .map(|p| p.label.as_str())
+            .unwrap_or(&node_box.node_id);
+        doc = doc.child(
+            Element::text()
+                .x(cx + 10.0)
+                .y(cy + 4.0)
+                .content(label)
+                .attr("text-anchor", "start")
+                .attr_num("font-size", config.font_size * 0.75)
+                .attr("font-family", &config.font_family)
+                .fill(&theme.colors.text)
+                .class("fm-quadrant-point-label"),
+        );
+    }
+
+    doc
 }
 
 fn render_pie_svg(

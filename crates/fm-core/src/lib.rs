@@ -1226,6 +1226,9 @@ pub struct IrSubgraph {
     pub cluster: Option<IrClusterId>,
     pub grid_span: usize,
     pub span: Span,
+    /// Per-subgraph direction override (e.g., `direction LR` inside a subgraph block).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<GraphDirection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -2609,6 +2612,12 @@ pub struct MermaidDiagramMeta {
     pub theme_overrides: MermaidThemeOverrides,
     pub c4_show_legend: bool,
     pub guard: MermaidGuardReport,
+    /// Accessibility title from `accTitle: ...` directive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acc_title: Option<String>,
+    /// Accessibility description from `accDescr: ...` or `accDescr { ... }` directive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acc_descr: Option<String>,
 }
 
 /// Severity level for diagnostics.
@@ -3115,6 +3124,34 @@ pub struct IrPieMeta {
     pub slices: Vec<IrPieSlice>,
 }
 
+/// A data point in a quadrant chart with normalized [0, 1] coordinates.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct IrQuadrantPoint {
+    pub label: String,
+    pub x: f32,
+    pub y: f32,
+}
+
+/// Quadrant-chart-specific metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IrQuadrantMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_axis_left: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_axis_right: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y_axis_bottom: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y_axis_top: Option<String>,
+    /// Labels for the four quadrants: [Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quadrant_labels: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points: Vec<IrQuadrantPoint>,
+}
+
 // ── Main IR container ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -3140,6 +3177,8 @@ pub struct MermaidDiagramIr {
     pub xy_chart_meta: Option<IrXyChartMeta>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pie_meta: Option<IrPieMeta>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quadrant_meta: Option<IrQuadrantMeta>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -3167,11 +3206,14 @@ impl MermaidDiagramIr {
                 theme_overrides: MermaidThemeOverrides::default(),
                 c4_show_legend: false,
                 guard: MermaidGuardReport::default(),
+                acc_title: None,
+                acc_descr: None,
             },
             sequence_meta: None,
             gantt_meta: None,
             xy_chart_meta: None,
             pie_meta: None,
+            quadrant_meta: None,
             diagnostics: Vec::new(),
         }
     }
@@ -4368,6 +4410,7 @@ mod tests {
             cluster: Some(IrClusterId(0)),
             grid_span: 1,
             span: sample_span(1, 1, 3),
+            direction: None,
         };
         let child = IrSubgraph {
             id: IrSubgraphId(1),
@@ -4379,6 +4422,7 @@ mod tests {
             cluster: Some(IrClusterId(1)),
             grid_span: 1,
             span: sample_span(2, 1, 3),
+            direction: None,
         };
         let graph_node = IrGraphNode {
             node_id: IrNodeId(1),
@@ -4444,6 +4488,7 @@ mod tests {
             cluster: Some(IrClusterId(0)),
             grid_span: 1,
             span: sample_span(1, 1, 1),
+            direction: None,
         });
 
         assert_eq!(
@@ -4533,6 +4578,7 @@ mod tests {
             cluster: Some(IrClusterId(0)),
             grid_span: 1,
             span: sample_span(1, 1, 1),
+            direction: None,
         });
         ir.graph.subgraphs.push(IrSubgraph {
             id: IrSubgraphId(1),
@@ -4544,6 +4590,7 @@ mod tests {
             cluster: Some(IrClusterId(1)),
             grid_span: 1,
             span: sample_span(2, 1, 1),
+            direction: None,
         });
         ir.graph.subgraphs.push(IrSubgraph {
             id: IrSubgraphId(2),
@@ -4555,6 +4602,7 @@ mod tests {
             cluster: Some(IrClusterId(2)),
             grid_span: 1,
             span: sample_span(3, 1, 1),
+            direction: None,
         });
 
         assert_eq!(
@@ -4637,6 +4685,7 @@ mod tests {
             cluster: Some(IrClusterId(0)),
             grid_span: 1,
             span: sample_span(1, 1, 1),
+            direction: None,
         });
 
         let json = serde_json::to_string(&graph).expect("graph IR should serialize");

@@ -189,6 +189,8 @@ pub enum LayoutAlgorithm {
     Grid,
     Sequence,
     Pie,
+    Quadrant,
+    GitGraph,
 }
 
 impl LayoutAlgorithm {
@@ -208,6 +210,8 @@ impl LayoutAlgorithm {
             Self::Grid => "grid",
             Self::Sequence => "sequence",
             Self::Pie => "pie",
+            Self::Quadrant => "quadrant",
+            Self::GitGraph => "gitgraph",
         }
     }
 }
@@ -1346,6 +1350,8 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
         LayoutAlgorithm::Grid => layout_diagram_grid_traced(ir),
         LayoutAlgorithm::Sequence => layout_diagram_sequence_traced(ir),
         LayoutAlgorithm::Pie => layout_diagram_pie_traced(ir),
+        LayoutAlgorithm::Quadrant => layout_diagram_quadrant_traced(ir),
+        LayoutAlgorithm::GitGraph => layout_diagram_gitgraph_traced(ir),
         LayoutAlgorithm::Auto => unreachable!("dispatch must resolve auto to a concrete layout"),
     };
     traced.trace.dispatch = guarded_dispatch;
@@ -1414,6 +1420,8 @@ fn auto_selection_reason(ir: &MermaidDiagramIr, selected: LayoutAlgorithm) -> &'
         DiagramType::Timeline => return "auto_diagram_type_timeline",
         DiagramType::Gantt => return "auto_diagram_type_gantt",
         DiagramType::Pie => return "auto_diagram_type_pie",
+        DiagramType::QuadrantChart => return "auto_diagram_type_quadrant",
+        DiagramType::GitGraph => return "auto_diagram_type_gitgraph",
         DiagramType::XyChart => return "auto_diagram_type_xychart",
         DiagramType::Sankey => return "auto_diagram_type_sankey",
         DiagramType::Journey | DiagramType::Kanban => return "auto_diagram_type_kanban",
@@ -1446,6 +1454,8 @@ fn preferred_layout_algorithm(ir: &MermaidDiagramIr) -> LayoutAlgorithm {
         DiagramType::BlockBeta => LayoutAlgorithm::Grid,
         DiagramType::Sequence => LayoutAlgorithm::Sequence,
         DiagramType::Pie => LayoutAlgorithm::Pie,
+        DiagramType::QuadrantChart => LayoutAlgorithm::Quadrant,
+        DiagramType::GitGraph => LayoutAlgorithm::GitGraph,
         _ => select_general_graph_algorithm(ir),
     }
 }
@@ -1499,6 +1509,8 @@ fn algorithm_available_for_diagram(diagram_type: DiagramType, algorithm: LayoutA
         LayoutAlgorithm::Grid => matches!(diagram_type, DiagramType::BlockBeta),
         LayoutAlgorithm::Sequence => matches!(diagram_type, DiagramType::Sequence),
         LayoutAlgorithm::Pie => matches!(diagram_type, DiagramType::Pie),
+        LayoutAlgorithm::Quadrant => matches!(diagram_type, DiagramType::QuadrantChart),
+        LayoutAlgorithm::GitGraph => matches!(diagram_type, DiagramType::GitGraph),
     }
 }
 
@@ -1582,7 +1594,9 @@ fn estimate_layout_cost(ir: &MermaidDiagramIr, algorithm: LayoutAlgorithm) -> La
         | LayoutAlgorithm::Kanban
         | LayoutAlgorithm::Grid
         | LayoutAlgorithm::Sequence
-        | LayoutAlgorithm::Pie => LayoutCostEstimate {
+        | LayoutAlgorithm::Pie
+        | LayoutAlgorithm::Quadrant
+        | LayoutAlgorithm::GitGraph => LayoutCostEstimate {
             time_ms: nodes
                 .saturating_mul(3)
                 .saturating_add(edges.saturating_mul(2))
@@ -1654,6 +1668,16 @@ fn fallback_candidates(ir: &MermaidDiagramIr, selected: LayoutAlgorithm) -> Vec<
         DiagramType::Pie => [
             LayoutAlgorithm::Pie,
             LayoutAlgorithm::Grid,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        DiagramType::QuadrantChart => [
+            LayoutAlgorithm::Quadrant,
+            LayoutAlgorithm::Grid,
+            LayoutAlgorithm::Sugiyama,
+        ],
+        DiagramType::GitGraph => [
+            LayoutAlgorithm::GitGraph,
+            LayoutAlgorithm::Tree,
             LayoutAlgorithm::Sugiyama,
         ],
         _ => [selected, LayoutAlgorithm::Tree, LayoutAlgorithm::Sugiyama],
@@ -3939,6 +3963,204 @@ fn layout_diagram_pie_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             bounds,
             stats: LayoutStats {
                 node_count,
+                ..LayoutStats::default()
+            },
+            extensions: LayoutExtensions::default(),
+        },
+        trace,
+    }
+}
+
+/// Lay out a quadrant chart: 2D scatter plot on [0,1]² with axes and quadrant labels.
+fn layout_diagram_quadrant_traced(ir: &MermaidDiagramIr) -> TracedLayout {
+    let mut trace = LayoutTrace::default();
+    let metrics = fm_core::FontMetrics::default_metrics();
+    let node_count = ir.nodes.len();
+
+    let chart_w = 400.0_f32;
+    let chart_h = 400.0_f32;
+    let margin_left = 80.0_f32;
+    let margin_top = 60.0_f32;
+
+    let points = ir
+        .quadrant_meta
+        .as_ref()
+        .map(|m| &m.points[..])
+        .unwrap_or(&[]);
+
+    let mut nodes = Vec::with_capacity(node_count);
+
+    for (i, node) in ir.nodes.iter().enumerate() {
+        let pt = points.get(i);
+        let px = pt.map(|p| p.x).unwrap_or(0.5);
+        // Invert Y so higher values are at the top.
+        let py = pt.map(|p| 1.0 - p.y).unwrap_or(0.5);
+
+        let (label_w, label_h) = metrics.estimate_dimensions(&display_node_label(ir, node));
+        let node_w = (label_w + 20.0).max(12.0);
+        let node_h = (label_h + 12.0).max(12.0);
+
+        nodes.push(LayoutNodeBox {
+            node_index: i,
+            node_id: node.id.clone(),
+            span: node.span_primary,
+            bounds: LayoutRect {
+                x: margin_left + px * chart_w - node_w / 2.0,
+                y: margin_top + py * chart_h - node_h / 2.0,
+                width: node_w,
+                height: node_h,
+            },
+            rank: 0,
+            order: i,
+        });
+    }
+
+    push_snapshot(&mut trace, "quadrant_layout", node_count, 0, 0, 0);
+
+    let total_w = margin_left + chart_w + 40.0;
+    let total_h = margin_top + chart_h + 40.0;
+
+    TracedLayout {
+        layout: DiagramLayout {
+            nodes,
+            clusters: Vec::new(),
+            cycle_clusters: Vec::new(),
+            edges: Vec::new(),
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: total_w,
+                height: total_h,
+            },
+            stats: LayoutStats {
+                node_count,
+                ..LayoutStats::default()
+            },
+            extensions: LayoutExtensions::default(),
+        },
+        trace,
+    }
+}
+
+/// Lay out a git graph: lane-based commit positioning with vertical stacking.
+fn layout_diagram_gitgraph_traced(ir: &MermaidDiagramIr) -> TracedLayout {
+    let mut trace = LayoutTrace::default();
+    let metrics = fm_core::FontMetrics::default_metrics();
+    let node_sizes = compute_node_sizes(ir, &metrics);
+    let node_count = ir.nodes.len();
+    let spacing = LayoutSpacing::default();
+
+    if node_count == 0 {
+        return TracedLayout {
+            layout: DiagramLayout {
+                nodes: Vec::new(),
+                clusters: Vec::new(),
+                cycle_clusters: Vec::new(),
+                edges: Vec::new(),
+                bounds: LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 0.0,
+                    height: 0.0,
+                },
+                stats: LayoutStats::default(),
+                extensions: LayoutExtensions::default(),
+            },
+            trace,
+        };
+    }
+
+    // Assign lanes by cluster membership: main branch = lane 0, others increment.
+    let mut lane_map: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut next_lane = 0_usize;
+    for (i, node) in ir.nodes.iter().enumerate() {
+        let cluster_id = ir
+            .clusters
+            .iter()
+            .enumerate()
+            .find(|(_, c)| c.members.contains(&fm_core::IrNodeId(i)))
+            .map(|(ci, _)| ci);
+        let lane = match cluster_id {
+            Some(ci) => *lane_map.entry(ci).or_insert_with(|| {
+                let l = next_lane;
+                next_lane += 1;
+                l
+            }),
+            None => {
+                // Nodes not in any cluster go to lane 0 (main).
+                *lane_map.entry(usize::MAX).or_insert_with(|| {
+                    let l = next_lane;
+                    next_lane += 1;
+                    l
+                })
+            }
+        };
+        let _ = (i, lane, node); // suppress unused warning - used below
+    }
+
+    // Rebuild lane assignment for each node.
+    let horizontal = matches!(ir.direction, GraphDirection::LR | GraphDirection::RL);
+    let lane_width =
+        node_sizes.iter().map(|(w, _)| *w).fold(0.0_f32, f32::max) + spacing.node_spacing;
+    let row_height =
+        node_sizes.iter().map(|(_, h)| *h).fold(0.0_f32, f32::max) + spacing.rank_spacing * 0.6;
+
+    let mut nodes = Vec::with_capacity(node_count);
+    for (i, node) in ir.nodes.iter().enumerate() {
+        let cluster_id = ir
+            .clusters
+            .iter()
+            .enumerate()
+            .find(|(_, c)| c.members.contains(&fm_core::IrNodeId(i)))
+            .map(|(ci, _)| ci)
+            .unwrap_or(usize::MAX);
+        let lane = lane_map.get(&cluster_id).copied().unwrap_or(0);
+        let (w, h) = node_sizes[i];
+
+        let (x, y) = if horizontal {
+            (i as f32 * row_height, lane as f32 * lane_width)
+        } else {
+            (lane as f32 * lane_width, i as f32 * row_height)
+        };
+
+        nodes.push(LayoutNodeBox {
+            node_index: i,
+            node_id: node.id.clone(),
+            span: node.span_primary,
+            bounds: LayoutRect {
+                x,
+                y,
+                width: w,
+                height: h,
+            },
+            rank: i,
+            order: lane,
+        });
+    }
+
+    let edges = build_edge_paths(ir, &nodes, &BTreeSet::new());
+    let clusters = build_cluster_boxes(ir, &nodes, spacing);
+    let bounds = compute_bounds(&nodes, &clusters, &edges, spacing);
+
+    push_snapshot(
+        &mut trace,
+        "gitgraph_layout",
+        node_count,
+        ir.edges.len(),
+        0,
+        0,
+    );
+
+    TracedLayout {
+        layout: DiagramLayout {
+            nodes,
+            clusters,
+            cycle_clusters: Vec::new(),
+            edges,
+            bounds,
+            stats: LayoutStats {
+                node_count,
+                edge_count: ir.edges.len(),
                 ..LayoutStats::default()
             },
             extensions: LayoutExtensions::default(),
@@ -8158,7 +8380,9 @@ fn layout_decision_confidence_permille(
                 | LayoutAlgorithm::Kanban
                 | LayoutAlgorithm::Grid
                 | LayoutAlgorithm::Radial
-                | LayoutAlgorithm::Pie => 900,
+                | LayoutAlgorithm::Pie
+                | LayoutAlgorithm::Quadrant
+                | LayoutAlgorithm::GitGraph => 900,
                 LayoutAlgorithm::Tree if metrics.is_tree_like => 880,
                 LayoutAlgorithm::Force if metrics.is_dense || metrics.back_edge_count > 0 => 760,
                 LayoutAlgorithm::Sugiyama => 820,
