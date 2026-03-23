@@ -396,7 +396,11 @@ impl FontConfig {
 
         // Embed web font if provided
         if let Some(url) = &self.web_font_url {
-            css.push_str(&format!("@import url('{}');\n", url));
+            let sanitized: String = url
+                .chars()
+                .filter(|&c| c != '\'' && c != ')' && c != '\\' && c != '"')
+                .collect();
+            css.push_str(&format!("@import url('{}');\n", sanitized));
         }
 
         css.push_str(".fm-text {\n");

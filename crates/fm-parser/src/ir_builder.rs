@@ -12,7 +12,7 @@ use fm_core::{
 };
 
 use crate::ParseResult;
-use crate::mermaid_parser::normalize_identifier;
+use crate::normalize_identifier;
 
 /// Open fragment entry: (kind, label, start_edge, alternatives, child_fragment_indices).
 type OpenFragment = (

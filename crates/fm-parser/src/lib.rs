@@ -7,9 +7,79 @@ mod mermaid_parser;
 use fm_core::{DiagramType, MermaidDiagramIr, MermaidParseMode};
 use serde::Serialize;
 use serde_json::json;
+use unicode_segmentation::UnicodeSegmentation;
 
 pub use dot_parser::{looks_like_dot, parse_dot};
 pub use mermaid_parser::first_significant_line;
+
+/// Normalize a Mermaid identifier by trimming, stripping quotes, and replacing
+/// unsafe characters with underscores.
+///
+/// This ensures consistent node identity across the engine and safe identifiers
+/// for backend layout engines and rendering formats.
+pub fn normalize_identifier(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let (cleaned, was_quoted) = if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+        || (trimmed.starts_with('`') && trimmed.ends_with('`'))
+    {
+        if trimmed.len() < 2 {
+            (trimmed, false)
+        } else {
+            (&trimmed[1..trimmed.len() - 1], true)
+        }
+    } else {
+        (trimmed, false)
+    };
+
+    if cleaned.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::with_capacity(cleaned.len());
+    for ch in cleaned.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/') {
+            out.push(ch);
+        } else if ch.is_whitespace() {
+            // Replace spaces with underscores for all identifiers to ensure they are safe
+            // for layout engines and other backends, while preserving the intent of
+            // multi-word identifiers (especially quoted ones).
+            if !out.is_empty() {
+                out.push('_');
+            }
+        } else if matches!(ch, ':' | ';' | ',') {
+            if !out.is_empty() {
+                break;
+            }
+        } else if was_quoted {
+            out.push('_');
+        } else if !out.is_empty() {
+            break;
+        }
+    }
+
+    let mut result = out.trim_end_matches('_').to_string();
+    if result.is_empty() {
+        let mut fallback = String::with_capacity(cleaned.len());
+        for grapheme in cleaned.graphemes(true) {
+            if grapheme
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+            {
+                fallback.push_str(grapheme);
+            } else {
+                fallback.push('_');
+            }
+        }
+        result = fallback.trim_matches('_').to_string();
+    }
+
+    result
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ParseResult {

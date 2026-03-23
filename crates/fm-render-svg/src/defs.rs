@@ -270,7 +270,7 @@ impl GradientStop {
     #[must_use]
     pub fn to_element(&self) -> Element {
         let mut elem = Element::new(crate::element::ElementKind::Stop)
-            .attr("offset", &format!("{}%", (self.offset * 100.0) as i32))
+            .attr("offset", &format!("{:.1}%", self.offset * 100.0))
             .attr("stop-color", &self.color);
 
         if let Some(opacity) = self.opacity {

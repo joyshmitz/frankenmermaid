@@ -1205,6 +1205,8 @@ fn edge_label_position(edge_path: &LayoutEdgePath) -> LayoutPoint {
             x: (p1.x + p2.x) / 2.0,
             y: (p1.y + p2.y) / 2.0,
         }
+    } else if edge_path.points.is_empty() {
+        LayoutPoint { x: 0.0, y: 0.0 }
     } else {
         let midpoint_index = edge_path.points.len() / 2;
         edge_path.points[midpoint_index]

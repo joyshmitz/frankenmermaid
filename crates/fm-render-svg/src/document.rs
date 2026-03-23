@@ -146,8 +146,13 @@ impl SvgDocument {
     pub fn write_to_string(&self, output: &mut String) {
         output.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\"");
 
-        // Add viewBox
-        if let Some((x, y, w, h)) = self.viewbox {
+        // Add viewBox (guard against NaN/Infinity producing invalid SVG)
+        if let Some((x, y, w, h)) = self.viewbox
+            && x.is_finite()
+            && y.is_finite()
+            && w.is_finite()
+            && h.is_finite()
+        {
             let _ = write!(output, " viewBox=\"{x} {y} {w} {h}\"");
         }
 

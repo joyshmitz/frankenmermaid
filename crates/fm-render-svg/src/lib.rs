@@ -750,6 +750,9 @@ fn map_text_baseline(baseline: RenderTextBaseline) -> text::DominantBaseline {
 }
 
 fn clamp_font_size(candidate: f32, min_font_size: f32) -> f32 {
+    if !candidate.is_finite() {
+        return min_font_size.max(1.0);
+    }
     candidate.max(min_font_size)
 }
 
