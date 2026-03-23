@@ -1162,6 +1162,12 @@ pub struct IrC4NodeMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrMenuLink {
+    pub label: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct IrNode {
     pub id: String,
     pub label: Option<IrLabelId>,
@@ -1171,6 +1177,8 @@ pub struct IrNode {
     /// Tooltip text from `click nodeId "url" "tooltip"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tooltip: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub menu_links: Vec<IrMenuLink>,
     pub span_primary: Span,
     pub span_all: Vec<Span>,
     pub implicit: bool,
@@ -3155,9 +3163,21 @@ pub struct IrXyChartMeta {
 /// Captures all advanced sequence constructs (activations, notes, fragments,
 /// participant groups, lifecycle events, autonumbering) that do not fit in the
 /// generic node/edge model.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IrSequenceMeta {
     pub autonumber: bool,
+    #[serde(
+        default = "default_sequence_autonumber_start",
+        skip_serializing_if = "is_default_sequence_autonumber_start"
+    )]
+    pub autonumber_start: u32,
+    #[serde(
+        default = "default_sequence_autonumber_increment",
+        skip_serializing_if = "is_default_sequence_autonumber_increment"
+    )]
+    pub autonumber_increment: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_footbox: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub activations: Vec<IrActivation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3168,6 +3188,52 @@ pub struct IrSequenceMeta {
     pub participant_groups: Vec<IrParticipantGroup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lifecycle_events: Vec<IrLifecycleEvent>,
+}
+
+const fn default_sequence_autonumber_start() -> u32 {
+    1
+}
+
+const fn default_sequence_autonumber_increment() -> u32 {
+    1
+}
+
+const fn is_default_sequence_autonumber_start(value: &u32) -> bool {
+    *value == default_sequence_autonumber_start()
+}
+
+const fn is_default_sequence_autonumber_increment(value: &u32) -> bool {
+    *value == default_sequence_autonumber_increment()
+}
+
+impl Default for IrSequenceMeta {
+    fn default() -> Self {
+        Self {
+            autonumber: false,
+            autonumber_start: default_sequence_autonumber_start(),
+            autonumber_increment: default_sequence_autonumber_increment(),
+            hide_footbox: false,
+            activations: Vec::new(),
+            notes: Vec::new(),
+            fragments: Vec::new(),
+            participant_groups: Vec::new(),
+            lifecycle_events: Vec::new(),
+        }
+    }
+}
+
+impl IrSequenceMeta {
+    #[must_use]
+    pub fn autonumber_value(&self, edge_index: usize) -> Option<u64> {
+        if !self.autonumber {
+            return None;
+        }
+
+        Some(
+            u64::from(self.autonumber_start)
+                + (edge_index as u64) * u64::from(self.autonumber_increment),
+        )
+    }
 }
 
 /// A single slice in a pie chart.
@@ -4972,7 +5038,8 @@ mod tests {
             let start_marker = "<!-- BEGIN GENERATED: supported-diagram-types -->";
             let end_marker = "<!-- END GENERATED: supported-diagram-types -->";
             if let Some(start) = readme.find(start_marker)
-                && let Some(end) = readme[start..].find(end_marker)
+                && let Some(rest) = readme.get(start..)
+                && let Some(end) = rest.find(end_marker)
             {
                 let full_start = start + start_marker.len();
                 let full_end = start + end;
@@ -5000,7 +5067,8 @@ mod tests {
             let start_marker = "<!-- BEGIN GENERATED: runtime-capability-metadata -->";
             let end_marker = "<!-- END GENERATED: runtime-capability-metadata -->";
             if let Some(start) = readme.find(start_marker)
-                && let Some(end) = readme[start..].find(end_marker)
+                && let Some(rest) = readme.get(start..)
+                && let Some(end) = rest.find(end_marker)
             {
                 let full_start = start + start_marker.len();
                 let full_end = start + end;
@@ -5044,12 +5112,13 @@ mod tests {
             .find(&start_marker)
             .unwrap_or_else(|| panic!("missing start marker for {block_name}"));
         let body_start = start + start_marker.len();
-        let end = readme[body_start..]
-            .find(&end_marker)
+        let end = readme
+            .get(body_start..)
+            .and_then(|s| s.find(&end_marker))
             .map(|offset| body_start + offset)
             .unwrap_or_else(|| panic!("missing end marker for {block_name}"));
 
-        readme[body_start..end].trim().to_string()
+        readme.get(body_start..end).unwrap_or("").trim().to_string()
     }
 
     // ── IrSequenceMeta tests ───────────────────────────────────────────
@@ -5058,6 +5127,9 @@ mod tests {
     fn sequence_meta_default_is_empty() {
         let meta = IrSequenceMeta::default();
         assert!(!meta.autonumber);
+        assert_eq!(meta.autonumber_start, 1);
+        assert_eq!(meta.autonumber_increment, 1);
+        assert!(!meta.hide_footbox);
         assert!(meta.activations.is_empty());
         assert!(meta.notes.is_empty());
         assert!(meta.fragments.is_empty());
@@ -5069,6 +5141,9 @@ mod tests {
     fn sequence_meta_serde_round_trip() {
         let meta = IrSequenceMeta {
             autonumber: true,
+            autonumber_start: 10,
+            autonumber_increment: 5,
+            hide_footbox: true,
             activations: vec![IrActivation {
                 participant: IrNodeId(0),
                 start_edge: 1,
@@ -5105,6 +5180,9 @@ mod tests {
         };
 
         let json = serde_json::to_string(&meta).expect("serialize");
+        assert!(json.contains("autonumber_start"));
+        assert!(json.contains("autonumber_increment"));
+        assert!(json.contains("hide_footbox"));
         let deser: IrSequenceMeta = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(meta, deser);
     }
@@ -5115,6 +5193,9 @@ mod tests {
         let json = serde_json::to_string(&meta).expect("serialize");
         // Empty vecs should be skipped, only autonumber present
         assert!(!json.contains("activations"));
+        assert!(!json.contains("autonumber_start"));
+        assert!(!json.contains("autonumber_increment"));
+        assert!(!json.contains("hide_footbox"));
         assert!(!json.contains("notes"));
         assert!(!json.contains("fragments"));
         assert!(!json.contains("participant_groups"));
@@ -5126,6 +5207,8 @@ mod tests {
         let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
         ir.sequence_meta = Some(IrSequenceMeta {
             autonumber: true,
+            autonumber_start: 3,
+            autonumber_increment: 2,
             ..Default::default()
         });
 
@@ -5134,6 +5217,25 @@ mod tests {
         let deser: MermaidDiagramIr = serde_json::from_str(&json).expect("deserialize");
         assert!(deser.sequence_meta.is_some());
         assert!(deser.sequence_meta.as_ref().unwrap().autonumber);
+        assert_eq!(deser.sequence_meta.as_ref().unwrap().autonumber_start, 3);
+        assert_eq!(
+            deser.sequence_meta.as_ref().unwrap().autonumber_increment,
+            2
+        );
+    }
+
+    #[test]
+    fn sequence_meta_autonumber_value_uses_start_and_increment() {
+        let meta = IrSequenceMeta {
+            autonumber: true,
+            autonumber_start: 10,
+            autonumber_increment: 5,
+            ..Default::default()
+        };
+
+        assert_eq!(meta.autonumber_value(0), Some(10));
+        assert_eq!(meta.autonumber_value(1), Some(15));
+        assert_eq!(meta.autonumber_value(2), Some(20));
     }
 
     #[test]

@@ -1431,7 +1431,7 @@ fn render_layout_to_svg(
         let label_text = if fragment.label.is_empty() {
             kind_label.to_string()
         } else {
-            format!("{kind_label} [{0}]", fragment.label)
+            format!("{kind_label} [{}]", fragment.label)
         };
 
         // Label background tab.
@@ -1705,6 +1705,19 @@ fn render_layout_to_svg(
             &theme.colors,
         );
         doc = doc.child(node_elem);
+    }
+
+    for node_box in &layout.extensions.sequence_mirror_headers {
+        let node_elem = render_node(
+            node_box,
+            ir,
+            offset_x,
+            offset_y,
+            config,
+            detail,
+            &theme.colors,
+        );
+        doc = doc.child(node_elem.class("fm-sequence-mirror-header"));
     }
 
     if legend_enabled {
@@ -3115,6 +3128,14 @@ fn render_node(
     }
 
     if let Some(node) = ir_node
+        && !node.menu_links.is_empty()
+    {
+        group = group
+            .attr("data-menu-links", &serialize_menu_links(&node.menu_links))
+            .class("fm-node-has-menu-links");
+    }
+
+    if let Some(node) = ir_node
         && let Some(href) = &node.href
     {
         let mut a = Element::new(crate::element::ElementKind::A)
@@ -3138,6 +3159,14 @@ fn is_block_beta_space_node(node: &fm_core::IrNode) -> bool {
             .classes
             .iter()
             .any(|class_name| class_name.eq_ignore_ascii_case("block-beta-space"))
+}
+
+fn serialize_menu_links(links: &[fm_core::IrMenuLink]) -> String {
+    links
+        .iter()
+        .map(|entry| format!("{}|{}", entry.label, entry.url))
+        .collect::<Vec<_>>()
+        .join(";;")
 }
 
 fn stable_accent_index(node_id: &str) -> usize {
@@ -3929,8 +3958,12 @@ fn render_edge(
         let base_label = truncate_label(&label.text, detail.edge_label_max_chars);
 
         // Prepend autonumber when enabled for sequence diagrams
-        let label_text = if ir.sequence_meta.as_ref().is_some_and(|m| m.autonumber) {
-            format!("{} {base_label}", edge_index + 1)
+        let label_text = if let Some(number) = ir
+            .sequence_meta
+            .as_ref()
+            .and_then(|meta| meta.autonumber_value(edge_index))
+        {
+            format!("{number} {base_label}")
         } else {
             base_label
         };
@@ -5159,6 +5192,120 @@ mod tests {
 
         let svg = render_svg(&ir);
         assert!(svg.contains("fm-sequence-destroy-marker"));
+    }
+
+    #[test]
+    fn renders_sequence_mirror_actor_headers() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            ..IrNode::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            ..IrNode::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            ..IrEdge::default()
+        });
+        ir.meta.init.config.sequence_mirror_actors = Some(true);
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains("fm-sequence-mirror-header"));
+        assert!(svg.matches("Alice").count() >= 2);
+        assert!(svg.matches("Bob").count() >= 2);
+    }
+
+    #[test]
+    fn hide_footbox_suppresses_sequence_mirror_actor_headers() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            ..IrNode::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            ..IrNode::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            ..IrEdge::default()
+        });
+        ir.meta.init.config.sequence_mirror_actors = Some(true);
+        ir.sequence_meta = Some(IrSequenceMeta {
+            hide_footbox: true,
+            ..Default::default()
+        });
+
+        let svg = render_svg(&ir);
+        assert!(!svg.contains("fm-sequence-mirror-header"));
+    }
+
+    #[test]
+    fn renders_node_menu_links_as_svg_metadata() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.nodes.push(IrNode {
+            id: "API".to_string(),
+            menu_links: vec![fm_core::IrMenuLink {
+                label: "Docs".to_string(),
+                url: "https://example.com/docs".to_string(),
+            }],
+            ..IrNode::default()
+        });
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains("data-menu-links=\"Docs|https://example.com/docs\""));
+        assert!(svg.contains("fm-node-has-menu-links"));
+    }
+
+    #[test]
+    fn sequence_autonumber_uses_configured_start_and_increment_in_svg_labels() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.sequence_meta = Some(IrSequenceMeta {
+            autonumber: true,
+            autonumber_start: 10,
+            autonumber_increment: 5,
+            ..Default::default()
+        });
+        ir.labels.push(fm_core::IrLabel {
+            text: "Ping".to_string(),
+            ..Default::default()
+        });
+        ir.labels.push(fm_core::IrLabel {
+            text: "Pong".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            ..Default::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            label: Some(fm_core::IrLabelId(0)),
+            ..Default::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(1)),
+            to: IrEndpoint::Node(IrNodeId(0)),
+            arrow: ArrowType::Arrow,
+            label: Some(fm_core::IrLabelId(1)),
+            ..Default::default()
+        });
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains(">10 Ping<"));
+        assert!(svg.contains(">15 Pong<"));
     }
 
     proptest! {

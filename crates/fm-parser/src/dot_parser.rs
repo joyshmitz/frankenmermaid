@@ -138,6 +138,7 @@ fn strip_all_comments(input: &str) -> String {
     let mut escaped = false;
     let mut in_multiline_comment = false;
     let mut in_singleline_comment = false;
+    let mut html_depth = 0_usize;
 
     let chars: Vec<char> = input.chars().collect();
     let mut i = 0;
@@ -179,26 +180,49 @@ fn strip_all_comments(input: &str) -> String {
             continue;
         }
 
-        if c == '/' && i + 1 < chars.len() {
-            if chars[i + 1] == '/' {
-                in_singleline_comment = true;
-                i += 2;
-                continue;
-            } else if chars[i + 1] == '*' {
-                in_multiline_comment = true;
-                i += 2;
-                continue;
+        // Only start comments if not inside an HTML label
+        if html_depth == 0 {
+            if c == '/' && i + 1 < chars.len() {
+                if chars[i + 1] == '/' {
+                    in_singleline_comment = true;
+                    i += 2;
+                    continue;
+                } else if chars[i + 1] == '*' {
+                    in_multiline_comment = true;
+                    i += 2;
+                    continue;
+                }
             }
-        }
 
-        if c == '#' && (i == 0 || chars[i - 1] == '\n') {
-            in_singleline_comment = true;
-            i += 1;
-            continue;
+            // DOT considers # a comment if it is the first non-whitespace character on a line.
+            if c == '#' {
+                // Check if only whitespace precedes it on this line
+                let mut is_start_of_line = true;
+                let mut j = i;
+                while j > 0 {
+                    j -= 1;
+                    if chars[j] == '\n' {
+                        break;
+                    }
+                    if !chars[j].is_whitespace() {
+                        is_start_of_line = false;
+                        break;
+                    }
+                }
+                if is_start_of_line {
+                    in_singleline_comment = true;
+                    i += 1;
+                    continue;
+                }
+            }
         }
 
         if c == '"' || c == '\'' {
             in_quote = Some(c);
+        } else if c == '<' {
+            html_depth = html_depth.saturating_add(1);
+        } else if c == '>' {
+            html_depth = html_depth.saturating_sub(1);
         }
 
         output.push(c);

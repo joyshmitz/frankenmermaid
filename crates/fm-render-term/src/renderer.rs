@@ -113,6 +113,9 @@ impl TermRenderer {
         for node_box in &layout.nodes {
             self.render_node_cell(&mut buffer, ir, node_box, scale_x, scale_y);
         }
+        for node_box in &layout.extensions.sequence_mirror_headers {
+            self.render_node_cell(&mut buffer, ir, node_box, scale_x, scale_y);
+        }
 
         let output = buffer.to_string();
 
@@ -251,6 +254,17 @@ impl TermRenderer {
 
         // Render nodes.
         for node_box in &layout.nodes {
+            self.render_node_canvas(
+                &mut canvas,
+                ir,
+                node_box,
+                pixel_scale_x,
+                pixel_scale_y,
+                padding_x,
+                padding_y,
+            );
+        }
+        for node_box in &layout.extensions.sequence_mirror_headers {
             self.render_node_canvas(
                 &mut canvas,
                 ir,
@@ -1113,6 +1127,38 @@ impl TermRenderer {
             }
         }
 
+        for node_box in &layout.extensions.sequence_mirror_headers {
+            let (x, y, w, h) = self.bounds_to_cells(&node_box.bounds, scale_x, scale_y);
+            let ir_node = ir.nodes.get(node_box.node_index);
+
+            if ir_node.is_some_and(is_block_beta_space_node) {
+                continue;
+            }
+
+            let Some(label) = self.node_display_label(ir, ir_node, &node_box.node_id) else {
+                continue;
+            };
+
+            let label_lines: Vec<&str> = label.lines().collect();
+            let start_y = y + (h.saturating_sub(label_lines.len())) / 2;
+
+            for (i, line) in label_lines.iter().enumerate() {
+                let label_chars: Vec<char> = line.chars().collect();
+                let label_len = label_chars.len();
+                let label_x = x + (w.saturating_sub(label_len)) / 2;
+                let label_y = start_y + i;
+
+                if label_y < lines.len() {
+                    for (j, ch) in label_chars.into_iter().enumerate() {
+                        let col = label_x + j;
+                        if col < cell_width && col < lines[label_y].len() {
+                            lines[label_y][col] = ch;
+                        }
+                    }
+                }
+            }
+        }
+
         // Overlay edge labels.
         for edge_path in &layout.edges {
             if edge_path.points.len() < 2 {
@@ -1121,7 +1167,16 @@ impl TermRenderer {
             if let Some(label_id) = ir.edges.get(edge_path.edge_index).and_then(|e| e.label)
                 && let Some(label) = ir.labels.get(label_id.0)
             {
-                let truncated = self.truncate_label(&label.text);
+                let base_label = self.truncate_label(&label.text);
+                let truncated = if let Some(number) = ir
+                    .sequence_meta
+                    .as_ref()
+                    .and_then(|meta| meta.autonumber_value(edge_path.edge_index))
+                {
+                    format!("{number} {base_label}")
+                } else {
+                    base_label
+                };
                 let label_lines: Vec<&str> = truncated.lines().collect();
 
                 let (mid_x, mid_y) = if edge_path.points.len() == 4 {
@@ -1544,7 +1599,8 @@ mod tests {
     use super::*;
     use fm_core::{DiagramType, IrEdge, IrEndpoint, IrLabel, IrLabelId, IrNode, IrNodeId};
     use fm_layout::{
-        LayoutActivationBar, LayoutClusterBox, LayoutExtensions, LayoutRect, LayoutStats,
+        LayoutActivationBar, LayoutClusterBox, LayoutExtensions, LayoutNodeBox, LayoutRect,
+        LayoutStats,
     };
 
     fn sample_ir() -> MermaidDiagramIr {
@@ -1738,6 +1794,207 @@ mod tests {
         let result = render_diagram_with_layout_and_config(&ir, &layout, &config, 40, 20);
 
         assert!(result.output.contains('X'));
+    }
+
+    #[test]
+    fn renders_sequence_mirror_headers_in_cell_mode() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.labels.push(fm_core::IrLabel {
+            text: "Alice".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            label: Some(fm_core::IrLabelId(0)),
+            ..Default::default()
+        });
+
+        let layout = DiagramLayout {
+            nodes: vec![LayoutNodeBox {
+                node_index: 0,
+                node_id: "Alice".to_string(),
+                rank: 0,
+                order: 0,
+                span: Default::default(),
+                bounds: LayoutRect {
+                    x: 2.0,
+                    y: 0.0,
+                    width: 12.0,
+                    height: 3.0,
+                },
+            }],
+            clusters: Vec::new(),
+            cycle_clusters: Vec::new(),
+            edges: Vec::new(),
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 12.0,
+            },
+            stats: LayoutStats::default(),
+            extensions: LayoutExtensions {
+                sequence_mirror_headers: vec![LayoutNodeBox {
+                    node_index: 0,
+                    node_id: "Alice".to_string(),
+                    rank: 1,
+                    order: 0,
+                    span: Default::default(),
+                    bounds: LayoutRect {
+                        x: 2.0,
+                        y: 8.0,
+                        width: 12.0,
+                        height: 3.0,
+                    },
+                }],
+                ..Default::default()
+            },
+        };
+        let config = TermRenderConfig {
+            tier: MermaidTier::Normal,
+            render_mode: MermaidRenderMode::CellOnly,
+            ..Default::default()
+        };
+
+        let result = render_diagram_with_layout_and_config(&ir, &layout, &config, 40, 20);
+
+        assert!(result.output.matches("Alice").count() >= 2);
+    }
+
+    #[test]
+    fn hide_footbox_suppresses_sequence_mirror_headers_in_cell_mode() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.meta.init.config.sequence_mirror_actors = Some(true);
+        ir.sequence_meta = Some(fm_core::IrSequenceMeta {
+            hide_footbox: true,
+            ..Default::default()
+        });
+        ir.labels.push(fm_core::IrLabel {
+            text: "Alice".to_string(),
+            ..Default::default()
+        });
+        ir.labels.push(fm_core::IrLabel {
+            text: "Bob".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            label: Some(fm_core::IrLabelId(0)),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            label: Some(fm_core::IrLabelId(1)),
+            ..Default::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            ..Default::default()
+        });
+
+        let config = TermRenderConfig {
+            tier: MermaidTier::Normal,
+            render_mode: MermaidRenderMode::CellOnly,
+            ..Default::default()
+        };
+        let result = render_diagram_with_config(&ir, &config, 60, 20);
+
+        assert_eq!(result.output.matches("Alice").count(), 1);
+        assert_eq!(result.output.matches("Bob").count(), 1);
+    }
+
+    #[test]
+    fn sequence_autonumber_uses_configured_start_and_increment_in_block_mode() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.sequence_meta = Some(fm_core::IrSequenceMeta {
+            autonumber: true,
+            autonumber_start: 10,
+            autonumber_increment: 5,
+            ..Default::default()
+        });
+        ir.labels.push(fm_core::IrLabel {
+            text: "Ping".to_string(),
+            ..Default::default()
+        });
+        ir.labels.push(fm_core::IrLabel {
+            text: "Pong".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            ..Default::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            label: Some(fm_core::IrLabelId(0)),
+            ..Default::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(1)),
+            to: IrEndpoint::Node(IrNodeId(0)),
+            arrow: ArrowType::Arrow,
+            label: Some(fm_core::IrLabelId(1)),
+            ..Default::default()
+        });
+
+        let layout = DiagramLayout {
+            nodes: Vec::new(),
+            clusters: Vec::new(),
+            cycle_clusters: Vec::new(),
+            edges: vec![
+                LayoutEdgePath {
+                    edge_index: 0,
+                    span: Default::default(),
+                    points: vec![
+                        fm_layout::LayoutPoint { x: 5.0, y: 6.0 },
+                        fm_layout::LayoutPoint { x: 30.0, y: 6.0 },
+                    ],
+                    reversed: false,
+                    is_self_loop: false,
+                    parallel_offset: 0.0,
+                    bundle_count: 1,
+                    bundled: false,
+                },
+                LayoutEdgePath {
+                    edge_index: 1,
+                    span: Default::default(),
+                    points: vec![
+                        fm_layout::LayoutPoint { x: 30.0, y: 12.0 },
+                        fm_layout::LayoutPoint { x: 5.0, y: 12.0 },
+                    ],
+                    reversed: false,
+                    is_self_loop: false,
+                    parallel_offset: 0.0,
+                    bundle_count: 1,
+                    bundled: false,
+                },
+            ],
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 40.0,
+                height: 18.0,
+            },
+            stats: LayoutStats::default(),
+            extensions: LayoutExtensions::default(),
+        };
+        let config = TermRenderConfig {
+            tier: MermaidTier::Normal,
+            render_mode: MermaidRenderMode::Block,
+            ..Default::default()
+        };
+        let result = render_diagram_with_layout_and_config(&ir, &layout, &config, 80, 24);
+
+        assert!(result.output.contains("10 Ping"), "{}", result.output);
+        assert!(result.output.contains("15 Pong"), "{}", result.output);
     }
 
     #[test]

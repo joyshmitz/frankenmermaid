@@ -610,6 +610,8 @@ pub struct LayoutExtensions {
     pub sequence_fragments: Vec<LayoutSequenceFragment>,
     /// Sequence lifecycle markers such as destroy crosses on lifelines.
     pub sequence_lifecycle_markers: Vec<LayoutSequenceLifecycleMarker>,
+    /// Mirrored participant headers rendered at the bottom of sequence diagrams.
+    pub sequence_mirror_headers: Vec<LayoutNodeBox>,
 }
 
 /// A sequence diagram note positioned near a participant's lifeline.
@@ -1208,6 +1210,25 @@ fn build_node_layer(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> RenderGrou
         }));
     }
 
+    for node_box in &layout.extensions.sequence_mirror_headers {
+        let shape = ir
+            .nodes
+            .get(node_box.node_index)
+            .map_or(fm_core::NodeShape::Rect, |node| node.shape);
+
+        layer.children.push(RenderItem::Path(RenderPath {
+            source: RenderSource::Node(node_box.node_index),
+            commands: node_path(node_box.bounds, shape),
+            fill: Some(FillStyle::Solid {
+                color: String::from("#ffffff"),
+                opacity: 1.0,
+            }),
+            stroke: Some(StrokeStyle::solid("#94a3b8", 1.5)),
+            marker_start: MarkerKind::None,
+            marker_end: MarkerKind::None,
+        }));
+    }
+
     layer
 }
 
@@ -1216,6 +1237,30 @@ fn build_label_layer(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> RenderGro
         RenderGroup::new(Some(String::from("labels"))).with_source(RenderSource::Diagram);
 
     for node_box in &layout.nodes {
+        let Some(node) = ir.nodes.get(node_box.node_index) else {
+            continue;
+        };
+        let label_text = display_node_label(ir, node);
+        if label_text.is_empty() {
+            continue;
+        }
+
+        layer.children.push(RenderItem::Text(RenderText {
+            source: RenderSource::Node(node_box.node_index),
+            text: label_text,
+            x: node_box.bounds.x + (node_box.bounds.width / 2.0),
+            y: node_box.bounds.y + (node_box.bounds.height / 2.0),
+            font_size: 14.0,
+            align: TextAlign::Middle,
+            baseline: TextBaseline::Middle,
+            fill: FillStyle::Solid {
+                color: String::from("#0f172a"),
+                opacity: 1.0,
+            },
+        }));
+    }
+
+    for node_box in &layout.extensions.sequence_mirror_headers {
         let Some(node) = ir.nodes.get(node_box.node_index) else {
             continue;
         };
@@ -1450,7 +1495,7 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
         LayoutAlgorithm::Quadrant => layout_diagram_quadrant_traced(ir),
         LayoutAlgorithm::GitGraph => layout_diagram_gitgraph_traced(ir),
         LayoutAlgorithm::Packet => layout_diagram_grid_traced(ir), // Reuse grid layout for packet
-        LayoutAlgorithm::Auto => unreachable!("dispatch must resolve auto to a concrete layout"),
+        LayoutAlgorithm::Auto => layout_diagram_sugiyama_traced_with_config(ir, config), // Safe fallback
     };
     traced.trace.dispatch = guarded_dispatch;
     traced.trace.guard = guard;
@@ -2696,6 +2741,11 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     let participant_gap = spacing.node_spacing + 80.0;
     let message_gap = spacing.rank_spacing.max(56.0);
     let header_y = 0.0_f32;
+    let mirror_actors_enabled = ir.meta.init.config.sequence_mirror_actors.unwrap_or(false)
+        && !ir
+            .sequence_meta
+            .as_ref()
+            .is_some_and(|meta| meta.hide_footbox);
 
     // Build participant index → horizontal position mapping.
     // Each participant is centered at (participant_order * gap, header_y).
@@ -2747,8 +2797,8 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         y_cursor += row_height;
     }
 
-    // Total diagram height: extend lifelines past the last message.
-    let diagram_bottom = y_cursor + message_gap * 0.5;
+    // Total sequence content height before optional mirrored participant headers.
+    let lifeline_bottom = y_cursor + message_gap * 0.5;
 
     // ── Phase 3: build layout nodes (participant boxes at the top) ──────
     let nodes: Vec<LayoutNodeBox> = (0..node_count)
@@ -2869,7 +2919,26 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     // Build lifeline bands: one vertical band per participant from header bottom
     // to diagram bottom, useful for renderers that draw dashed lifelines.
     let mut lifeline_start_y = vec![0.0_f32; node_count];
-    let mut lifeline_end_y = vec![diagram_bottom; node_count];
+    let max_header_height = node_sizes.iter().map(|(_, h)| *h).fold(0.0_f32, f32::max);
+    let mirror_header_gap = if mirror_actors_enabled {
+        message_gap * 0.35
+    } else {
+        0.0
+    };
+    let mirror_header_y = lifeline_bottom + mirror_header_gap;
+    let diagram_bottom = if mirror_actors_enabled {
+        mirror_header_y + max_header_height
+    } else {
+        lifeline_bottom
+    };
+    let mut lifeline_end_y = vec![
+        if mirror_actors_enabled {
+            mirror_header_y
+        } else {
+            lifeline_bottom
+        };
+        node_count
+    ];
     for participant_order in 0..node_count {
         let (_, header_height) = node_sizes[participant_order];
         lifeline_start_y[participant_order] = header_y + header_height;
@@ -2888,7 +2957,7 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                     .copied()
                     .unwrap_or(match event.kind {
                         fm_core::LifecycleEventKind::Create => first_message_y,
-                        fm_core::LifecycleEventKind::Destroy => diagram_bottom - message_gap * 0.5,
+                        fm_core::LifecycleEventKind::Destroy => lifeline_bottom,
                     });
 
             match event.kind {
@@ -2965,7 +3034,7 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                     let end_y = message_y_positions
                         .get(activation.end_edge)
                         .copied()
-                        .unwrap_or(diagram_bottom - message_gap * 0.5);
+                        .unwrap_or(lifeline_bottom);
                     let bar_width = 10.0;
                     let depth_offset = activation.depth as f32 * 4.0;
                     Some(LayoutActivationBar {
@@ -3067,6 +3136,30 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         }
     };
 
+    let sequence_mirror_headers: Vec<LayoutNodeBox> = if mirror_actors_enabled {
+        (0..node_count)
+            .map(|participant_order| {
+                let (width, height) = node_sizes[participant_order];
+                let cx = participant_x_centers[participant_order];
+                LayoutNodeBox {
+                    node_index: participant_order,
+                    node_id: ir.nodes[participant_order].id.clone(),
+                    rank: 1,
+                    order: participant_order,
+                    span: ir.nodes[participant_order].span_primary,
+                    bounds: LayoutRect {
+                        x: cx - width / 2.0,
+                        y: mirror_header_y,
+                        width,
+                        height,
+                    },
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     TracedLayout {
         layout: DiagramLayout {
             nodes,
@@ -3098,6 +3191,7 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                     message_gap,
                 ),
                 sequence_lifecycle_markers: lifecycle_markers,
+                sequence_mirror_headers,
             },
         },
         trace,
@@ -3819,7 +3913,7 @@ fn xychart_value_to_y(value: f32, y_min: f32, y_max: f32, plot_bounds: LayoutRec
 fn parse_iso_day_number(value: &str) -> Option<i32> {
     let value = value.trim();
     let bytes = value.as_bytes();
-    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' || !value.is_ascii() {
         return None;
     }
 
@@ -4168,9 +4262,17 @@ fn layout_diagram_quadrant_traced(ir: &MermaidDiagramIr) -> TracedLayout {
 
     for (i, node) in ir.nodes.iter().enumerate() {
         let pt = points.get(i);
-        let px = pt.map(|p| p.x).unwrap_or(0.5);
+        let px = pt
+            .map(|p| p.x)
+            .filter(|v| v.is_finite())
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
         // Invert Y so higher values are at the top.
-        let py = pt.map(|p| 1.0 - p.y).unwrap_or(0.5);
+        let py = pt
+            .map(|p| 1.0 - p.y)
+            .filter(|v| v.is_finite())
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
 
         let (label_w, label_h) = metrics.estimate_dimensions(&display_node_label(ir, node));
         let node_w = (label_w + 20.0).max(12.0);
@@ -4246,41 +4348,15 @@ fn layout_diagram_gitgraph_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         };
     }
 
-    // Assign lanes by cluster membership: main branch = lane 0, others increment.
-    let mut lane_map: BTreeMap<usize, usize> = BTreeMap::new();
-    let mut next_lane = 0_usize;
-    for (i, node) in ir.nodes.iter().enumerate() {
-        let cluster_id = ir
-            .clusters
-            .iter()
-            .enumerate()
-            .find(|(_, c)| c.members.contains(&fm_core::IrNodeId(i)))
-            .map(|(ci, _)| ci);
-        let lane = match cluster_id {
-            Some(ci) => *lane_map.entry(ci).or_insert_with(|| {
-                let l = next_lane;
-                next_lane += 1;
-                l
-            }),
-            None => {
-                // Nodes not in any cluster go to lane 0 (main).
-                *lane_map.entry(usize::MAX).or_insert_with(|| {
-                    let l = next_lane;
-                    next_lane += 1;
-                    l
-                })
-            }
-        };
-        let _ = (i, lane, node); // suppress unused warning - used below
-    }
-
-    // Rebuild lane assignment for each node.
+    // Assign lanes by cluster membership and position nodes in a single pass.
     let horizontal = matches!(ir.direction, GraphDirection::LR | GraphDirection::RL);
     let lane_width =
         node_sizes.iter().map(|(w, _)| *w).fold(0.0_f32, f32::max) + spacing.node_spacing;
     let row_height =
         node_sizes.iter().map(|(_, h)| *h).fold(0.0_f32, f32::max) + spacing.rank_spacing * 0.6;
 
+    let mut lane_map: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut next_lane = 0_usize;
     let mut nodes = Vec::with_capacity(node_count);
     for (i, node) in ir.nodes.iter().enumerate() {
         let cluster_id = ir
@@ -4290,7 +4366,11 @@ fn layout_diagram_gitgraph_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             .find(|(_, c)| c.members.contains(&fm_core::IrNodeId(i)))
             .map(|(ci, _)| ci)
             .unwrap_or(usize::MAX);
-        let lane = lane_map.get(&cluster_id).copied().unwrap_or(0);
+        let lane = *lane_map.entry(cluster_id).or_insert_with(|| {
+            let l = next_lane;
+            next_lane += 1;
+            l
+        });
         let (w, h) = node_sizes[i];
 
         let (x, y) = if horizontal {
@@ -5196,6 +5276,9 @@ fn force_barnes_hut_repulsion(
     displacements: &mut [(f32, f32)],
 ) {
     let n = positions.len();
+    if n < 2 {
+        return;
+    }
     // Find bounding box.
     let mut min_x = f32::INFINITY;
     let mut min_y = f32::INFINITY;
@@ -11625,6 +11708,45 @@ mod tests {
         let marker = &layout.extensions.sequence_lifecycle_markers[0];
         assert_eq!(marker.participant_index, 1);
         assert!((marker.center.y - (bob_band.bounds.y + bob_band.bounds.height)).abs() < 1.0);
+    }
+
+    #[test]
+    fn sequence_layout_mirror_actors_adds_bottom_headers_and_extends_lifelines() {
+        let mut ir = sequence_ir(&["Alice", "Bob"], &[(0, 1)]);
+        ir.meta.init.config.sequence_mirror_actors = Some(true);
+
+        let layout = layout_diagram_sequence(&ir);
+
+        assert_eq!(layout.extensions.sequence_mirror_headers.len(), 2);
+        let top_alice = &layout.nodes[0];
+        let bottom_alice = &layout.extensions.sequence_mirror_headers[0];
+        let alice_band = &layout.extensions.bands[0];
+
+        assert_eq!(bottom_alice.node_id, "Alice");
+        assert_eq!(bottom_alice.bounds.x, top_alice.bounds.x);
+        assert!(bottom_alice.bounds.y > top_alice.bounds.y);
+        assert!(
+            (alice_band.bounds.y + alice_band.bounds.height - bottom_alice.bounds.y).abs() < 1.0
+        );
+        assert!(layout.bounds.height >= bottom_alice.bounds.y + bottom_alice.bounds.height);
+    }
+
+    #[test]
+    fn sequence_layout_hide_footbox_overrides_mirror_actors() {
+        let mut ir = sequence_ir(&["Alice", "Bob"], &[(0, 1)]);
+        ir.meta.init.config.sequence_mirror_actors = Some(true);
+        ir.sequence_meta = Some(IrSequenceMeta {
+            hide_footbox: true,
+            ..Default::default()
+        });
+
+        let layout = layout_diagram_sequence(&ir);
+        let mut mirrored_ir = sequence_ir(&["Alice", "Bob"], &[(0, 1)]);
+        mirrored_ir.meta.init.config.sequence_mirror_actors = Some(true);
+        let mirrored_layout = layout_diagram_sequence(&mirrored_ir);
+
+        assert!(layout.extensions.sequence_mirror_headers.is_empty());
+        assert!(layout.bounds.height < mirrored_layout.bounds.height);
     }
 
     #[test]

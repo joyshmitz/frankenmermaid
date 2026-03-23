@@ -110,11 +110,32 @@ struct BlockDef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct SequenceParticipantDeclaration {
+    id: String,
+    label: Option<String>,
+    shape: NodeShape,
+    classes: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum SequenceStatement {
     Participant(String),
     Actor(String),
     Message(String),
-    Autonumber,
+    Autonumber {
+        start: Option<u32>,
+        increment: Option<u32>,
+    },
+    HideFootbox,
+    Link {
+        actor: String,
+        label: String,
+        url: String,
+    },
+    Links {
+        actor: String,
+        entries: Vec<(String, String)>,
+    },
     Note {
         position: fm_core::NotePosition,
         participants: Vec<String>,
@@ -1128,8 +1149,16 @@ fn parse_sequence(input: &str, builder: &mut IrBuilder) {
 }
 
 fn parse_sequence_statement(line: &str) -> Option<SequenceStatement> {
-    if line == "autonumber" {
-        return Some(SequenceStatement::Autonumber);
+    if let Some(autonumber) = parse_sequence_autonumber(line) {
+        return Some(autonumber);
+    }
+
+    if line.eq_ignore_ascii_case("hide footbox") {
+        return Some(SequenceStatement::HideFootbox);
+    }
+
+    if let Some(link) = parse_sequence_actor_menu(line) {
+        return Some(link);
     }
 
     if let Some(note) = parse_sequence_note(line) {
@@ -1218,6 +1247,30 @@ fn parse_sequence_statement(line: &str) -> Option<SequenceStatement> {
     parse_sequence_message_ast(line).map(SequenceStatement::Message)
 }
 
+fn parse_sequence_autonumber(line: &str) -> Option<SequenceStatement> {
+    let rest = line.strip_prefix("autonumber")?;
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Some(SequenceStatement::Autonumber {
+            start: None,
+            increment: None,
+        });
+    }
+
+    let parts: Vec<&str> = rest.split_whitespace().collect();
+    match parts.as_slice() {
+        [start] => Some(SequenceStatement::Autonumber {
+            start: Some(start.parse().ok()?),
+            increment: None,
+        }),
+        [start, increment] => Some(SequenceStatement::Autonumber {
+            start: Some(start.parse().ok()?),
+            increment: Some(increment.parse().ok()?),
+        }),
+        _ => None,
+    }
+}
+
 /// Parse `Note left of Alice: text`, `Note right of Bob: text`,
 /// `Note over Alice: text`, `Note over Alice,Bob: text`.
 fn parse_sequence_note(line: &str) -> Option<SequenceStatement> {
@@ -1257,6 +1310,43 @@ fn parse_sequence_note(line: &str) -> Option<SequenceStatement> {
         participants,
         text,
     })
+}
+
+fn parse_sequence_actor_menu(line: &str) -> Option<SequenceStatement> {
+    if let Some(rest) = line.strip_prefix("link ") {
+        let (actor_raw, after_actor) = rest.split_once(':')?;
+        let actor = normalize_identifier(actor_raw);
+        if actor.is_empty() {
+            return None;
+        }
+        let (label_raw, url_raw) = after_actor.split_once('@')?;
+        let label = clean_label(Some(label_raw.trim()))?;
+        let url = clean_label(Some(url_raw.trim()))?;
+        return Some(SequenceStatement::Link { actor, label, url });
+    }
+
+    if let Some(rest) = line.strip_prefix("links ") {
+        let (actor_raw, json_raw) = rest.split_once(':')?;
+        let actor = normalize_identifier(actor_raw);
+        if actor.is_empty() {
+            return None;
+        }
+        let value = serde_json::from_str::<Value>(json_raw.trim()).ok()?;
+        let object = value.as_object()?;
+        let mut entries = Vec::new();
+        for (label, url_value) in object {
+            let Some(url) = url_value.as_str().and_then(|raw| clean_label(Some(raw))) else {
+                continue;
+            };
+            let Some(label) = clean_label(Some(label)) else {
+                continue;
+            };
+            entries.push((label, url));
+        }
+        return Some(SequenceStatement::Links { actor, entries });
+    }
+
+    None
 }
 
 /// Parse `box [color] Label` into a BoxStart statement.
@@ -1320,13 +1410,11 @@ fn lower_sequence_statement(
 ) {
     match statement {
         SequenceStatement::Participant(declaration) => {
-            if register_participant(&declaration, line_number, source_line, builder) {
+            if register_participant(&declaration, false, line_number, source_line, builder) {
                 // Track in current box group if one is open
-                let id = declaration
-                    .split_once(" as ")
-                    .map_or(declaration.as_str(), |(left, _)| left)
-                    .trim();
-                builder.track_participant_in_group(id);
+                if let Some(parsed) = parse_sequence_participant_declaration(&declaration, false) {
+                    builder.track_participant_in_group(&parsed.id);
+                }
             } else {
                 builder.add_warning(format!(
                     "Line {line_number}: unable to parse participant declaration: {}",
@@ -1335,13 +1423,11 @@ fn lower_sequence_statement(
             }
         }
         SequenceStatement::Actor(declaration) => {
-            if register_participant(&declaration, line_number, source_line, builder) {
+            if register_participant(&declaration, true, line_number, source_line, builder) {
                 // Track in current box group if one is open
-                let id = declaration
-                    .split_once(" as ")
-                    .map_or(declaration.as_str(), |(left, _)| left)
-                    .trim();
-                builder.track_participant_in_group(id);
+                if let Some(parsed) = parse_sequence_participant_declaration(&declaration, true) {
+                    builder.track_participant_in_group(&parsed.id);
+                }
             } else {
                 builder.add_warning(format!(
                     "Line {line_number}: unable to parse actor declaration: {}",
@@ -1352,8 +1438,37 @@ fn lower_sequence_statement(
         SequenceStatement::Message(statement) => {
             let _ = lower_sequence_message(&statement, line_number, source_line, builder);
         }
-        SequenceStatement::Autonumber => {
-            builder.enable_autonumber();
+        SequenceStatement::Autonumber { start, increment } => {
+            builder.enable_autonumber_with(start.unwrap_or(1), increment.unwrap_or(1));
+        }
+        SequenceStatement::HideFootbox => {
+            builder.hide_sequence_footbox();
+        }
+        SequenceStatement::Link { actor, label, url } => {
+            if !is_safe_click_target(&url) {
+                builder.add_warning(format!(
+                    "Line {line_number}: unsafe sequence actor menu link blocked: {url}"
+                ));
+            } else {
+                builder.add_node_menu_link(
+                    &actor,
+                    &label,
+                    &url,
+                    span_for(line_number, source_line),
+                );
+            }
+        }
+        SequenceStatement::Links { actor, entries } => {
+            let span = span_for(line_number, source_line);
+            for (label, url) in entries {
+                if !is_safe_click_target(&url) {
+                    builder.add_warning(format!(
+                        "Line {line_number}: unsafe sequence actor menu link blocked: {url}"
+                    ));
+                    continue;
+                }
+                builder.add_node_menu_link(&actor, &label, &url, span);
+            }
         }
         SequenceStatement::Note {
             position,
@@ -1373,13 +1488,19 @@ fn lower_sequence_statement(
         }
         SequenceStatement::CreateParticipant(declaration) => {
             let span = span_for(line_number, source_line);
-            if register_participant(&declaration, line_number, source_line, builder) {
-                // Extract the actual id from the declaration (handles "Name as Alias")
-                let id = declaration
-                    .split_once(" as ")
-                    .map_or(declaration.as_str(), |(left, _)| left)
-                    .trim();
-                builder.add_lifecycle_create(id);
+            let actor_keyword = source_line.trim_start().starts_with("create actor ");
+            if register_participant(
+                &declaration,
+                actor_keyword,
+                line_number,
+                source_line,
+                builder,
+            ) {
+                if let Some(parsed) =
+                    parse_sequence_participant_declaration(&declaration, actor_keyword)
+                {
+                    builder.add_lifecycle_create(&parsed.id);
+                }
             } else {
                 builder.add_warning(format!(
                     "Line {line_number}: unable to parse create participant: {}",
@@ -3391,11 +3512,18 @@ fn parse_pie(input: &str, builder: &mut IrBuilder) {
         }
 
         // Extract numeric value after the colon.
-        let value = trimmed
-            .split_once(':')
-            .map(|(_, v)| v)
-            .and_then(|v| v.trim().parse::<f32>().ok())
-            .unwrap_or(0.0);
+        let value = match trimmed.split_once(':').map(|(_, v)| v.trim()) {
+            Some(v) if !v.is_empty() => match v.parse::<f32>() {
+                Ok(n) => n,
+                Err(_) => {
+                    builder.add_warning(format!(
+                        "Line {line_number}: invalid pie slice value '{v}', defaulting to 0"
+                    ));
+                    0.0
+                }
+            },
+            _ => 0.0,
+        };
 
         pie_meta.slices.push(fm_core::IrPieSlice {
             label: slice_name.to_string(),
@@ -4965,32 +5093,126 @@ fn parse_state_stereotype(body: &str) -> (&str, Option<StatePseudoState>) {
 
 fn register_participant(
     declaration: &str,
+    actor_keyword: bool,
     line_number: usize,
     source_line: &str,
     builder: &mut IrBuilder,
 ) -> bool {
+    let Some(parsed) = parse_sequence_participant_declaration(declaration, actor_keyword) else {
+        return false;
+    };
+    let span = span_for(line_number, source_line);
+    let Some(node_id) =
+        builder.intern_node(&parsed.id, parsed.label.as_deref(), parsed.shape, span)
+    else {
+        return false;
+    };
+    if let Some(node) = builder.node_mut(node_id) {
+        node.shape = parsed.shape;
+    }
+    for class_name in parsed.classes {
+        builder.add_class_to_node(&parsed.id, class_name, span);
+    }
+    true
+}
+
+fn parse_sequence_participant_declaration(
+    declaration: &str,
+    actor_keyword: bool,
+) -> Option<SequenceParticipantDeclaration> {
     let trimmed = declaration.trim();
     if trimmed.is_empty() {
-        return false;
+        return None;
     }
 
-    let (raw_id, raw_label) = if let Some((left, right)) = trimmed.split_once(" as ") {
-        (left.trim(), Some(right.trim()))
+    let (before_alias, external_alias) = if let Some((left, right)) = trimmed.rsplit_once(" as ") {
+        if right.trim_start().starts_with('{') {
+            (trimmed, None)
+        } else {
+            (left.trim_end(), clean_label(Some(right)))
+        }
     } else {
         (trimmed, None)
     };
 
+    let (without_config, config) =
+        if let Some((prefix, raw_json)) = split_trailing_json_object(before_alias) {
+            match serde_json::from_str::<Value>(raw_json) {
+                Ok(parsed) => (prefix, Some(parsed)),
+                Err(_) => (before_alias, None),
+            }
+        } else {
+            (before_alias, None)
+        };
+
+    let raw_id = without_config.trim();
+
     let participant_id = normalize_identifier(raw_id);
     if participant_id.is_empty() {
-        return false;
+        return None;
     }
 
-    let label = raw_label
-        .and_then(|value| clean_label(Some(value)))
+    let inline_alias = config
+        .as_ref()
+        .and_then(Value::as_object)
+        .and_then(|obj| obj.get("alias"))
+        .and_then(Value::as_str)
+        .and_then(|value| clean_label(Some(value)));
+    let participant_type = config
+        .as_ref()
+        .and_then(Value::as_object)
+        .and_then(|obj| obj.get("type"))
+        .and_then(Value::as_str);
+
+    let label = external_alias
+        .or(inline_alias)
         .or_else(|| clean_label(Some(raw_id)));
-    let span = span_for(line_number, source_line);
-    let _ = builder.intern_node(&participant_id, label.as_deref(), NodeShape::Rect, span);
-    true
+    let (shape, mut classes) = sequence_participant_visuals(participant_type, actor_keyword);
+    classes.insert(0, "sequence-participant");
+    if actor_keyword {
+        classes.push("sequence-actor");
+    }
+
+    Some(SequenceParticipantDeclaration {
+        id: participant_id,
+        label,
+        shape,
+        classes,
+    })
+}
+
+fn split_trailing_json_object(input: &str) -> Option<(&str, &str)> {
+    let trimmed = input.trim();
+    if !trimmed.ends_with('}') {
+        return None;
+    }
+    let start = trimmed.rfind('{')?;
+    Some((trimmed[..start].trim_end(), &trimmed[start..]))
+}
+
+fn sequence_participant_visuals(
+    participant_type: Option<&str>,
+    actor_keyword: bool,
+) -> (NodeShape, Vec<&'static str>) {
+    match participant_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("boundary") => (NodeShape::Subroutine, vec!["sequence-participant-boundary"]),
+        Some("control") => (NodeShape::Circle, vec!["sequence-participant-control"]),
+        Some("entity") => (NodeShape::Rect, vec!["sequence-participant-entity"]),
+        Some("database") => (NodeShape::Cylinder, vec!["sequence-participant-database"]),
+        Some("collections") | Some("collection") => (
+            NodeShape::Subroutine,
+            vec!["sequence-participant-collections"],
+        ),
+        Some("queue") => (NodeShape::HorizontalBar, vec!["sequence-participant-queue"]),
+        Some("actor") => (NodeShape::Stadium, vec!["sequence-participant-actor"]),
+        Some(_) | None if actor_keyword => (NodeShape::Stadium, vec!["sequence-participant-actor"]),
+        Some(_) | None => (NodeShape::Rect, Vec::new()),
+    }
 }
 
 fn parse_sequence_message_ast(statement: &str) -> Option<String> {
@@ -6522,6 +6744,14 @@ fn extract_accessibility_directives(input: &str, builder: &mut IrBuilder) {
             descr_lines.clear();
         }
     }
+
+    // Flush unclosed accDescr block — treat end-of-input as implicit close.
+    if in_acc_descr_block && !descr_lines.is_empty() {
+        let descr = descr_lines.join("\n");
+        if !descr.is_empty() {
+            builder.set_acc_descr(descr);
+        }
+    }
 }
 
 fn is_comment(line: &str) -> bool {
@@ -7944,6 +8174,32 @@ mod tests {
     }
 
     #[test]
+    fn sequence_hide_footbox_sets_meta_flag() {
+        let parsed = parse_mermaid("sequenceDiagram\n  hide footbox\n  Alice->>Bob: Hello");
+
+        assert!(
+            parsed
+                .ir
+                .sequence_meta
+                .as_ref()
+                .is_some_and(|meta| meta.hide_footbox)
+        );
+    }
+
+    #[test]
+    fn sequence_hide_footbox_is_case_insensitive() {
+        let parsed = parse_mermaid("sequenceDiagram\n  HIDE FOOTBOX\n  Alice->>Bob: Hello");
+
+        assert!(
+            parsed
+                .ir
+                .sequence_meta
+                .as_ref()
+                .is_some_and(|meta| meta.hide_footbox)
+        );
+    }
+
+    #[test]
     fn invalid_init_directive_records_parse_error() {
         let parsed = parse_mermaid("%%{init: {not_json}}%%\nflowchart LR\nA-->B");
         assert_eq!(parsed.ir.meta.init.errors.len(), 1);
@@ -8530,6 +8786,34 @@ Rel_Back(db, app, "Responds")"#,
             .sequence_meta
             .expect("sequence_meta should be set");
         assert!(meta.autonumber, "autonumber should be true");
+        assert_eq!(meta.autonumber_start, 1);
+        assert_eq!(meta.autonumber_increment, 1);
+    }
+
+    #[test]
+    fn sequence_autonumber_start_sets_meta() {
+        let input = "sequenceDiagram\n  autonumber 10\n  Alice->>Bob: Hello";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert!(meta.autonumber);
+        assert_eq!(meta.autonumber_start, 10);
+        assert_eq!(meta.autonumber_increment, 1);
+    }
+
+    #[test]
+    fn sequence_autonumber_start_and_increment_set_meta() {
+        let input = "sequenceDiagram\n  autonumber 10 5\n  Alice->>Bob: Hello\n  Bob->>Alice: Hi";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert!(meta.autonumber);
+        assert_eq!(meta.autonumber_start, 10);
+        assert_eq!(meta.autonumber_increment, 5);
     }
 
     #[test]
@@ -8554,6 +8838,21 @@ Rel_Back(db, app, "Responds")"#,
         assert!(
             autonumber_warnings.is_empty(),
             "autonumber should not produce warnings, got: {autonumber_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn sequence_parameterized_autonumber_does_not_produce_warning() {
+        let input = "sequenceDiagram\n  autonumber 10 5\n  Alice->>Bob: Hello";
+        let parsed = parse_mermaid(input);
+        let autonumber_warnings: Vec<_> = parsed
+            .warnings
+            .iter()
+            .filter(|w| w.contains("autonumber"))
+            .collect();
+        assert!(
+            autonumber_warnings.is_empty(),
+            "parameterized autonumber should not produce warnings, got: {autonumber_warnings:?}"
         );
     }
 
@@ -8793,6 +9092,147 @@ Rel_Back(db, app, "Responds")"#,
             .filter(|e| e.kind == fm_core::LifecycleEventKind::Create)
             .collect();
         assert_eq!(creates.len(), 1, "Should have one create event");
+    }
+
+    #[test]
+    fn sequence_participant_config_inline_alias_and_type() {
+        let input = "sequenceDiagram\n  participant DB {\"type\":\"database\",\"alias\":\"Primary DB\"}\n  Alice->>DB: Query";
+        let parsed = parse_mermaid(input);
+
+        let db = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "DB")
+            .expect("configured participant should be present");
+        let label = db
+            .label
+            .and_then(|id| parsed.ir.labels.get(id.0))
+            .map(|label| label.text.as_str());
+
+        assert_eq!(label, Some("Primary DB"));
+        assert_eq!(db.shape, NodeShape::Cylinder);
+        assert!(
+            db.classes
+                .iter()
+                .any(|class_name| class_name == "sequence-participant-database")
+        );
+    }
+
+    #[test]
+    fn sequence_actor_config_external_alias_overrides_inline_alias() {
+        let input = "sequenceDiagram\n  actor Service {\"type\":\"queue\",\"alias\":\"Internal Queue\"} as \"External Queue\"";
+        let parsed = parse_mermaid(input);
+
+        let node = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "Service")
+            .expect("configured actor should be present");
+        let label = node
+            .label
+            .and_then(|id| parsed.ir.labels.get(id.0))
+            .map(|label| label.text.as_str());
+
+        assert_eq!(label, Some("External Queue"));
+        assert_eq!(node.shape, NodeShape::HorizontalBar);
+        assert!(
+            node.classes
+                .iter()
+                .any(|class_name| class_name == "sequence-actor")
+        );
+        assert!(
+            node.classes
+                .iter()
+                .any(|class_name| class_name == "sequence-participant-queue")
+        );
+    }
+
+    #[test]
+    fn sequence_create_actor_config_records_lifecycle_event() {
+        let input = "sequenceDiagram\n  participant Alice\n  create actor Worker {\"type\":\"control\",\"alias\":\"Worker Loop\"}\n  Alice->>Worker: Start";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        let worker = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "Worker")
+            .expect("created actor should be present");
+        let label = worker
+            .label
+            .and_then(|id| parsed.ir.labels.get(id.0))
+            .map(|label| label.text.as_str());
+
+        assert_eq!(label, Some("Worker Loop"));
+        assert_eq!(worker.shape, NodeShape::Circle);
+        assert_eq!(meta.lifecycle_events.len(), 1);
+        assert_eq!(meta.lifecycle_events[0].participant, fm_core::IrNodeId(1));
+    }
+
+    #[test]
+    fn sequence_link_actor_menu_adds_single_menu_entry() {
+        let input =
+            "sequenceDiagram\n  participant API\n  link API: Health @ https://example.com/health";
+        let parsed = parse_mermaid(input);
+        let node = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "API")
+            .expect("participant should be present");
+
+        assert_eq!(node.menu_links.len(), 1);
+        assert_eq!(node.menu_links[0].label, "Health");
+        assert_eq!(node.menu_links[0].url, "https://example.com/health");
+    }
+
+    #[test]
+    fn sequence_links_actor_menu_adds_multiple_menu_entries() {
+        let input = "sequenceDiagram\n  participant API\n  links API: {\"Docs\":\"https://example.com/docs\",\"Repo\":\"https://example.com/repo\"}";
+        let parsed = parse_mermaid(input);
+        let node = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "API")
+            .expect("participant should be present");
+
+        assert_eq!(node.menu_links.len(), 2);
+        assert!(
+            node.menu_links
+                .iter()
+                .any(|entry| entry.label == "Docs" && entry.url == "https://example.com/docs")
+        );
+        assert!(
+            node.menu_links
+                .iter()
+                .any(|entry| entry.label == "Repo" && entry.url == "https://example.com/repo")
+        );
+    }
+
+    #[test]
+    fn sequence_actor_menu_blocks_unsafe_links() {
+        let input = "sequenceDiagram\n  participant API\n  link API: Admin @ javascript:alert(1)";
+        let parsed = parse_mermaid(input);
+        let node = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "API")
+            .expect("participant should be present");
+
+        assert!(node.menu_links.is_empty());
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("unsafe sequence actor menu link blocked"))
+        );
     }
 
     #[test]

@@ -199,7 +199,7 @@ fn diff_nodes(
                     changed += 1;
                 }
             }
-            (None, None) => unreachable!(),
+            (None, None) => continue,
         }
     }
 

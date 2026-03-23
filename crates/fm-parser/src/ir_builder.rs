@@ -164,10 +164,24 @@ impl IrBuilder {
     }
 
     pub(crate) fn enable_autonumber(&mut self) {
+        self.enable_autonumber_with(1, 1);
+    }
+
+    pub(crate) fn enable_autonumber_with(&mut self, start: u32, increment: u32) {
+        let meta = self
+            .ir
+            .sequence_meta
+            .get_or_insert_with(IrSequenceMeta::default);
+        meta.autonumber = true;
+        meta.autonumber_start = start;
+        meta.autonumber_increment = increment;
+    }
+
+    pub(crate) fn hide_sequence_footbox(&mut self) {
         self.ir
             .sequence_meta
             .get_or_insert_with(IrSequenceMeta::default)
-            .autonumber = true;
+            .hide_footbox = true;
     }
 
     pub(crate) fn add_sequence_note(
@@ -748,6 +762,7 @@ impl IrBuilder {
             span_all: vec![span],
             implicit: is_auto_created,
             members: Vec::new(),
+            menu_links: Vec::new(),
             class_meta: None,
             requirement_meta: None,
             c4_meta: None,
@@ -1011,6 +1026,32 @@ impl IrBuilder {
         }
     }
 
+    pub(crate) fn add_node_menu_link(
+        &mut self,
+        node_key: &str,
+        label: &str,
+        url: &str,
+        span: Span,
+    ) {
+        let Some(node_id) = self.intern_node(node_key, None, NodeShape::Rect, span) else {
+            return;
+        };
+        let Some(node) = self.ir.nodes.get_mut(node_id.0) else {
+            return;
+        };
+        if node
+            .menu_links
+            .iter()
+            .any(|entry| entry.label == label && entry.url == url)
+        {
+            return;
+        }
+        node.menu_links.push(fm_core::IrMenuLink {
+            label: label.to_string(),
+            url: url.to_string(),
+        });
+    }
+
     pub(crate) fn node_mut(&mut self, node_id: IrNodeId) -> Option<&mut fm_core::IrNode> {
         self.ir.nodes.get_mut(node_id.0)
     }
@@ -1190,5 +1231,36 @@ mod tests {
         assert_eq!(activations.len(), 2);
         assert_eq!(activations[0].participant.0, 1);
         assert_eq!(activations[1].participant.0, 0);
+    }
+
+    #[test]
+    fn hide_sequence_footbox_sets_sequence_meta_flag() {
+        let mut builder = IrBuilder::new(DiagramType::Sequence);
+
+        builder.hide_sequence_footbox();
+
+        let result = builder.finish(1.0, crate::DetectionMethod::ExactKeyword);
+        assert!(
+            result
+                .ir
+                .sequence_meta
+                .expect("sequence metadata should exist")
+                .hide_footbox
+        );
+    }
+
+    #[test]
+    fn enable_autonumber_with_sets_sequence_numbering_parameters() {
+        let mut builder = IrBuilder::new(DiagramType::Sequence);
+
+        builder.enable_autonumber_with(10, 5);
+
+        let meta = builder
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert!(meta.autonumber);
+        assert_eq!(meta.autonumber_start, 10);
+        assert_eq!(meta.autonumber_increment, 5);
     }
 }

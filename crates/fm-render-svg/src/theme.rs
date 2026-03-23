@@ -718,13 +718,13 @@ pub fn generate_palette(base_hex: &str, count: usize) -> Vec<String> {
 /// Convert hex color to HSL.
 fn hex_to_hsl(hex: &str) -> (f32, f32, f32) {
     let hex = hex.trim_start_matches('#');
-    let (r, g, b) = if hex.len() == 3 {
+    let (r, g, b) = if hex.len() == 3 && hex.is_ascii() {
         let r = u8::from_str_radix(&hex[0..1], 16).unwrap_or(0) as f32 / 15.0;
         let g = u8::from_str_radix(&hex[1..2], 16).unwrap_or(0) as f32 / 15.0;
         let b = u8::from_str_radix(&hex[2..3], 16).unwrap_or(0) as f32 / 15.0;
         // Correct 3-digit hex: repeat the digit
         (r, g, b)
-    } else if hex.len() >= 6 {
+    } else if hex.len() >= 6 && hex.is_ascii() {
         let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(128) as f32 / 255.0;
         let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(128) as f32 / 255.0;
         let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(128) as f32 / 255.0;
