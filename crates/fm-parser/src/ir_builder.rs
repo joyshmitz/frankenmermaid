@@ -207,6 +207,7 @@ impl IrBuilder {
                 position,
                 participants,
                 text,
+                after_edge: self.ir.edges.len().saturating_sub(1),
             });
     }
 
@@ -475,10 +476,21 @@ impl IrBuilder {
         }
     }
 
-    pub(crate) fn begin_fragment(&mut self, kind: FragmentKind, label: String) {
+    pub(crate) fn begin_fragment(
+        &mut self,
+        kind: FragmentKind,
+        label: String,
+        color: Option<String>,
+    ) {
         let start_edge = self.ir.edges.len();
         self.fragment_stack
             .push((kind, label, start_edge, Vec::new(), Vec::new()));
+        if let Some((stored_kind, stored_label, _, _, _)) = self.fragment_stack.last_mut()
+            && *stored_kind == FragmentKind::Rect
+            && let Some(color) = color
+        {
+            *stored_label = color;
+        }
     }
 
     pub(crate) fn add_fragment_alternative(&mut self, label: String) {
@@ -518,7 +530,12 @@ impl IrBuilder {
         let fragment_index = meta.fragments.len();
         meta.fragments.push(IrSequenceFragment {
             kind,
-            label,
+            label: if kind == FragmentKind::Rect {
+                String::new()
+            } else {
+                label.clone()
+            },
+            color: (kind == FragmentKind::Rect).then_some(label),
             start_edge,
             end_edge,
             alternatives,

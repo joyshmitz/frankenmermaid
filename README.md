@@ -1,21 +1,18 @@
-# frankenmermaid
 
-<div align="center">
-  <img src="frankenmermaid_illustration.webp" alt="frankenmermaid - resilient Mermaid-compatible diagram engine in Rust" />
-</div>
-
-<div align="center">
-
-![Rust Nightly 2024](https://img.shields.io/badge/Rust-nightly%202024-orange)
-![WASM](https://img.shields.io/badge/WASM-web%20target-blue)
-![Deterministic](https://img.shields.io/badge/layout-deterministic-success)
-![Diagram Types](https://img.shields.io/badge/diagram%20types-25-purple)
-![Tests](https://img.shields.io/badge/tests-200%2B-brightgreen)
-![No Unsafe](https://img.shields.io/badge/unsafe-forbidden-red)
-
-</div>
-
-Rust-first Mermaid-compatible diagram engine. Parses messy input without crashing, picks smarter layouts automatically, and renders polished SVG/terminal/web output from a single pipeline.
+<!-- BEGIN GENERATED: runtime-capability-metadata -->
+| Surface | Status | Evidence |
+|---------|--------|----------|
+| CLI detect command | Implemented | 2 evidence refs |
+| CLI parse command with IR JSON evidence | Implemented | 1 evidence refs |
+| CLI SVG rendering | Implemented | 1 evidence refs |
+| CLI terminal rendering | Implemented | 1 evidence refs |
+| CLI validate command with structured diagnostics | Implemented | 1 evidence refs |
+| CLI capability matrix command | Implemented | 2 evidence refs |
+| WASM API renders SVG | Implemented | 1 evidence refs |
+| WASM API exposes capability matrix metadata | Implemented | 1 evidence refs |
+| Canvas rendering backend | Implemented | 1 evidence refs |
+<!-- END GENERATED: runtime-capability-metadata -->
+erminal/web output from a single pipeline.
 
 <div align="center">
 

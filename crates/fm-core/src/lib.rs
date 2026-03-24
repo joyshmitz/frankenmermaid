@@ -3028,6 +3028,10 @@ pub struct IrSequenceNote {
     pub position: NotePosition,
     pub participants: Vec<IrNodeId>,
     pub text: String,
+    /// Index into `ir.edges` indicating which message this note appears after.
+    /// Used for vertical positioning in the layout.
+    #[serde(default)]
+    pub after_edge: usize,
 }
 
 /// One alternative section inside an `Alt` fragment.
@@ -3043,6 +3047,8 @@ pub struct FragmentAlternative {
 pub struct IrSequenceFragment {
     pub kind: FragmentKind,
     pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
     pub start_edge: usize,
     pub end_edge: usize,
     pub alternatives: Vec<FragmentAlternative>,
@@ -5154,10 +5160,12 @@ mod tests {
                 position: NotePosition::RightOf,
                 participants: vec![IrNodeId(0)],
                 text: "important".to_string(),
+                after_edge: 0,
             }],
             fragments: vec![IrSequenceFragment {
                 kind: FragmentKind::Alt,
                 label: "condition".to_string(),
+                color: None,
                 start_edge: 0,
                 end_edge: 4,
                 alternatives: vec![FragmentAlternative {

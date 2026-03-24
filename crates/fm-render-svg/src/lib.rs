@@ -1609,10 +1609,7 @@ fn render_layout_to_svg(
             } else {
                 fill.clone()
             };
-            fragment_rect = fragment_rect
-                .fill(&fill)
-                .stroke(&stroke)
-                .stroke_width(1.0);
+            fragment_rect = fragment_rect.fill(&fill).stroke(&stroke).stroke_width(1.0);
         } else {
             fragment_rect = fragment_rect
                 .fill("none")
@@ -3502,10 +3499,10 @@ fn render_class_compartments(
     // Attributes compartment.
     let member_font_size = font_size * 0.9;
     for attr in &meta.attributes {
-        if cursor_y > y + h - line_h {
+        cursor_y += member_font_size * config.line_height * 0.9;
+        if cursor_y > y + h - line_h * 0.5 {
             break;
         }
-        cursor_y += member_font_size * config.line_height * 0.9;
         let vis = visibility_symbol(attr.visibility);
         let text = if let Some(ref ret) = attr.return_type {
             format!("{vis}{}: {ret}", attr.name)
@@ -3539,10 +3536,10 @@ fn render_class_compartments(
 
     // Methods compartment.
     for method in &meta.methods {
+        cursor_y += member_font_size * config.line_height * 0.9;
         if cursor_y > y + h - line_h * 0.5 {
             break;
         }
-        cursor_y += member_font_size * config.line_height * 0.9;
         let vis = visibility_symbol(method.visibility);
         let suffix = if method.is_abstract {
             "*"
@@ -5688,6 +5685,61 @@ mod tests {
         let svg = render_svg(&ir);
         assert!(svg.contains(">10 Ping<"));
         assert!(svg.contains(">15 Pong<"));
+    }
+
+    #[test]
+    fn renders_sequence_labels_with_decoded_entity_characters() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.labels.push(fm_core::IrLabel {
+            text: "I # Rust ; ♥ ∞".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            ..Default::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            label: Some(fm_core::IrLabelId(0)),
+            ..Default::default()
+        });
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains("I # Rust ; ♥ ∞"));
+    }
+
+    #[test]
+    fn renders_sequence_labels_with_explicit_line_breaks() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.labels.push(fm_core::IrLabel {
+            text: "Line 1\nLine 2".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Alice".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "Bob".to_string(),
+            ..Default::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            label: Some(fm_core::IrLabelId(0)),
+            ..Default::default()
+        });
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains(">Line 1<"));
+        assert!(svg.contains(">Line 2<"));
     }
 
     proptest! {

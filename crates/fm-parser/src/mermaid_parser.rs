@@ -1318,18 +1318,81 @@ fn parse_sequence_note(line: &str) -> Option<SequenceStatement> {
         return None;
     }
 
-    // Replace <br/> and <br> with newlines in note text
-    let text = text
-        .trim()
-        .replace("<br/>", "\n")
-        .replace("<br>", "\n")
-        .replace("<br />", "\n");
+    let text = normalize_sequence_display_text(text);
 
     Some(SequenceStatement::Note {
         position,
         participants,
         text,
     })
+}
+
+fn decode_mermaid_entities(text: &str) -> String {
+    let mut decoded = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+
+    while let Some(relative_start) = text[cursor..].find('#') {
+        let start = cursor + relative_start;
+        decoded.push_str(&text[cursor..start]);
+
+        let Some(relative_end) = text[start..].find(';') else {
+            decoded.push_str(&text[start..]);
+            return decoded;
+        };
+        let end = start + relative_end;
+        let token = &text[start + 1..end];
+
+        if let Some(ch) = decode_mermaid_entity_token(token) {
+            decoded.push(ch);
+            cursor = end + 1;
+        } else {
+            decoded.push_str(&text[start..=end]);
+            cursor = end + 1;
+        }
+    }
+
+    decoded.push_str(&text[cursor..]);
+    decoded
+}
+
+fn normalize_sequence_display_text(text: &str) -> String {
+    let with_line_breaks = text
+        .trim()
+        .replace("<br/>", "\n")
+        .replace("<br>", "\n")
+        .replace("<br />", "\n");
+    decode_mermaid_entities(&with_line_breaks)
+}
+
+fn decode_mermaid_entity_token(token: &str) -> Option<char> {
+    if token.is_empty() {
+        return None;
+    }
+
+    if let Some(hex) = token.strip_prefix(['x', 'X']) {
+        let value = u32::from_str_radix(hex, 16).ok()?;
+        return char::from_u32(value);
+    }
+
+    if token.chars().all(|ch| ch.is_ascii_digit()) {
+        let value = token.parse::<u32>().ok()?;
+        return char::from_u32(value);
+    }
+
+    match token {
+        "amp" => Some('&'),
+        "apos" => Some('\''),
+        "copy" => Some('©'),
+        "gt" => Some('>'),
+        "hearts" => Some('♥'),
+        "infin" => Some('∞'),
+        "lt" => Some('<'),
+        "nbsp" => Some('\u{00A0}'),
+        "quot" => Some('"'),
+        "semi" => Some(';'),
+        "tab" => Some('\t'),
+        _ => None,
+    }
 }
 
 fn parse_sequence_actor_menu(line: &str) -> Option<SequenceStatement> {
@@ -5347,7 +5410,10 @@ fn parse_sequence_participant_declaration(
         if right.trim_start().starts_with('{') {
             (trimmed, None)
         } else {
-            (left.trim_end(), clean_label(Some(right)))
+            (
+                left.trim_end(),
+                clean_label(Some(right)).map(|value| normalize_sequence_display_text(&value)),
+            )
         }
     } else {
         (trimmed, None)
@@ -5375,7 +5441,8 @@ fn parse_sequence_participant_declaration(
         .and_then(Value::as_object)
         .and_then(|obj| obj.get("alias"))
         .and_then(Value::as_str)
-        .and_then(|value| clean_label(Some(value)));
+        .and_then(|value| clean_label(Some(value)))
+        .map(|value| normalize_sequence_display_text(&value));
     let participant_type = config
         .as_ref()
         .and_then(Value::as_object)
@@ -5384,7 +5451,7 @@ fn parse_sequence_participant_declaration(
 
     let label = external_alias
         .or(inline_alias)
-        .or_else(|| clean_label(Some(raw_id)));
+        .or_else(|| clean_label(Some(raw_id)).map(|value| normalize_sequence_display_text(&value)));
     let (shape, mut classes) = sequence_participant_visuals(participant_type, actor_keyword);
     classes.insert(0, "sequence-participant");
     if actor_keyword {
@@ -5474,7 +5541,10 @@ fn lower_sequence_message(
     }
 
     let (target_raw, message_label) = if let Some((target, label)) = right.split_once(':') {
-        (target.trim(), clean_label(Some(label)))
+        (
+            target.trim(),
+            clean_label(Some(label)).map(|label| normalize_sequence_display_text(&label)),
+        )
     } else {
         (right, None)
     };
@@ -9142,6 +9212,52 @@ Rel_Back(db, app, "Responds")"#,
     }
 
     #[test]
+    fn sequence_message_label_decodes_mermaid_entities() {
+        let input = "sequenceDiagram\n  Alice->>Bob: I #35; Rust #59; #9829; #infin;";
+        let parsed = parse_mermaid(input);
+        let edge = parsed.ir.edges.first().expect("message edge");
+        let label_id = edge.label.expect("message label");
+        let label = &parsed.ir.labels[label_id.0].text;
+        assert_eq!(label, "I # Rust ; ♥ ∞");
+    }
+
+    #[test]
+    fn sequence_message_label_normalizes_line_break_markup() {
+        let input = "sequenceDiagram\n  Alice->>Bob: Line 1<br/>Line 2";
+        let parsed = parse_mermaid(input);
+        let edge = parsed.ir.edges.first().expect("message edge");
+        let label_id = edge.label.expect("message label");
+        let label = &parsed.ir.labels[label_id.0].text;
+        assert_eq!(label, "Line 1\nLine 2");
+    }
+
+    #[test]
+    fn sequence_note_decodes_mermaid_entities_and_line_breaks() {
+        let input = "sequenceDiagram\n  participant Alice\n  Note over Alice: Line #35;<br/>Line #59; #infin;";
+        let parsed = parse_mermaid(input);
+        let meta = parsed
+            .ir
+            .sequence_meta
+            .expect("sequence_meta should be set");
+        assert_eq!(meta.notes[0].text, "Line #\nLine ; ∞");
+    }
+
+    #[test]
+    fn sequence_participant_alias_normalizes_line_break_markup() {
+        let input = "sequenceDiagram\n  participant Alice as Alice<br/>Admin";
+        let parsed = parse_mermaid(input);
+        let node = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|node| node.id == "Alice")
+            .expect("participant node");
+        let label_id = node.label.expect("participant label");
+        let label = &parsed.ir.labels[label_id.0].text;
+        assert_eq!(label, "Alice\nAdmin");
+    }
+
+    #[test]
     fn sequence_note_does_not_produce_warning() {
         let input = "sequenceDiagram\n  participant Alice\n  Note left of Alice: Test";
         let parsed = parse_mermaid(input);
@@ -9574,7 +9690,11 @@ Rel_Back(db, app, "Responds")"#,
             .expect("sequence_meta should be set");
         assert_eq!(meta.fragments.len(), 1);
         assert_eq!(meta.fragments[0].kind, fm_core::FragmentKind::Rect);
-        assert_eq!(meta.fragments[0].label, "rgb(200, 220, 240)");
+        assert_eq!(meta.fragments[0].label, "");
+        assert_eq!(
+            meta.fragments[0].color.as_deref(),
+            Some("rgb(200, 220, 240)")
+        );
     }
 
     #[test]

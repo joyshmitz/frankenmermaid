@@ -3217,14 +3217,12 @@ fn build_sequence_note_geometry(
 
     meta.notes
         .iter()
-        .enumerate()
-        .map(|(note_index, note)| {
+        .map(|note| {
             // Position the note at the edge after which it appears.
-            // Notes are interleaved with messages, so use note_index as edge hint.
             let y = message_y_positions
-                .get(note_index)
+                .get(note.after_edge)
                 .copied()
-                .unwrap_or(first_message_y + note_index as f32 * message_gap);
+                .unwrap_or(first_message_y + note.after_edge as f32 * message_gap);
 
             // Determine x position based on participants and note position.
             let first_pid = note.participants.first().map(|p| p.0).unwrap_or(0);

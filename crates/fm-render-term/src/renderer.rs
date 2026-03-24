@@ -109,12 +109,22 @@ impl TermRenderer {
             }
         }
 
-        // Render nodes (foreground).
-        for node_box in &layout.nodes {
-            self.render_node_cell(&mut buffer, ir, node_box, scale_x, scale_y);
-        }
-        for node_box in &layout.extensions.sequence_mirror_headers {
-            self.render_node_cell(&mut buffer, ir, node_box, scale_x, scale_y);
+        // Chart-specific terminal rendering.
+        if ir.diagram_type == fm_core::DiagramType::Pie
+            && let Some(pie_meta) = &ir.pie_meta
+            && !pie_meta.slices.is_empty()
+        {
+            self::render_pie_cell(&mut buffer, pie_meta, cell_width, cell_height);
+        } else if ir.diagram_type == fm_core::DiagramType::Gantt && ir.gantt_meta.is_some() {
+            render_gantt_cell(&mut buffer, ir, cell_width, cell_height);
+        } else {
+            // Render nodes (foreground).
+            for node_box in &layout.nodes {
+                self.render_node_cell(&mut buffer, ir, node_box, scale_x, scale_y);
+            }
+            for node_box in &layout.extensions.sequence_mirror_headers {
+                self.render_node_cell(&mut buffer, ir, node_box, scale_x, scale_y);
+            }
         }
 
         let output = buffer.to_string();
@@ -1592,6 +1602,185 @@ fn is_block_beta_space_node(node: &fm_core::IrNode) -> bool {
             .classes
             .iter()
             .any(|class_name| class_name.eq_ignore_ascii_case("block-beta-space"))
+}
+
+/// Render a pie chart as an ASCII ellipse with wedge detection and a side legend.
+fn render_pie_cell(
+    buffer: &mut CellBuffer,
+    pie_meta: &fm_core::IrPieMeta,
+    cell_width: usize,
+    cell_height: usize,
+) {
+    use std::f32::consts::PI;
+
+    let slices = &pie_meta.slices;
+    let total: f32 = slices
+        .iter()
+        .map(|s| s.value.max(0.0))
+        .sum::<f32>()
+        .max(f32::EPSILON);
+
+    // Reserve space for legend on the right.
+    let legend_width = slices
+        .iter()
+        .map(|s| s.label.len() + 8) // " X Label  "
+        .max()
+        .unwrap_or(10)
+        .min(cell_width / 3);
+    let chart_width = cell_width.saturating_sub(legend_width + 2);
+    let chart_height = cell_height.saturating_sub(2);
+
+    if chart_width < 4 || chart_height < 4 {
+        return;
+    }
+
+    // Title
+    if let Some(title) = &pie_meta.title {
+        let tx = chart_width.saturating_sub(title.len()) / 2;
+        buffer.set_string(tx, 0, title);
+    }
+
+    let cx = chart_width / 2;
+    let cy = chart_height / 2 + 1;
+    let rx = (chart_width / 2).saturating_sub(1).max(2);
+    let ry = (chart_height / 2).saturating_sub(1).max(2);
+
+    let slice_chars: &[char] = &['#', '*', '@', '+', '=', '~', '%', '&'];
+
+    // Build cumulative angle boundaries.
+    let mut boundaries = Vec::with_capacity(slices.len() + 1);
+    boundaries.push(-PI / 2.0);
+    let mut angle = -PI / 2.0;
+    for slice in slices {
+        angle += (slice.value.max(0.0) / total) * 2.0 * PI;
+        boundaries.push(angle);
+    }
+
+    // Render pie ellipse pixel-by-pixel.
+    for row in 0..chart_height {
+        for col in 0..chart_width {
+            let dx = (col as f32 - cx as f32) / rx as f32;
+            let dy = (row as f32 - cy as f32) / ry as f32;
+            if dx * dx + dy * dy > 1.0 {
+                continue;
+            }
+            let cell_angle = (-dy).atan2(dx);
+            // Find which slice this angle belongs to.
+            let slice_idx = boundaries
+                .windows(2)
+                .position(|w| cell_angle >= w[0] && cell_angle < w[1])
+                .unwrap_or(0);
+            let ch = slice_chars[slice_idx % slice_chars.len()];
+            buffer.set(col, row + 1, ch);
+        }
+    }
+
+    // Render legend on the right side.
+    let legend_x = chart_width + 2;
+    for (i, slice) in slices.iter().enumerate() {
+        let row = i + 2;
+        if row >= cell_height {
+            break;
+        }
+        let ch = slice_chars[i % slice_chars.len()];
+        let pct = (slice.value.max(0.0) / total) * 100.0;
+        let entry = format!("{ch} {:.0}% {}", pct, slice.label);
+        let truncated = if entry.len() > legend_width {
+            &entry[..legend_width]
+        } else {
+            &entry
+        };
+        buffer.set_string(legend_x, row, truncated);
+    }
+}
+
+/// Render gantt task bars in the terminal as horizontal block characters.
+fn render_gantt_cell(
+    buffer: &mut CellBuffer,
+    ir: &MermaidDiagramIr,
+    cell_width: usize,
+    cell_height: usize,
+) {
+    let Some(gantt_meta) = &ir.gantt_meta else {
+        return;
+    };
+
+    let label_width = gantt_meta
+        .sections
+        .iter()
+        .map(|s| s.name.len())
+        .max()
+        .unwrap_or(0)
+        .min(cell_width / 3)
+        .max(8);
+    let bar_area_width = cell_width.saturating_sub(label_width + 3);
+    if bar_area_width < 4 {
+        return;
+    }
+
+    // Title
+    if let Some(title) = &gantt_meta.title {
+        let tx = cell_width.saturating_sub(title.len()) / 2;
+        buffer.set_string(tx, 0, title);
+    }
+
+    let task_count = gantt_meta.tasks.len().max(1);
+    let mut row = 2_usize;
+
+    for (section_idx, section) in gantt_meta.sections.iter().enumerate() {
+        if row >= cell_height {
+            break;
+        }
+        // Section header
+        let header = if section.name.len() > label_width {
+            &section.name[..label_width]
+        } else {
+            &section.name
+        };
+        buffer.set_string(0, row, header);
+        // Separator line
+        for col in label_width + 1..cell_width {
+            buffer.set(col, row, '\u{2500}'); // ─
+        }
+        row += 1;
+
+        // Tasks belonging to this section (matched by section_idx).
+        for (task_idx, task) in gantt_meta.tasks.iter().enumerate() {
+            if task.section_idx != section_idx {
+                continue;
+            }
+            if row >= cell_height {
+                break;
+            }
+            // Task label from the associated node.
+            let task_name = ir
+                .nodes
+                .get(task.node.0)
+                .map(|n| n.id.as_str())
+                .unwrap_or("task");
+            let task_label = if task_name.len() > label_width {
+                &task_name[..label_width]
+            } else {
+                task_name
+            };
+            buffer.set_string(0, row, task_label);
+
+            // Task bar — position proportionally in the bar area.
+            let bar_start = label_width + 2 + (task_idx * bar_area_width) / task_count;
+            let bar_end = label_width + 2 + ((task_idx + 1) * bar_area_width) / task_count;
+            let bar_char = if task.critical {
+                '\u{2593}' // ▓
+            } else if task.done {
+                '\u{2591}' // ░
+            } else {
+                '\u{2588}' // █
+            };
+            for col in bar_start..bar_end.min(cell_width) {
+                buffer.set(col, row, bar_char);
+            }
+            row += 1;
+        }
+    }
 }
 
 #[cfg(test)]
