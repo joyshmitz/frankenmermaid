@@ -968,7 +968,7 @@ pub struct IrLabel {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum IrLabelSegment {
     Text {
         text: String,

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use chumsky::prelude::*;
 use fm_core::{
@@ -3557,7 +3557,7 @@ fn parse_er_relationship(
 fn parse_gantt(input: &str, builder: &mut IrBuilder) {
     let mut gantt_meta = IrGanttMeta::default();
     let mut current_section_idx = 0_usize;
-    let mut task_ids_to_nodes: HashMap<String, IrNodeId> = HashMap::new();
+    let mut task_ids_to_nodes: BTreeMap<String, IrNodeId> = BTreeMap::new();
     let mut pending_dependencies: Vec<(IrNodeId, String, Span)> = Vec::new();
 
     for (index, line) in input.lines().enumerate() {
@@ -3838,11 +3838,38 @@ fn normalize_gantt_date_with_format(token: &str, date_format: &str) -> Option<St
     }
 
     let (year, month, day) = (year?, month?, day?);
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    if !is_valid_gantt_calendar_date(year, month, day) {
         return None;
     }
 
     Some(format!("{year:04}-{month:02}-{day:02}"))
+}
+
+fn is_valid_gantt_calendar_date(year: u32, month: u32, day: u32) -> bool {
+    let Some(max_day) = gantt_days_in_month(year, month) else {
+        return false;
+    };
+    (1..=max_day).contains(&day)
+}
+
+fn gantt_days_in_month(year: u32, month: u32) -> Option<u32> {
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_gantt_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return None,
+    };
+    Some(max_day)
+}
+
+fn is_gantt_leap_year(year: u32) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 fn split_gantt_date_parts<F>(value: &str, predicate: F) -> Option<Vec<&str>>
@@ -4547,7 +4574,7 @@ fn parse_architecture(input: &str, builder: &mut IrBuilder) {
 /// Git graph state tracker for parsing.
 struct GitGraphState {
     /// Map of branch names to their current head commit node ID
-    branches: HashMap<String, IrNodeId>,
+    branches: BTreeMap<String, IrNodeId>,
     /// Current branch name
     current_branch: String,
     /// Auto-generated commit counter for unnamed commits
@@ -4557,7 +4584,7 @@ struct GitGraphState {
 impl GitGraphState {
     fn new() -> Self {
         Self {
-            branches: HashMap::new(),
+            branches: BTreeMap::new(),
             current_branch: "main".to_string(),
             commit_counter: 0,
         }
@@ -10741,6 +10768,22 @@ Rel_Back(db, app, "Responds")"#,
             ]
         );
         assert_eq!(gantt_meta.tasks[1].depends_on, vec!["build1".to_string()]);
+    }
+
+    #[test]
+    fn gantt_date_format_rejects_impossible_calendar_dates() {
+        assert_eq!(
+            super::normalize_gantt_date_with_format("29/02/2024", "DD/MM/YYYY"),
+            Some("2024-02-29".to_string())
+        );
+        assert_eq!(
+            super::normalize_gantt_date_with_format("31/02/2026", "DD/MM/YYYY"),
+            None
+        );
+        assert_eq!(
+            super::normalize_gantt_date_with_format("2025-02-29", "YYYY-MM-DD"),
+            None
+        );
     }
 
     // --- Pie parser tests ---

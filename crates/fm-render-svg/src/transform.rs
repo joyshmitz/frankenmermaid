@@ -87,7 +87,10 @@ impl Transform {
 
 /// Format a number for SVG transform output.
 fn fmt_num(n: f32) -> String {
-    if n.fract() == 0.0 {
+    if !n.is_finite() {
+        return "0".to_string();
+    }
+    if n.fract() == 0.0 && n >= i32::MIN as f32 && n <= i32::MAX as f32 {
         format!("{}", n as i32)
     } else {
         format!("{:.2}", n)

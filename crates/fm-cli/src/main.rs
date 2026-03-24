@@ -1068,15 +1068,7 @@ fn render_format(
 ) -> Result<(Vec<u8>, Option<u32>, Option<u32>)> {
     match format {
         OutputFormat::Svg => {
-            let base = SvgRenderConfig::default();
-            let mut svg_config = SvgRenderConfig {
-                theme: resolve_theme_preset(theme, base.theme),
-                include_source_spans: true,
-                ..base
-            };
-            if let Some(size) = font_size {
-                svg_config.font_size = size;
-            }
+            let svg_config = build_svg_render_config(theme, font_size);
             let svg = render_svg_with_layout(ir, layout, &svg_config);
             // Extract dimensions from SVG if available
             let (w, h) = extract_svg_dimensions(&svg);
@@ -1086,12 +1078,7 @@ fn render_format(
         OutputFormat::Png => {
             #[cfg(feature = "png")]
             {
-                let base = SvgRenderConfig::default();
-                let svg_config = SvgRenderConfig {
-                    theme: resolve_theme_preset(theme, base.theme),
-                    include_source_spans: true,
-                    ..base
-                };
+                let svg_config = build_svg_render_config(theme, font_size);
                 let svg = render_svg_with_layout(ir, layout, &svg_config);
                 let (png, px_width, px_height) = svg_to_png(&svg, width, height)?;
                 Ok((png, Some(px_width), Some(px_height)))
@@ -1131,6 +1118,19 @@ fn render_format(
             ))
         }
     }
+}
+
+fn build_svg_render_config(theme: &str, font_size: Option<f32>) -> SvgRenderConfig {
+    let base = SvgRenderConfig::default();
+    let mut svg_config = SvgRenderConfig {
+        theme: resolve_theme_preset(theme, base.theme),
+        include_source_spans: true,
+        ..base
+    };
+    if let Some(size) = font_size {
+        svg_config.font_size = size;
+    }
+    svg_config
 }
 
 fn resolve_theme_preset(theme: &str, fallback: ThemePreset) -> ThemePreset {
@@ -1960,7 +1960,7 @@ mod validate_tests {
 
 #[cfg(test)]
 mod render_tests {
-    use super::{OutputFormat, render_format};
+    use super::{OutputFormat, ThemePreset, build_svg_render_config, render_format};
     use fm_layout::layout_diagram;
     use fm_parser::parse;
 
@@ -1988,6 +1988,14 @@ mod render_tests {
         let output = String::from_utf8(rendered).expect("terminal output should be UTF-8");
         assert!(!output.contains("Start"));
         assert!(!output.contains("End"));
+    }
+
+    #[test]
+    fn svg_render_config_applies_font_size_for_all_svg_based_outputs() {
+        let config = build_svg_render_config("dark", Some(22.0));
+        assert_eq!(config.theme, ThemePreset::Dark);
+        assert_eq!(config.font_size, 22.0);
+        assert!(config.include_source_spans);
     }
 }
 

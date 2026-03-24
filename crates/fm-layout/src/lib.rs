@@ -3942,7 +3942,7 @@ fn parse_iso_day_number(value: &str) -> Option<i32> {
     let year: i32 = value[0..4].parse().ok()?;
     let month: u8 = value[5..7].parse().ok()?;
     let day: u8 = value[8..10].parse().ok()?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    if !is_valid_iso_calendar_date(year, month, day) {
         return None;
     }
 
@@ -3959,6 +3959,33 @@ fn parse_iso_day_number(value: &str) -> Option<i32> {
     let day_of_year = (153 * month_prime + 2) / 5 + day_i32 - 1;
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     Some(era * 146_097 + day_of_era - 719_468)
+}
+
+fn is_valid_iso_calendar_date(year: i32, month: u8, day: u8) -> bool {
+    let Some(max_day) = iso_days_in_month(year, month) else {
+        return false;
+    };
+    (1..=max_day).contains(&day)
+}
+
+fn iso_days_in_month(year: i32, month: u8) -> Option<u8> {
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_iso_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return None,
+    };
+    Some(max_day)
+}
+
+fn is_iso_leap_year(year: i32) -> bool {
+    (year.rem_euclid(4) == 0 && year.rem_euclid(100) != 0) || year.rem_euclid(400) == 0
 }
 
 fn gantt_task_absolute_start(task: &fm_core::IrGanttTask) -> Option<i32> {
@@ -10037,6 +10064,14 @@ mod tests {
         let verify = nodes.get("verify").expect("verify");
         assert!(build.bounds.width > 3.5 * 48.0);
         assert!(verify.bounds.center().x > build.bounds.center().x);
+    }
+
+    #[test]
+    fn parse_iso_day_number_rejects_impossible_calendar_dates() {
+        assert!(super::parse_iso_day_number("2026-02-31").is_none());
+        assert!(super::parse_iso_day_number("2025-02-29").is_none());
+        assert!(super::parse_iso_day_number("2024-02-29").is_some());
+        assert!(super::parse_iso_day_number("2026-04-30").is_some());
     }
 
     #[test]

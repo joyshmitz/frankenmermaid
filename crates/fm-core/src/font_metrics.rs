@@ -172,7 +172,15 @@ pub enum DiagnosticLevel {
 impl FontMetrics {
     /// Create new font metrics from configuration.
     #[must_use]
-    pub fn new(config: FontMetricsConfig) -> Self {
+    pub fn new(mut config: FontMetricsConfig) -> Self {
+        // Guard against zero or negative font size which would produce
+        // zero-dimension layouts and potential division-by-zero downstream.
+        if !config.font_size.is_finite() || config.font_size <= 0.0 {
+            config.font_size = 15.0;
+        }
+        if !config.line_height.is_finite() || config.line_height <= 0.0 {
+            config.line_height = 1.5;
+        }
         let avg_char_width = config.font_size * config.preset.avg_char_ratio();
         Self {
             config,

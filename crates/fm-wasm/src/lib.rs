@@ -9,8 +9,7 @@ use fm_core::{
 };
 use fm_layout::{
     DiagramLayout, LayoutConfig, LayoutGuardrails, build_layout_guard_report_with_pressure,
-    layout_diagram_traced, layout_diagram_traced_with_algorithm_and_guardrails,
-    layout_diagram_traced_with_config_and_guardrails,
+    layout_diagram_traced, layout_diagram_traced_with_config_and_guardrails,
 };
 #[cfg(target_arch = "wasm32")]
 use fm_parser::ParseResult;
@@ -379,10 +378,16 @@ fn merge_canvas_config(
     if let Some(value) = overrides.font_family.as_ref() {
         merged.font_family = value.clone();
     }
-    if let Some(value) = overrides.font_size {
+    if let Some(value) = overrides.font_size
+        && value.is_finite()
+        && value > 0.0
+    {
         merged.font_size = value;
     }
-    if let Some(value) = overrides.padding {
+    if let Some(value) = overrides.padding
+        && value.is_finite()
+        && value >= 0.0
+    {
         merged.padding = value;
     }
     if let Some(value) = overrides.node_fill.as_ref() {
@@ -391,13 +396,19 @@ fn merge_canvas_config(
     if let Some(value) = overrides.node_stroke.as_ref() {
         merged.node_stroke = value.clone();
     }
-    if let Some(value) = overrides.node_stroke_width {
+    if let Some(value) = overrides.node_stroke_width
+        && value.is_finite()
+        && value >= 0.0
+    {
         merged.node_stroke_width = value;
     }
     if let Some(value) = overrides.edge_stroke.as_ref() {
         merged.edge_stroke = value.clone();
     }
-    if let Some(value) = overrides.edge_stroke_width {
+    if let Some(value) = overrides.edge_stroke_width
+        && value.is_finite()
+        && value >= 0.0
+    {
         merged.edge_stroke_width = value;
     }
     if let Some(value) = overrides.cluster_fill.as_ref() {
@@ -522,6 +533,8 @@ pub fn init(config: Option<JsValue>) -> Result<(), JsValue> {
 pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsValue> {
     let overrides: RuntimeInitConfig = parse_js_value_or_default(config)?;
     let runtime = read_runtime_config();
+    let mut svg_config =
+        merge_svg_config(&runtime.svg, &overrides.svg, overrides.theme.as_deref())?;
     let pressure = merge_pressure_config(&runtime.pressure, &overrides.pressure).into_report();
     let mut budget_broker = MermaidBudgetLedger::new(&pressure);
     let parse_start = Instant::now();
@@ -534,9 +547,14 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
         max_route_ops: budget_broker.route_budget(LayoutGuardrails::default().max_route_ops),
     };
     let layout_start = Instant::now();
-    let traced_layout = layout_diagram_traced_with_algorithm_and_guardrails(
+    let layout_config = LayoutConfig {
+        font_metrics: Some(svg_config.font_metrics()),
+        ..Default::default()
+    };
+    let traced_layout = layout_diagram_traced_with_config_and_guardrails(
         &parsed.ir,
         fm_layout::LayoutAlgorithm::Auto,
+        layout_config,
         layout_guardrails,
     );
     budget_broker
@@ -549,8 +567,6 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
         traced_layout.trace.guard.estimated_layout_time_ms.max(1) as u64,
     );
     _guard.observability = observability;
-    let mut svg_config =
-        merge_svg_config(&runtime.svg, &overrides.svg, overrides.theme.as_deref())?;
     svg_config.include_source_spans = true;
     apply_budget_svg_simplifications(&mut svg_config, &budget_broker);
     let render_start = Instant::now();
@@ -959,8 +975,9 @@ impl Diagram {
 #[cfg(test)]
 mod tests {
     use super::{
-        PressureConfigOverrides, SvgConfigOverrides, ThemePreset, apply_budget_svg_simplifications,
-        collect_source_spans, merge_pressure_config, merge_svg_config, render,
+        PressureConfigOverrides, RuntimeConfig, SvgConfigOverrides, ThemePreset,
+        apply_budget_svg_simplifications, collect_source_spans, merge_pressure_config,
+        merge_svg_config, read_runtime_config, render, render_svg_js, write_runtime_config,
     };
     use fm_core::{MermaidPressureTier, MermaidWasmPressureSignals};
     use fm_layout::layout_diagram_traced;
@@ -1054,6 +1071,34 @@ mod tests {
         let budget_broker = fm_core::MermaidBudgetLedger::new(&pressure.into_report());
         apply_budget_svg_simplifications(&mut config, &budget_broker);
         assert!(!config.shadows);
+    }
+
+    #[test]
+    fn render_svg_js_uses_same_font_metrics_layout_path_as_render() {
+        struct RuntimeConfigGuard(RuntimeConfig);
+
+        impl Drop for RuntimeConfigGuard {
+            fn drop(&mut self) {
+                write_runtime_config(self.0.clone());
+            }
+        }
+
+        let original = read_runtime_config();
+        let _guard = RuntimeConfigGuard(original.clone());
+        let mut updated = original.clone();
+        updated.svg = SvgRenderConfig {
+            font_size: 28.0,
+            avg_char_width: 18.0,
+            line_height: 1.4,
+            ..updated.svg
+        };
+        write_runtime_config(updated);
+
+        let input = "flowchart LR\nA[This is a long label that should widen layout]-->B";
+        let render_output = render(input);
+        let svg_only = render_svg_js(input, None).expect("renderSvg should succeed");
+
+        assert_eq!(svg_only, render_output.svg);
     }
 
     #[cfg(target_arch = "wasm32")]
