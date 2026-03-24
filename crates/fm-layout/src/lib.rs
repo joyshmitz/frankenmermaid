@@ -8456,8 +8456,8 @@ fn find_obstacle_nudge_x(
     obstacles: &[LayoutRect],
 ) -> Option<f32> {
     let margin = 8.0_f32;
-    let y_min = segment.0.y;
-    let y_max = segment.1.y;
+    let y_min = segment.0.y.min(segment.1.y);
+    let y_max = segment.0.y.max(segment.1.y);
     for obs in obstacles {
         // Check if the vertical line at mid_x passes through this obstacle's x-range
         // and the y-range overlaps.
@@ -8487,8 +8487,8 @@ fn find_obstacle_nudge_y(
     obstacles: &[LayoutRect],
 ) -> Option<f32> {
     let margin = 8.0_f32;
-    let x_min = segment.0.x;
-    let x_max = segment.1.x;
+    let x_min = segment.0.x.min(segment.1.x);
+    let x_max = segment.0.x.max(segment.1.x);
     for obs in obstacles {
         if mid_y >= obs.y - margin
             && mid_y <= obs.y + obs.height + margin

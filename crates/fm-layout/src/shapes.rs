@@ -26,12 +26,13 @@ pub fn node_path(bounds: LayoutRect, shape: NodeShape) -> Vec<PathCmd> {
         NodeShape::Star => star_path(bounds, 5),
         NodeShape::Cloud => cloud_path(bounds),
         NodeShape::Tag => tag_path(bounds),
-        NodeShape::Subroutine | NodeShape::CrossedCircle => {
+        NodeShape::Subroutine => {
             // For composite shapes, we use the primary boundary path.
             // Inner lines are added by specialized render logic if needed,
             // but for simple path representation we return the outer box.
             rounded_rect_path(bounds, 4.0)
         }
+        NodeShape::CrossedCircle => polygon_ellipse_path(bounds, 24),
     }
 }
 
@@ -75,11 +76,14 @@ pub fn cylinder_path(bounds: LayoutRect) -> Vec<PathCmd> {
     let y = bounds.y;
     let w = bounds.width;
     let h = bounds.height;
-    let ry = h * 0.1;
+    let ry = (h * 0.1).max(2.0);
+    let rx = w / 2.0;
 
     vec![
         PathCmd::MoveTo { x, y: y + ry },
-        PathCmd::LineTo {
+        PathCmd::QuadTo {
+            cx: x + rx,
+            cy: y - ry,
             x: x + w,
             y: y + ry,
         },
@@ -87,8 +91,21 @@ pub fn cylinder_path(bounds: LayoutRect) -> Vec<PathCmd> {
             x: x + w,
             y: y + h - ry,
         },
-        PathCmd::LineTo { x, y: y + h - ry },
+        PathCmd::QuadTo {
+            cx: x + rx,
+            cy: y + h + ry,
+            x,
+            y: y + h - ry,
+        },
+        PathCmd::LineTo { x, y: y + ry },
         PathCmd::Close,
+        PathCmd::MoveTo { x, y: y + ry },
+        PathCmd::QuadTo {
+            cx: x + rx,
+            cy: y + (ry * 3.0),
+            x: x + w,
+            y: y + ry,
+        },
     ]
 }
 
@@ -201,7 +218,7 @@ pub fn note_path(bounds: LayoutRect) -> Vec<PathCmd> {
     let y = bounds.y;
     let w = bounds.width;
     let h = bounds.height;
-    let fold = 10.0;
+    let fold = 10.0_f32.min(w * 0.4);
     vec![
         PathCmd::MoveTo { x, y },
         PathCmd::LineTo { x: x + w - fold, y },
@@ -430,4 +447,51 @@ pub fn polygon_ellipse_path(bounds: LayoutRect, segments: usize) -> Vec<PathCmd>
     }
     commands.push(PathCmd::Close);
     commands
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cylinder_path_contains_curved_caps() {
+        let path = cylinder_path(LayoutRect {
+            x: 10.0,
+            y: 20.0,
+            width: 80.0,
+            height: 40.0,
+        });
+
+        assert!(matches!(path.first(), Some(PathCmd::MoveTo { .. })));
+        assert!(path.iter().any(|cmd| matches!(cmd, PathCmd::QuadTo { .. })));
+        assert_eq!(
+            path.iter()
+                .filter(|cmd| matches!(cmd, PathCmd::QuadTo { .. }))
+                .count(),
+            3
+        );
+        assert!(path.iter().any(|cmd| matches!(cmd, PathCmd::Close)));
+    }
+
+    #[test]
+    fn crossed_circle_uses_circular_primary_boundary() {
+        let path = node_path(
+            LayoutRect {
+                x: 10.0,
+                y: 20.0,
+                width: 60.0,
+                height: 60.0,
+            },
+            NodeShape::CrossedCircle,
+        );
+
+        assert!(matches!(path.first(), Some(PathCmd::MoveTo { .. })));
+        assert_eq!(
+            path.iter()
+                .filter(|cmd| matches!(cmd, PathCmd::LineTo { .. }))
+                .count(),
+            23
+        );
+        assert!(path.iter().any(|cmd| matches!(cmd, PathCmd::Close)));
+    }
 }

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use fm_core::{
     ArrowType, ClassMemberKind, ClassStereotype, Diagnostic, DiagnosticCategory, DiagramType,
@@ -36,10 +36,10 @@ struct StateCompositeContext {
 pub(crate) struct IrBuilder {
     ir: MermaidDiagramIr,
     // Lookups for uniqueness
-    node_index_by_id: HashMap<String, IrNodeId>,
-    cluster_index_by_key: HashMap<String, usize>,
-    subgraph_index_by_key: HashMap<String, usize>,
-    label_index_by_text: HashMap<(String, Vec<IrLabelSegment>), IrLabelId>,
+    node_index_by_id: BTreeMap<String, IrNodeId>,
+    cluster_index_by_key: BTreeMap<String, usize>,
+    subgraph_index_by_key: BTreeMap<String, usize>,
+    label_index_by_text: BTreeMap<(String, Vec<IrLabelSegment>), IrLabelId>,
 
     warnings: Vec<String>,
     /// Track nodes that were auto-created (for dangling edge recovery)
@@ -79,10 +79,10 @@ impl IrBuilder {
     pub(crate) fn new(diagram_type: DiagramType) -> Self {
         Self {
             ir: MermaidDiagramIr::empty(diagram_type),
-            node_index_by_id: HashMap::new(),
-            cluster_index_by_key: HashMap::new(),
-            subgraph_index_by_key: HashMap::new(),
-            label_index_by_text: HashMap::new(),
+            node_index_by_id: BTreeMap::new(),
+            cluster_index_by_key: BTreeMap::new(),
+            subgraph_index_by_key: BTreeMap::new(),
+            label_index_by_text: BTreeMap::new(),
             warnings: Vec::new(),
             auto_created_nodes: Vec::new(),
             activation_stacks: BTreeMap::new(),

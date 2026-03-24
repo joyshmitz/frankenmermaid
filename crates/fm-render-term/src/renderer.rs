@@ -117,7 +117,7 @@ impl TermRenderer {
         {
             self::render_pie_cell(&mut buffer, pie_meta, cell_width, cell_height);
         } else if ir.diagram_type == fm_core::DiagramType::Gantt && ir.gantt_meta.is_some() {
-            render_gantt_cell(&mut buffer, ir, cell_width, cell_height);
+            render_gantt_cell(&mut buffer, ir, layout, cell_width, cell_height);
         } else if ir.diagram_type == fm_core::DiagramType::XyChart && ir.xy_chart_meta.is_some() {
             render_xychart_cell(&mut buffer, ir, cell_width, cell_height);
         } else if ir.diagram_type == fm_core::DiagramType::QuadrantChart
@@ -1710,6 +1710,7 @@ fn render_pie_cell(
 fn render_gantt_cell(
     buffer: &mut CellBuffer,
     ir: &MermaidDiagramIr,
+    layout: &DiagramLayout,
     cell_width: usize,
     cell_height: usize,
 ) {
@@ -1736,7 +1737,7 @@ fn render_gantt_cell(
         buffer.set_string(tx, 0, title);
     }
 
-    let task_count = gantt_meta.tasks.len().max(1);
+    let schedule_width = layout.bounds.width.max(1.0);
     let mut row = 2_usize;
 
     for (section_idx, section) in gantt_meta.sections.iter().enumerate() {
@@ -1753,25 +1754,45 @@ fn render_gantt_cell(
         row += 1;
 
         // Tasks belonging to this section (matched by section_idx).
-        for (task_idx, task) in gantt_meta.tasks.iter().enumerate() {
+        for task in &gantt_meta.tasks {
             if task.section_idx != section_idx {
                 continue;
             }
             if row >= cell_height {
                 break;
             }
-            // Task label from the associated node.
             let task_name = ir
                 .nodes
                 .get(task.node.0)
-                .map(|n| n.id.as_str())
+                .and_then(|node| {
+                    node.label
+                        .and_then(|label_id| ir.labels.get(label_id.0))
+                        .map(|label| label.text.as_str())
+                        .or(Some(node.id.as_str()))
+                })
                 .unwrap_or("task");
             let task_label: String = task_name.chars().take(label_width).collect();
             buffer.set_string(0, row, &task_label);
 
-            // Task bar — position proportionally in the bar area.
-            let bar_start = label_width + 2 + (task_idx * bar_area_width) / task_count;
-            let bar_end = label_width + 2 + ((task_idx + 1) * bar_area_width) / task_count;
+            let bar_origin = label_width + 2;
+            let (bar_start, bar_end) = layout
+                .nodes
+                .iter()
+                .find(|node_box| node_box.node_index == task.node.0)
+                .map(|node_box| {
+                    let start_ratio =
+                        ((node_box.bounds.x - layout.bounds.x) / schedule_width).clamp(0.0, 1.0);
+                    let end_ratio = ((node_box.bounds.x + node_box.bounds.width - layout.bounds.x)
+                        / schedule_width)
+                        .clamp(start_ratio, 1.0);
+                    let start = bar_origin + (start_ratio * bar_area_width as f32).floor() as usize;
+                    let end = bar_origin + (end_ratio * bar_area_width as f32).ceil() as usize;
+                    (start, end.max(start + 1))
+                })
+                .unwrap_or((
+                    bar_origin,
+                    (bar_origin + bar_area_width / 2).max(bar_origin + 1),
+                ));
             let bar_char = if matches!(task.task_type, GanttTaskType::Critical) {
                 '\u{2593}' // ▓
             } else if matches!(task.task_type, GanttTaskType::Done) {
@@ -1962,7 +1983,10 @@ fn render_quadrant_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fm_core::{DiagramType, IrEdge, IrEndpoint, IrLabel, IrLabelId, IrNode, IrNodeId};
+    use fm_core::{
+        DiagramType, GanttDate, GanttTaskType, IrEdge, IrEndpoint, IrGanttMeta, IrGanttSection,
+        IrGanttTask, IrLabel, IrLabelId, IrNode, IrNodeId,
+    };
     use fm_layout::{
         LayoutActivationBar, LayoutClusterBox, LayoutExtensions, LayoutNodeBox, LayoutRect,
         LayoutStats,
@@ -2361,6 +2385,116 @@ mod tests {
 
         assert!(result.output.contains("10 Ping"), "{}", result.output);
         assert!(result.output.contains("15 Pong"), "{}", result.output);
+    }
+
+    #[test]
+    fn gantt_cell_mode_uses_task_labels_and_layout_positions() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Gantt);
+        ir.labels.push(IrLabel {
+            text: "Build UI".to_string(),
+            ..Default::default()
+        });
+        ir.labels.push(IrLabel {
+            text: "Verify".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "build_1".to_string(),
+            label: Some(IrLabelId(0)),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "verify_1".to_string(),
+            label: Some(IrLabelId(1)),
+            ..Default::default()
+        });
+        ir.gantt_meta = Some(IrGanttMeta {
+            title: Some("Roadmap".to_string()),
+            sections: vec![IrGanttSection {
+                name: "Alpha".to_string(),
+            }],
+            tasks: vec![
+                IrGanttTask {
+                    node: IrNodeId(0),
+                    section_idx: 0,
+                    task_id: Some("build_1".to_string()),
+                    start: Some(GanttDate::Absolute("2026-02-01".to_string())),
+                    end: Some(GanttDate::DurationDays(2)),
+                    task_type: GanttTaskType::Done,
+                    ..Default::default()
+                },
+                IrGanttTask {
+                    node: IrNodeId(1),
+                    section_idx: 0,
+                    task_id: Some("verify_1".to_string()),
+                    start: Some(GanttDate::Absolute("2026-02-05".to_string())),
+                    end: Some(GanttDate::DurationDays(2)),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        });
+
+        let layout = DiagramLayout {
+            nodes: vec![
+                LayoutNodeBox {
+                    node_index: 0,
+                    node_id: "build_1".to_string(),
+                    rank: 0,
+                    order: 0,
+                    span: Default::default(),
+                    bounds: LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 20.0,
+                        height: 6.0,
+                    },
+                },
+                LayoutNodeBox {
+                    node_index: 1,
+                    node_id: "verify_1".to_string(),
+                    rank: 1,
+                    order: 1,
+                    span: Default::default(),
+                    bounds: LayoutRect {
+                        x: 60.0,
+                        y: 10.0,
+                        width: 20.0,
+                        height: 6.0,
+                    },
+                },
+            ],
+            clusters: Vec::new(),
+            cycle_clusters: Vec::new(),
+            edges: Vec::new(),
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 24.0,
+            },
+            stats: LayoutStats::default(),
+            extensions: LayoutExtensions::default(),
+        };
+        let config = TermRenderConfig {
+            tier: MermaidTier::Compact,
+            render_mode: MermaidRenderMode::CellOnly,
+            ..Default::default()
+        };
+
+        let result = render_diagram_with_layout_and_config(&ir, &layout, &config, 60, 12);
+        let lines = result.output.lines().collect::<Vec<_>>();
+        let build_line = lines
+            .iter()
+            .find(|line| line.contains("Build UI"))
+            .expect("Build UI line");
+        let verify_line = lines
+            .iter()
+            .find(|line| line.contains("Verify"))
+            .expect("Verify line");
+
+        assert!(!build_line.contains("build_1"));
+        assert!(verify_line.find('█').unwrap_or(0) > build_line.find('░').unwrap_or(0));
     }
 
     #[test]
