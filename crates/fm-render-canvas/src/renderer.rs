@@ -222,7 +222,10 @@ impl Canvas2dRenderer {
         };
 
         ctx.set_fill_style(&self.config.label_color);
-        ctx.set_font(&format!("{}px {}", self.config.font_size, self.config.font_family));
+        ctx.set_font(&format!(
+            "{}px {}",
+            self.config.font_size, self.config.font_family
+        ));
         ctx.set_text_align(TextAlign::Center);
         ctx.set_text_baseline(TextBaseline::Top);
         ctx.fill_text(
@@ -1610,6 +1613,27 @@ mod tests {
         assert!(ctx.operations().iter().any(
             |operation| matches!(operation, DrawOperation::Translate(x, y)
                     if (*x - 110.0).abs() < 0.001 && (*y - 20.0).abs() < 0.001)
+        ));
+    }
+
+    #[test]
+    fn render_draws_generic_diagram_title() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.meta.title = Some("Shipping History".to_string());
+        ir.nodes.push(fm_core::IrNode {
+            id: "A".to_string(),
+            ..Default::default()
+        });
+
+        let layout = layout_diagram(&ir);
+        let mut ctx = MockCanvas2dContext::new(800.0, 600.0);
+        let mut renderer = Canvas2dRenderer::new(CanvasRenderConfig::default());
+
+        let _result = renderer.render(&layout, &ir, &mut ctx);
+
+        assert!(ctx.operations().iter().any(
+            |operation| matches!(operation, DrawOperation::FillText(text, _, _)
+                if text == "Shipping History")
         ));
     }
 
