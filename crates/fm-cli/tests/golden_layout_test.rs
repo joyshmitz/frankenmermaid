@@ -27,6 +27,12 @@ const CASE_IDS: &[&str] = &[
     "gantt_basic",
     "pie_basic",
     "malformed_recovery",
+    "er_basic",
+    "quadrant_basic",
+    "gitgraph_basic",
+    "xychart_basic",
+    "mindmap_basic",
+    "timeline_basic",
 ];
 
 fn golden_dir() -> PathBuf {

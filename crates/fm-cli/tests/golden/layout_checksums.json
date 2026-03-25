@@ -17,6 +17,14 @@
       "layout_width": 893.937439,
       "node_count": 16
     },
+    "er_basic": {
+      "edge_count": 2,
+      "layout_algorithm": "auto",
+      "layout_checksum": "35f6b0b689627b28",
+      "layout_height": 543.5,
+      "layout_width": 247.774994,
+      "node_count": 3
+    },
     "flowchart_cycle": {
       "edge_count": 3,
       "layout_algorithm": "auto",
@@ -49,6 +57,14 @@
       "layout_width": 422.0,
       "node_count": 2
     },
+    "gitgraph_basic": {
+      "edge_count": 6,
+      "layout_algorithm": "auto",
+      "layout_checksum": "662aa82186f10230",
+      "layout_height": 863.0,
+      "layout_width": 272.525024,
+      "node_count": 6
+    },
     "malformed_recovery": {
       "edge_count": 2,
       "layout_algorithm": "auto",
@@ -57,12 +73,28 @@
       "layout_width": 1180.025024,
       "node_count": 4
     },
+    "mindmap_basic": {
+      "edge_count": 5,
+      "layout_algorithm": "auto",
+      "layout_checksum": "2aae8d4ad81682fa",
+      "layout_height": 1058.405884,
+      "layout_width": 994.383423,
+      "node_count": 6
+    },
     "pie_basic": {
       "edge_count": 0,
       "layout_algorithm": "auto",
       "layout_checksum": "511c9daad8d03e60",
       "layout_height": 454.258514,
       "layout_width": 651.377808,
+      "node_count": 3
+    },
+    "quadrant_basic": {
+      "edge_count": 0,
+      "layout_algorithm": "auto",
+      "layout_checksum": "432cad074cf813f8",
+      "layout_height": 445.0,
+      "layout_width": 471.825012,
       "node_count": 3
     },
     "sequence_basic": {
@@ -80,6 +112,22 @@
       "layout_height": 357.0,
       "layout_width": 445.549988,
       "node_count": 3
+    },
+    "timeline_basic": {
+      "edge_count": 6,
+      "layout_algorithm": "auto",
+      "layout_checksum": "b4739ebe4df21b38",
+      "layout_height": 422.5,
+      "layout_width": 674.324951,
+      "node_count": 7
+    },
+    "xychart_basic": {
+      "edge_count": 0,
+      "layout_algorithm": "auto",
+      "layout_checksum": "64a3d0e6c5684938",
+      "layout_height": 480.0,
+      "layout_width": 564.0,
+      "node_count": 5
     }
   },
   "version": 1

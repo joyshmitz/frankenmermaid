@@ -1024,6 +1024,13 @@ impl Canvas2dRenderer {
                     )
                 };
 
+                let edge_label_font = format!(
+                    "{}px {}",
+                    self.config.font_size * 0.85,
+                    self.config.font_family
+                );
+                ctx.set_font(&edge_label_font);
+
                 // Background for label
                 let lines: Vec<&str> = label.text.lines().collect();
                 let mut max_text_width = 0.0_f64;
@@ -1048,11 +1055,7 @@ impl Canvas2dRenderer {
 
                 // Label text
                 ctx.set_fill_style(&self.config.label_color);
-                ctx.set_font(&format!(
-                    "{}px {}",
-                    self.config.font_size * 0.85,
-                    self.config.font_family
-                ));
+                ctx.set_font(&edge_label_font);
                 ctx.set_text_align(TextAlign::Center);
                 ctx.set_text_baseline(TextBaseline::Middle);
 
@@ -1674,6 +1677,59 @@ mod tests {
         let result = renderer.render(&layout, &ir, &mut ctx);
 
         assert!(result.labels_drawn >= 1);
+    }
+
+    #[test]
+    fn edge_label_background_uses_edge_label_font_metrics() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.labels.push(fm_core::IrLabel {
+            text: "A".to_string(),
+            ..Default::default()
+        });
+        ir.labels.push(fm_core::IrLabel {
+            text: "B".to_string(),
+            ..Default::default()
+        });
+        ir.labels.push(fm_core::IrLabel {
+            text: "Wide label text".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(fm_core::IrNode {
+            id: "A".to_string(),
+            label: Some(fm_core::IrLabelId(0)),
+            ..Default::default()
+        });
+        ir.nodes.push(fm_core::IrNode {
+            id: "B".to_string(),
+            label: Some(fm_core::IrLabelId(1)),
+            ..Default::default()
+        });
+        ir.edges.push(fm_core::IrEdge {
+            from: fm_core::IrEndpoint::Node(fm_core::IrNodeId(0)),
+            to: fm_core::IrEndpoint::Node(fm_core::IrNodeId(1)),
+            label: Some(fm_core::IrLabelId(2)),
+            ..Default::default()
+        });
+
+        let layout = layout_diagram(&ir);
+        let mut ctx = MockCanvas2dContext::new(800.0, 600.0);
+        let mut renderer = Canvas2dRenderer::new(CanvasRenderConfig::default());
+
+        let _result = renderer.render(&layout, &ir, &mut ctx);
+
+        let label_background_width = ctx
+            .operations()
+            .iter()
+            .find_map(|operation| match operation {
+                DrawOperation::FillRect(_, _, width, _) if *width > 40.0 => Some(*width),
+                _ => None,
+            })
+            .expect("expected edge label background rectangle");
+
+        let expected_width = "Wide label text".len() as f64
+            * (CanvasRenderConfig::default().font_size * 0.85 * 0.57)
+            + 8.0;
+        assert!((label_background_width - expected_width).abs() < 1.0);
     }
 
     #[test]

@@ -1,0 +1,8 @@
+erDiagram
+    USER ||--o{ ORDER : places
+    ORDER ||--|{ LINE_ITEM : contains
+    USER {
+        int id PK
+        string name
+        string email UK
+    }

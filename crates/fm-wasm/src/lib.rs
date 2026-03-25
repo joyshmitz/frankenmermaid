@@ -22,7 +22,7 @@ use fm_render_canvas::{
     Canvas2dContext, CanvasRenderResult, LineCap, LineJoin, TextAlign, TextBaseline, TextMetrics,
     render_to_canvas,
 };
-use fm_render_svg::{SvgRenderConfig, ThemePreset, render_svg_with_layout};
+use fm_render_svg::{SvgRenderConfig, ThemeColors, ThemePreset, render_svg_with_layout};
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
@@ -439,6 +439,20 @@ fn merge_canvas_config(
     merged
 }
 
+fn apply_canvas_theme_preset(
+    mut canvas: CanvasRenderConfig,
+    preset: ThemePreset,
+) -> CanvasRenderConfig {
+    let colors = ThemeColors::from_preset(preset);
+    canvas.node_fill = colors.node_fill;
+    canvas.node_stroke = colors.node_stroke;
+    canvas.edge_stroke = colors.edge;
+    canvas.cluster_fill = colors.cluster_fill;
+    canvas.cluster_stroke = colors.cluster_stroke;
+    canvas.label_color = colors.text;
+    canvas
+}
+
 fn align_canvas_typography_with_svg(
     mut canvas: CanvasRenderConfig,
     svg: &SvgRenderConfig,
@@ -466,6 +480,23 @@ fn merge_pressure_config(
         merged.worker_saturation_permille = Some(value.min(1_000));
     }
     merged
+}
+
+fn requested_theme_preset(overrides: &RuntimeInitConfig) -> Result<Option<ThemePreset>, JsValue> {
+    let theme_name = overrides
+        .svg
+        .theme
+        .as_deref()
+        .or(overrides.theme.as_deref());
+    theme_name
+        .map(|name| {
+            name.parse::<ThemePreset>().map_err(|err| {
+                js_error(format!(
+                    "invalid theme '{name}': {err}; expected one of default,dark,forest,neutral,corporate,neon,pastel,high-contrast,monochrome,blueprint"
+                ))
+            })
+        })
+        .transpose()
 }
 
 fn apply_budget_svg_simplifications(
@@ -539,11 +570,15 @@ pub fn render(input: &str) -> WasmRenderOutput {
 pub fn init(config: Option<JsValue>) -> Result<(), JsValue> {
     let overrides: RuntimeInitConfig = parse_js_value_or_default(config)?;
     let current = read_runtime_config();
+    let requested_theme = requested_theme_preset(&overrides)?;
     let svg = merge_svg_config(&current.svg, &overrides.svg, overrides.theme.as_deref())?;
+    let canvas_base = requested_theme
+        .map(|preset| apply_canvas_theme_preset(current.canvas.clone(), preset))
+        .unwrap_or_else(|| current.canvas.clone());
 
     let next = RuntimeConfig {
         canvas: align_canvas_typography_with_svg(
-            merge_canvas_config(&current.canvas, &overrides.canvas),
+            merge_canvas_config(&canvas_base, &overrides.canvas),
             &svg,
         ),
         svg,
@@ -857,10 +892,14 @@ impl Diagram {
 
         let overrides: RuntimeInitConfig = parse_js_value_or_default(config)?;
         let runtime = read_runtime_config();
+        let requested_theme = requested_theme_preset(&overrides)?;
         let svg_config =
             merge_svg_config(&runtime.svg, &overrides.svg, overrides.theme.as_deref())?;
+        let canvas_base = requested_theme
+            .map(|preset| apply_canvas_theme_preset(runtime.canvas.clone(), preset))
+            .unwrap_or_else(|| runtime.canvas.clone());
         let canvas_config = align_canvas_typography_with_svg(
-            merge_canvas_config(&runtime.canvas, &overrides.canvas),
+            merge_canvas_config(&canvas_base, &overrides.canvas),
             &svg_config,
         );
         let pressure_config = merge_pressure_config(&runtime.pressure, &overrides.pressure);
@@ -879,13 +918,17 @@ impl Diagram {
         self.ensure_alive()?;
 
         let overrides: RuntimeInitConfig = parse_js_value_or_default(config)?;
+        let requested_theme = requested_theme_preset(&overrides)?;
         let next_svg =
             merge_svg_config(&self.svg_config, &overrides.svg, overrides.theme.as_deref())?;
         let next_pressure = merge_pressure_config(&self.pressure_config, &overrides.pressure);
         let pressure_report = next_pressure.into_report();
         let mut budget_broker = MermaidBudgetLedger::new(&pressure_report);
+        let canvas_base = requested_theme
+            .map(|preset| apply_canvas_theme_preset(self.canvas_config.clone(), preset))
+            .unwrap_or_else(|| self.canvas_config.clone());
         let next_canvas = align_canvas_typography_with_svg(
-            merge_canvas_config(&self.canvas_config, &overrides.canvas),
+            merge_canvas_config(&canvas_base, &overrides.canvas),
             &next_svg,
         );
         let parse_start = Instant::now();
@@ -949,11 +992,17 @@ impl Diagram {
     #[wasm_bindgen(js_name = setTheme)]
     pub fn set_theme(&mut self, theme: &str) -> Result<(), JsValue> {
         self.ensure_alive()?;
+        let preset = theme.parse::<ThemePreset>().map_err(|err| {
+            js_error(format!(
+                "invalid theme '{theme}': {err}; expected one of default,dark,forest,neutral,corporate,neon,pastel,high-contrast,monochrome,blueprint"
+            ))
+        })?;
         let overrides = SvgConfigOverrides {
             theme: Some(theme.to_string()),
             ..SvgConfigOverrides::default()
         };
         self.svg_config = merge_svg_config(&self.svg_config, &overrides, None)?;
+        self.canvas_config = apply_canvas_theme_preset(self.canvas_config.clone(), preset);
         Ok(())
     }
 
@@ -1006,10 +1055,11 @@ impl Diagram {
 #[cfg(test)]
 mod tests {
     use super::{
-        PressureConfigOverrides, RuntimeConfig, SvgConfigOverrides, ThemePreset,
-        align_canvas_typography_with_svg, apply_budget_svg_simplifications, collect_source_spans,
-        merge_pressure_config, merge_svg_config, read_runtime_config, render, render_svg_js,
-        write_runtime_config,
+        CanvasConfigOverrides, PressureConfigOverrides, RuntimeConfig, RuntimeInitConfig,
+        SvgConfigOverrides, ThemePreset, align_canvas_typography_with_svg,
+        apply_budget_svg_simplifications, apply_canvas_theme_preset, collect_source_spans,
+        merge_canvas_config, merge_pressure_config, merge_svg_config, read_runtime_config, render,
+        render_svg_js, requested_theme_preset, write_runtime_config,
     };
     use fm_core::{MermaidPressureTier, MermaidWasmPressureSignals};
     use fm_layout::layout_diagram_traced;
@@ -1056,6 +1106,55 @@ mod tests {
         };
         let merged = merge_svg_config(&base, &overrides, None).expect("theme should parse");
         assert_eq!(merged.theme, ThemePreset::Dark);
+    }
+
+    #[test]
+    fn apply_canvas_theme_preset_updates_canvas_colors() {
+        let base = CanvasRenderConfig::default();
+        let themed = apply_canvas_theme_preset(base, ThemePreset::Dark);
+
+        assert_eq!(themed.node_fill, "#1e293b");
+        assert_eq!(themed.node_stroke, "#334155");
+        assert_eq!(themed.edge_stroke, "#94a3b8");
+        assert_eq!(themed.label_color, "#f8fafc");
+    }
+
+    #[test]
+    fn requested_theme_preset_prefers_svg_theme_override() {
+        let overrides = RuntimeInitConfig {
+            theme: Some("forest".to_string()),
+            svg: SvgConfigOverrides {
+                theme: Some("dark".to_string()),
+                ..SvgConfigOverrides::default()
+            },
+            ..RuntimeInitConfig::default()
+        };
+
+        let preset = requested_theme_preset(&overrides).expect("theme should parse");
+        assert_eq!(preset, Some(ThemePreset::Dark));
+    }
+
+    #[test]
+    fn theme_override_rethemes_canvas_before_explicit_canvas_overrides() {
+        let base_canvas = CanvasRenderConfig::default();
+        let overrides = RuntimeInitConfig {
+            theme: Some("dark".to_string()),
+            canvas: CanvasConfigOverrides {
+                edge_stroke: Some("#ff00aa".to_string()),
+                ..CanvasConfigOverrides::default()
+            },
+            ..RuntimeInitConfig::default()
+        };
+
+        let preset = requested_theme_preset(&overrides).expect("theme should parse");
+        let themed_base = preset
+            .map(|value| apply_canvas_theme_preset(base_canvas, value))
+            .expect("theme override should be present");
+        let merged = merge_canvas_config(&themed_base, &overrides.canvas);
+
+        assert_eq!(merged.node_fill, "#1e293b");
+        assert_eq!(merged.label_color, "#f8fafc");
+        assert_eq!(merged.edge_stroke, "#ff00aa");
     }
 
     #[test]

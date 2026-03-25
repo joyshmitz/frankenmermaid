@@ -385,6 +385,18 @@ impl MockCanvas2dContext {
     pub fn clear(&mut self) {
         self.operations.clear();
     }
+
+    fn current_font_size_px(&self) -> f64 {
+        let size = self
+            .current_state
+            .font
+            .split_whitespace()
+            .next()
+            .and_then(|token| token.strip_suffix("px"))
+            .and_then(|px| px.parse::<f64>().ok())
+            .unwrap_or(14.0);
+        size.max(1.0)
+    }
 }
 
 impl Canvas2dContext for MockCanvas2dContext {
@@ -520,11 +532,11 @@ impl Canvas2dContext for MockCanvas2dContext {
     }
 
     fn measure_text(&self, text: &str) -> TextMetrics {
-        // Estimate text width based on character count
-        let char_width = 8.0;
+        let font_size = self.current_font_size_px();
+        let char_width = font_size * 0.57;
         TextMetrics {
             width: text.len() as f64 * char_width,
-            height: 14.0,
+            height: font_size,
         }
     }
 
@@ -588,6 +600,19 @@ mod tests {
             ctx.operations()
                 .contains(&DrawOperation::SetFillStyle("#ff0000".into()))
         );
+    }
+
+    #[test]
+    fn mock_context_measure_text_tracks_font_size() {
+        let mut ctx = MockCanvas2dContext::new(800.0, 600.0);
+        ctx.set_font("20px sans-serif");
+        let large = ctx.measure_text("AAAA");
+        ctx.set_font("10px sans-serif");
+        let small = ctx.measure_text("AAAA");
+
+        assert!(large.width > small.width);
+        assert_eq!(large.height, 20.0);
+        assert_eq!(small.height, 10.0);
     }
 
     #[test]
