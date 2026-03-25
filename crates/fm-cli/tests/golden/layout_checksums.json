@@ -1,6 +1,30 @@
 {
   "description": "Golden layout checksums for deterministic layout verification. Regenerate with BLESS_LAYOUT=1.",
   "entries": {
+    "all_edge_types": {
+      "edge_count": 9,
+      "layout_algorithm": "auto",
+      "layout_checksum": "1a005d2bc759d5b7",
+      "layout_height": 1196.0,
+      "layout_width": 759.650024,
+      "node_count": 10
+    },
+    "all_node_shapes": {
+      "edge_count": 7,
+      "layout_algorithm": "auto",
+      "layout_checksum": "bcf91e5aad301c3d",
+      "layout_height": 317.0,
+      "layout_width": 1274.0,
+      "node_count": 8
+    },
+    "c4_basic": {
+      "edge_count": 2,
+      "layout_algorithm": "auto",
+      "layout_checksum": "e5c8479a93daf89a",
+      "layout_height": 543.5,
+      "layout_width": 260.975006,
+      "node_count": 3
+    },
     "class_basic": {
       "edge_count": 1,
       "layout_algorithm": "auto",
@@ -95,6 +119,14 @@
       "layout_checksum": "432cad074cf813f8",
       "layout_height": 445.0,
       "layout_width": 471.825012,
+      "node_count": 3
+    },
+    "requirement_basic": {
+      "edge_count": 2,
+      "layout_algorithm": "auto",
+      "layout_checksum": "d7850c88afefe3de",
+      "layout_height": 543.5,
+      "layout_width": 260.975006,
       "node_count": 3
     },
     "sequence_basic": {

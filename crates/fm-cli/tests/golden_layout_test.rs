@@ -33,6 +33,10 @@ const CASE_IDS: &[&str] = &[
     "xychart_basic",
     "mindmap_basic",
     "timeline_basic",
+    "all_node_shapes",
+    "all_edge_types",
+    "requirement_basic",
+    "c4_basic",
 ];
 
 fn golden_dir() -> PathBuf {

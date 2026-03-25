@@ -3809,8 +3809,8 @@ fn layout_diagram_xychart_from_meta(
             let x_center = x_band_start + band_width / 2.0;
             let value_y = xychart_value_to_y(value, y_min, y_max, plot_bounds);
             let node_bounds = if is_bar {
-                let bar_width =
-                    (band_width * 0.72 / bar_series_count as f32).clamp(10.0, (band_width * 0.78).max(10.0));
+                let bar_width = (band_width * 0.72 / bar_series_count as f32)
+                    .clamp(10.0, (band_width * 0.78).max(10.0));
                 let group_width = bar_width * bar_series_count as f32;
                 let group_start = x_band_start + (band_width - group_width) / 2.0;
                 let x = group_start + local_bar_slot as f32 * bar_width;

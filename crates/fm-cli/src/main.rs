@@ -51,6 +51,19 @@ fn parse_positive_font_size_arg(value: &str) -> std::result::Result<f32, String>
     }
 }
 
+fn parse_positive_dimension_arg(value: &str) -> std::result::Result<u32, String> {
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|err| format!("invalid dimension '{value}': {err}"))?;
+    if parsed > 0 {
+        Ok(parsed)
+    } else {
+        Err(format!(
+            "invalid dimension '{value}': expected an integer greater than 0"
+        ))
+    }
+}
+
 /// FrankenMermaid CLI - render and validate Mermaid diagrams.
 #[derive(Debug, Parser)]
 #[command(
@@ -107,11 +120,11 @@ enum Command {
         output: Option<String>,
 
         /// Output width (for PNG/terminal)
-        #[arg(short = 'W', long)]
+        #[arg(short = 'W', long, value_parser = parse_positive_dimension_arg)]
         width: Option<u32>,
 
         /// Output height (for PNG/terminal)
-        #[arg(short = 'H', long)]
+        #[arg(short = 'H', long, value_parser = parse_positive_dimension_arg)]
         height: Option<u32>,
 
         /// Output as JSON with metadata (timing, dimensions, etc.)
@@ -171,11 +184,11 @@ enum Command {
         color: ColorChoice,
 
         /// Output width for side-by-side terminal rendering.
-        #[arg(short = 'W', long)]
+        #[arg(short = 'W', long, value_parser = parse_positive_dimension_arg)]
         width: Option<u32>,
 
         /// Output height for side-by-side terminal rendering.
-        #[arg(short = 'H', long)]
+        #[arg(short = 'H', long, value_parser = parse_positive_dimension_arg)]
         height: Option<u32>,
 
         /// Output file path. If omitted, writes to stdout.
@@ -1179,8 +1192,14 @@ fn terminal_size(width: Option<u32>, height: Option<u32>) -> (usize, usize) {
     let default_rows = 24_usize;
 
     (
-        width.map(|w| w as usize).unwrap_or(default_cols),
-        height.map(|h| h as usize).unwrap_or(default_rows),
+        width
+            .filter(|value| *value > 0)
+            .map(|w| w as usize)
+            .unwrap_or(default_cols),
+        height
+            .filter(|value| *value > 0)
+            .map(|h| h as usize)
+            .unwrap_or(default_rows),
     )
 }
 
@@ -1222,6 +1241,9 @@ fn svg_to_png(svg: &str, width: Option<u32>, height: Option<u32>) -> Result<(Vec
         }
         (None, None) => (size.width() as u32, size.height() as u32),
     };
+    if px_width == 0 || px_height == 0 {
+        anyhow::bail!("PNG dimensions must be greater than 0");
+    }
 
     let mut pixmap =
         tiny_skia::Pixmap::new(px_width, px_height).context("Failed to create pixmap")?;
@@ -1262,6 +1284,12 @@ mod png_tests {
             svg_to_png(SIMPLE_SVG, Some(200), None).expect("svg_to_png should succeed");
         assert_eq!(w, 200);
         assert_eq!(h, 100);
+    }
+
+    #[test]
+    fn png_dimensions_reject_zero_sized_outputs() {
+        let err = svg_to_png(SIMPLE_SVG, Some(0), Some(10)).expect_err("zero width must fail");
+        assert!(err.to_string().contains("greater than 0"));
     }
 }
 
@@ -1984,7 +2012,8 @@ mod validate_tests {
 mod render_tests {
     use super::{
         ColorChoice, OutputFormat, ThemePreset, build_svg_render_config, diff_use_colors,
-        normalize_positive_font_size, parse_positive_font_size_arg, render_format,
+        normalize_positive_font_size, parse_positive_dimension_arg, parse_positive_font_size_arg,
+        render_format, terminal_size,
     };
     use fm_layout::layout_diagram;
     use fm_parser::parse;
@@ -2054,6 +2083,18 @@ mod render_tests {
         assert_eq!(normalize_positive_font_size(Some(0.0)), None);
         assert_eq!(normalize_positive_font_size(Some(-1.0)), None);
         assert_eq!(normalize_positive_font_size(Some(f32::INFINITY)), None);
+    }
+
+    #[test]
+    fn parse_positive_dimension_arg_rejects_zero() {
+        assert_eq!(parse_positive_dimension_arg("42").ok(), Some(42));
+        assert!(parse_positive_dimension_arg("0").is_err());
+    }
+
+    #[test]
+    fn terminal_size_falls_back_for_zero_dimensions() {
+        assert_eq!(terminal_size(Some(0), Some(0)), (80, 24));
+        assert_eq!(terminal_size(Some(120), Some(0)), (120, 24));
     }
 
     #[test]

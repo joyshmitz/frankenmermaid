@@ -1,0 +1,13 @@
+flowchart LR
+    rect[Rectangle]
+    round(Rounded)
+    stadium([Stadium])
+    sub[[Subroutine]]
+    diamond{Diamond}
+    hex{{Hexagon}}
+    circle((Circle))
+    asym>Asymmetric]
+
+    rect --> round --> stadium --> sub
+    diamond --> hex --> circle --> asym
+    rect --> diamond
