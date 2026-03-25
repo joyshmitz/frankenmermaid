@@ -2028,8 +2028,9 @@ fn render_quadrant_cell(
     // Data points: render from layout node positions.
     let point_chars: &[char] = &['\u{25cf}', '\u{25cb}', '\u{25c6}', '\u{25a0}']; // ● ○ ◆ ■
     for (i, node_box) in layout.nodes.iter().enumerate() {
-        let x = (node_box.bounds.x * scale_x) as usize + node_box.bounds.width as usize / 2;
-        let y = (node_box.bounds.y * scale_y) as usize + node_box.bounds.height as usize / 2;
+        let center = node_box.bounds.center();
+        let x = (center.x * scale_x) as usize;
+        let y = (center.y * scale_y) as usize;
         if x < cell_width && y < cell_height {
             buffer.set(x, y, point_chars[i % point_chars.len()]);
         }

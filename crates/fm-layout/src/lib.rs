@@ -3810,7 +3810,7 @@ fn layout_diagram_xychart_from_meta(
             let value_y = xychart_value_to_y(value, y_min, y_max, plot_bounds);
             let node_bounds = if is_bar {
                 let bar_width =
-                    (band_width * 0.72 / bar_series_count as f32).clamp(10.0, band_width * 0.78);
+                    (band_width * 0.72 / bar_series_count as f32).clamp(10.0, (band_width * 0.78).max(10.0));
                 let group_width = bar_width * bar_series_count as f32;
                 let group_start = x_band_start + (band_width - group_width) / 2.0;
                 let x = group_start + local_bar_slot as f32 * bar_width;
@@ -6575,12 +6575,16 @@ fn weakly_connected_components(node_count: usize, edges: &[OrientedEdge]) -> Vec
 }
 
 fn resolved_edges(ir: &MermaidDiagramIr) -> Vec<OrientedEdge> {
+    let node_count = ir.nodes.len();
     ir.edges
         .iter()
         .enumerate()
         .filter_map(|(edge_index, edge)| {
             let source = endpoint_node_index(ir, edge.from)?;
             let target = endpoint_node_index(ir, edge.to)?;
+            if source >= node_count || target >= node_count {
+                return None;
+            }
             Some(OrientedEdge {
                 source,
                 target,
@@ -8998,8 +9002,21 @@ fn build_cycle_cluster_results(
 
 fn endpoint_node_index(ir: &MermaidDiagramIr, endpoint: IrEndpoint) -> Option<usize> {
     match endpoint {
-        IrEndpoint::Node(node) => Some(node.0),
-        IrEndpoint::Port(port) => ir.ports.get(port.0).map(|port_ref| port_ref.node.0),
+        IrEndpoint::Node(node) => {
+            if node.0 < ir.nodes.len() {
+                Some(node.0)
+            } else {
+                None
+            }
+        }
+        IrEndpoint::Port(port) => {
+            let node_idx = ir.ports.get(port.0).map(|port_ref| port_ref.node.0)?;
+            if node_idx < ir.nodes.len() {
+                Some(node_idx)
+            } else {
+                None
+            }
+        }
         IrEndpoint::Unresolved => None,
     }
 }
