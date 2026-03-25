@@ -347,22 +347,37 @@ fn merge_svg_config(
     if let Some(value) = overrides.font_family.as_ref() {
         merged.font_family = value.clone();
     }
-    if let Some(value) = overrides.font_size {
+    if let Some(value) = overrides.font_size
+        && value.is_finite()
+        && value > 0.0
+    {
         merged.font_size = value;
     }
-    if let Some(value) = overrides.avg_char_width {
+    if let Some(value) = overrides.avg_char_width
+        && value.is_finite()
+        && value > 0.0
+    {
         merged.avg_char_width = value;
     }
-    if let Some(value) = overrides.line_height {
+    if let Some(value) = overrides.line_height
+        && value.is_finite()
+        && value > 0.0
+    {
         merged.line_height = value;
     }
-    if let Some(value) = overrides.padding {
+    if let Some(value) = overrides.padding
+        && value.is_finite()
+        && value >= 0.0
+    {
         merged.padding = value;
     }
     if let Some(value) = overrides.shadows {
         merged.shadows = value;
     }
-    if let Some(value) = overrides.rounded_corners {
+    if let Some(value) = overrides.rounded_corners
+        && value.is_finite()
+        && value >= 0.0
+    {
         merged.rounded_corners = value;
     }
     if let Some(value) = overrides.embed_theme_css {
@@ -1123,6 +1138,27 @@ mod tests {
         };
         let merged = merge_svg_config(&base, &overrides, None).expect("theme should parse");
         assert_eq!(merged.theme, ThemePreset::Dark);
+    }
+
+    #[test]
+    fn merge_svg_config_rejects_invalid_numeric_overrides_by_ignoring_them() {
+        let base = SvgRenderConfig::default();
+        let overrides = SvgConfigOverrides {
+            font_size: Some(f32::NAN),
+            avg_char_width: Some(-2.0),
+            line_height: Some(0.0),
+            padding: Some(-1.0),
+            rounded_corners: Some(f32::INFINITY),
+            ..SvgConfigOverrides::default()
+        };
+
+        let merged = merge_svg_config(&base, &overrides, None).expect("merge should succeed");
+
+        assert_eq!(merged.font_size, base.font_size);
+        assert_eq!(merged.avg_char_width, base.avg_char_width);
+        assert_eq!(merged.line_height, base.line_height);
+        assert_eq!(merged.padding, base.padding);
+        assert_eq!(merged.rounded_corners, base.rounded_corners);
     }
 
     #[test]

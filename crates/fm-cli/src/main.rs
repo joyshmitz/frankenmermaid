@@ -38,6 +38,19 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
+fn parse_positive_font_size_arg(value: &str) -> std::result::Result<f32, String> {
+    let parsed = value
+        .parse::<f32>()
+        .map_err(|err| format!("invalid font size '{value}': {err}"))?;
+    if parsed.is_finite() && parsed > 0.0 {
+        Ok(parsed)
+    } else {
+        Err(format!(
+            "invalid font size '{value}': expected a finite value greater than 0"
+        ))
+    }
+}
+
 /// FrankenMermaid CLI - render and validate Mermaid diagrams.
 #[derive(Debug, Parser)]
 #[command(
@@ -86,7 +99,7 @@ enum Command {
         theme: String,
 
         /// Font size in pixels.
-        #[arg(long)]
+        #[arg(long, value_parser = parse_positive_font_size_arg)]
         font_size: Option<f32>,
 
         /// Output file path. If omitted, writes to stdout.
@@ -908,6 +921,7 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             .layout_iteration_budget(LayoutGuardrails::default().max_layout_iterations),
         max_route_ops: budget_broker.route_budget(LayoutGuardrails::default().max_route_ops),
     };
+    let font_size = normalize_positive_font_size(font_size);
     let font_metrics = font_size.map(|size| {
         fm_core::FontMetrics::new(fm_core::FontMetricsConfig {
             font_size: size,
@@ -1127,10 +1141,14 @@ fn build_svg_render_config(theme: &str, font_size: Option<f32>) -> SvgRenderConf
         include_source_spans: true,
         ..base
     };
-    if let Some(size) = font_size {
+    if let Some(size) = normalize_positive_font_size(font_size) {
         svg_config.font_size = size;
     }
     svg_config
+}
+
+fn normalize_positive_font_size(font_size: Option<f32>) -> Option<f32> {
+    font_size.filter(|size| size.is_finite() && *size > 0.0)
 }
 
 fn resolve_theme_preset(theme: &str, fallback: ThemePreset) -> ThemePreset {
@@ -1966,7 +1984,7 @@ mod validate_tests {
 mod render_tests {
     use super::{
         ColorChoice, OutputFormat, ThemePreset, build_svg_render_config, diff_use_colors,
-        render_format,
+        normalize_positive_font_size, parse_positive_font_size_arg, render_format,
     };
     use fm_layout::layout_diagram;
     use fm_parser::parse;
@@ -2003,6 +2021,39 @@ mod render_tests {
         assert_eq!(config.theme, ThemePreset::Dark);
         assert_eq!(config.font_size, 22.0);
         assert!(config.include_source_spans);
+    }
+
+    #[test]
+    fn svg_render_config_ignores_invalid_font_sizes() {
+        let default_font_size = build_svg_render_config("default", None).font_size;
+        assert_eq!(
+            build_svg_render_config("default", Some(0.0)).font_size,
+            default_font_size
+        );
+        assert_eq!(
+            build_svg_render_config("default", Some(-5.0)).font_size,
+            default_font_size
+        );
+        assert_eq!(
+            build_svg_render_config("default", Some(f32::NAN)).font_size,
+            default_font_size
+        );
+    }
+
+    #[test]
+    fn parse_positive_font_size_arg_rejects_invalid_values() {
+        assert_eq!(parse_positive_font_size_arg("18").ok(), Some(18.0));
+        assert!(parse_positive_font_size_arg("0").is_err());
+        assert!(parse_positive_font_size_arg("-2").is_err());
+        assert!(parse_positive_font_size_arg("NaN").is_err());
+    }
+
+    #[test]
+    fn normalize_positive_font_size_filters_invalid_values() {
+        assert_eq!(normalize_positive_font_size(Some(16.0)), Some(16.0));
+        assert_eq!(normalize_positive_font_size(Some(0.0)), None);
+        assert_eq!(normalize_positive_font_size(Some(-1.0)), None);
+        assert_eq!(normalize_positive_font_size(Some(f32::INFINITY)), None);
     }
 
     #[test]
