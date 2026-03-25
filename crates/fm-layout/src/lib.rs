@@ -359,6 +359,22 @@ pub struct LayoutSpacing {
     pub node_spacing: f32,
     pub rank_spacing: f32,
     pub cluster_padding: f32,
+    /// Extra horizontal gap added between sequence diagram participants beyond node_spacing.
+    pub sequence_participant_gap_extra: f32,
+    /// Minimum vertical gap between sequence diagram messages.
+    pub sequence_min_message_gap: f32,
+    /// Width of self-loop edges in sequence diagrams.
+    pub sequence_self_loop_width: f32,
+    /// Width of activation bars on sequence lifelines.
+    pub sequence_activation_width: f32,
+    /// Internal padding added to chart legend width (pie, gantt).
+    pub chart_legend_padding: f32,
+    /// Minimum width of chart legends.
+    pub chart_legend_min_width: f32,
+    /// Maximum width of chart legends.
+    pub chart_legend_max_width: f32,
+    /// Height reserved for chart titles.
+    pub chart_title_height: f32,
 }
 
 impl Default for LayoutSpacing {
@@ -367,6 +383,14 @@ impl Default for LayoutSpacing {
             node_spacing: 80.0,
             rank_spacing: 120.0,
             cluster_padding: 52.0,
+            sequence_participant_gap_extra: 80.0,
+            sequence_min_message_gap: 56.0,
+            sequence_self_loop_width: 40.0,
+            sequence_activation_width: 10.0,
+            chart_legend_padding: 86.0,
+            chart_legend_min_width: 136.0,
+            chart_legend_max_width: 280.0,
+            chart_title_height: 44.0,
         }
     }
 }
@@ -2742,8 +2766,8 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     // Participants are the nodes; edges are messages between them.
     // Preserve the declaration order from the parser which already sorted
     // participants by first appearance.
-    let participant_gap = spacing.node_spacing + 80.0;
-    let message_gap = spacing.rank_spacing.max(56.0);
+    let participant_gap = spacing.node_spacing + spacing.sequence_participant_gap_extra;
+    let message_gap = spacing.rank_spacing.max(spacing.sequence_min_message_gap);
     let header_y = 0.0_f32;
     let mirror_actors_enabled = ir.meta.init.config.sequence_mirror_actors.unwrap_or(false)
         && !ir
@@ -2848,7 +2872,7 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
 
             let points = if is_self_loop {
                 // Self-message: draw a loop to the right and back.
-                let loop_width = 40.0;
+                let loop_width = spacing.sequence_self_loop_width;
                 let loop_height = message_gap * 0.6;
                 vec![
                     LayoutPoint { x: source_x, y },
@@ -3039,7 +3063,7 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                         .get(activation.end_edge)
                         .copied()
                         .unwrap_or(lifeline_bottom);
-                    let bar_width = 10.0;
+                    let bar_width = spacing.sequence_activation_width;
                     let depth_offset = activation.depth as f32 * 4.0;
                     Some(LayoutActivationBar {
                         participant_index,
@@ -3214,10 +3238,12 @@ fn build_sequence_note_geometry(
     let Some(meta) = &ir.sequence_meta else {
         return Vec::new();
     };
-    let note_width = 120.0_f32;
-    let base_note_height = message_gap * 0.7;
+    let default_note_width = 120.0_f32;
     let note_line_height = 16.0_f32;
     let note_vertical_padding = 12.0_f32;
+    let base_note_height = message_gap * 0.7;
+    // Average character width estimate for note sizing (matches FontMetrics default sans-serif).
+    let avg_char_w = 8.25_f32;
 
     meta.notes
         .iter()
@@ -3228,6 +3254,15 @@ fn build_sequence_note_geometry(
             } else {
                 base_note_height + (line_count - 1.0) * note_line_height + note_vertical_padding
             };
+            // Adaptive note width from content: use the widest line + padding.
+            let max_line_chars = note
+                .text
+                .lines()
+                .map(|line| line.chars().count())
+                .max()
+                .unwrap_or(0);
+            let note_width =
+                ((max_line_chars as f32 * avg_char_w) + 24.0).clamp(80.0, default_note_width * 2.5);
 
             // Position the note at the edge after which it appears.
             let y = message_y_positions
@@ -3322,7 +3357,7 @@ fn build_sequence_fragment_geometry(
                 .copied()
                 .unwrap_or(diagram_bottom - message_gap * 0.5);
 
-            let padding = 20.0;
+            let padding = message_gap * 0.35;
             LayoutSequenceFragment {
                 kind: fragment.kind,
                 label: fragment.label.clone(),
@@ -4316,13 +4351,15 @@ pub fn layout_diagram_grid_traced(ir: &MermaidDiagramIr) -> TracedLayout {
 fn layout_diagram_pie_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     let mut trace = LayoutTrace::default();
     let metrics = fm_core::FontMetrics::default_metrics();
+    let spacing = LayoutSpacing::default();
     let node_count = ir.nodes.len();
 
-    // Sizing constants.
-    let radius = 140.0_f32;
-    let label_radius = radius + 60.0;
-    let cx = radius + 80.0;
-    let cy = radius + 60.0;
+    // Adaptive sizing based on slice count and label dimensions.
+    let base_radius = 100.0_f32 + (node_count as f32 * 8.0).min(100.0);
+    let radius = base_radius.clamp(80.0, 220.0);
+    let label_radius = radius + 50.0;
+    let cx = radius + 70.0;
+    let cy = radius + 50.0;
 
     // Compute total value from pie metadata (fall back to equal slices).
     let values: Vec<f32> = if let Some(pie) = &ir.pie_meta {
@@ -4374,8 +4411,15 @@ fn layout_diagram_pie_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             .iter()
             .map(|slice| metrics.estimate_dimensions(&slice.label).0)
             .fold(0.0_f32, f32::max);
-        let legend_width = (legend_label_width + 86.0).clamp(136.0, 280.0);
-        let title_height = if pie.title.is_some() { 44.0 } else { 0.0 };
+        let legend_width = (legend_label_width + spacing.chart_legend_padding).clamp(
+            spacing.chart_legend_min_width,
+            spacing.chart_legend_max_width,
+        );
+        let title_height = if pie.title.is_some() {
+            spacing.chart_title_height
+        } else {
+            0.0
+        };
         bounds.y -= title_height;
         bounds.height += title_height;
         bounds.width += legend_width + 28.0;
@@ -4404,9 +4448,18 @@ fn layout_diagram_quadrant_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     let metrics = fm_core::FontMetrics::default_metrics();
     let node_count = ir.nodes.len();
 
-    let chart_w = 400.0_f32;
-    let chart_h = 400.0_f32;
-    let margin_left = 80.0_f32;
+    // Adaptive sizing: scale chart based on number of data points for readability.
+    let base_size = 300.0_f32 + (node_count as f32 * 15.0).min(200.0);
+    let chart_w = base_size.clamp(200.0, 600.0);
+    let chart_h = chart_w; // Keep square for quadrant symmetry.
+    // Compute margins from axis label dimensions.
+    let axis_label_width = ir
+        .quadrant_meta
+        .as_ref()
+        .and_then(|m| m.x_axis_left.as_ref())
+        .map(|label| metrics.estimate_dimensions(label).0)
+        .unwrap_or(0.0);
+    let margin_left = (axis_label_width + 20.0).clamp(50.0, 120.0);
     let margin_top = 60.0_f32;
 
     let points = ir

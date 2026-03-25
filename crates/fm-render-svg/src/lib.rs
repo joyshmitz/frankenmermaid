@@ -338,7 +338,7 @@ fn render_scene_document_with_ir(
                 .font_family(&config.font_family)
                 .font_size(config.font_size + 4.0)
                 .font_weight("600")
-                .fill("#1f2937")
+                .fill("var(--fm-text-color, #1f2937)")
                 .class("fm-diagram-title")
                 .build(),
         );
@@ -1638,8 +1638,8 @@ fn render_layout_to_svg(
                 .height(nh)
                 .rx(4.0)
                 .ry(4.0)
-                .fill("#fffde7")
-                .stroke("#f9a825")
+                .fill(&theme.colors.node_fill)
+                .stroke(&theme.colors.accents[4 % theme.colors.accents.len()])
                 .stroke_width(1.0)
                 .class("fm-sequence-note"),
         );
@@ -1907,7 +1907,7 @@ fn render_layout_to_svg(
             .y1(divider.start.y + offset_y)
             .x2(divider.end.x + offset_x)
             .y2(divider.end.y + offset_y)
-            .stroke("#64748b")
+            .stroke(&theme.colors.cluster_stroke)
             .stroke_width(1.0)
             .stroke_dasharray("6,4")
             .class("fm-cluster-divider");
@@ -2092,7 +2092,7 @@ fn render_layout_band(
                     config.font_size * 0.82,
                     config.min_font_size,
                 ))
-                .fill("#4a5568")
+                .fill("var(--fm-text-color, #4a5568)")
                 .class("fm-band-label")
                 .build(),
         );
@@ -2109,7 +2109,7 @@ fn render_layout_axis_tick(label: &str, x: f32, y: f32, config: &SvgRenderConfig
             .y1(y + 4.0)
             .x2(x)
             .y2(y + 16.0)
-            .stroke("#94a3b8")
+            .stroke("var(--fm-edge-color, #94a3b8)")
             .stroke_width(1.0),
     );
     group.child(
@@ -2121,7 +2121,7 @@ fn render_layout_axis_tick(label: &str, x: f32, y: f32, config: &SvgRenderConfig
                 config.font_size * 0.72,
                 config.min_font_size,
             ))
-            .fill("#64748b")
+            .fill("var(--fm-text-color, #64748b)")
             .class("fm-axis-tick-label")
             .build(),
     )
@@ -2177,7 +2177,12 @@ fn render_quadrant_svg(
     let margin_left = 80.0_f32 + offset_x;
     let margin_top = 60.0_f32 + offset_y;
 
-    let quadrant_fills = ["#e8f5e9", "#fff3e0", "#e3f2fd", "#fce4ec"];
+    let quadrant_fills: [&str; 4] = [
+        &theme.colors.accents[0 % theme.colors.accents.len()],
+        &theme.colors.accents[1 % theme.colors.accents.len()],
+        &theme.colors.accents[2 % theme.colors.accents.len()],
+        &theme.colors.accents[3 % theme.colors.accents.len()],
+    ];
 
     // Draw quadrant backgrounds.
     let half_w = chart_w / 2.0;
@@ -6378,5 +6383,84 @@ mod tests {
         let (left, right) = parse_er_cardinality("unknown");
         assert_eq!(left, "");
         assert_eq!(right, "");
+    }
+
+    /// Verify that all 10 theme presets produce valid, non-empty SVG output
+    /// for representative diagram IRs. This is a regression guard against
+    /// hardcoded colors that are invisible on certain themes.
+    #[test]
+    fn all_theme_presets_produce_valid_svg() {
+        use fm_core::{ArrowType, DiagramType, IrEdge, IrEndpoint, IrNode, IrNodeId, NodeShape};
+
+        let presets = [
+            ThemePreset::Default,
+            ThemePreset::Dark,
+            ThemePreset::Forest,
+            ThemePreset::Neutral,
+            ThemePreset::Corporate,
+            ThemePreset::Neon,
+            ThemePreset::Pastel,
+            ThemePreset::HighContrast,
+            ThemePreset::Monochrome,
+            ThemePreset::Blueprint,
+        ];
+
+        let diagram_types = [
+            DiagramType::Flowchart,
+            DiagramType::Sequence,
+            DiagramType::Class,
+            DiagramType::State,
+            DiagramType::Er,
+            DiagramType::Pie,
+        ];
+
+        for preset in &presets {
+            let config = SvgRenderConfig {
+                theme: *preset,
+                ..SvgRenderConfig::default()
+            };
+
+            for diagram_type in &diagram_types {
+                let mut ir = MermaidDiagramIr::empty(*diagram_type);
+                ir.nodes.push(IrNode {
+                    id: "A".to_string(),
+                    shape: NodeShape::Rect,
+                    ..Default::default()
+                });
+                ir.nodes.push(IrNode {
+                    id: "B".to_string(),
+                    shape: NodeShape::Rounded,
+                    ..Default::default()
+                });
+                ir.edges.push(IrEdge {
+                    from: IrEndpoint::Node(IrNodeId(0)),
+                    to: IrEndpoint::Node(IrNodeId(1)),
+                    arrow: ArrowType::Arrow,
+                    ..Default::default()
+                });
+
+                let layout = fm_layout::layout_diagram(&ir);
+                let svg = render_svg_with_layout(&ir, &layout, &config);
+
+                assert!(
+                    !svg.is_empty(),
+                    "Theme {} produced empty SVG for {:?}",
+                    preset.as_str(),
+                    diagram_type.as_str()
+                );
+                assert!(
+                    svg.contains("<svg"),
+                    "Theme {} produced invalid SVG for {:?}",
+                    preset.as_str(),
+                    diagram_type.as_str()
+                );
+                assert!(
+                    !svg.contains("NaN"),
+                    "Theme {} produced SVG with NaN for {:?}",
+                    preset.as_str(),
+                    diagram_type.as_str()
+                );
+            }
+        }
     }
 }

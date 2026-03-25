@@ -199,6 +199,7 @@ impl Canvas2dRenderer {
         let nodes_drawn = self.draw_nodes(layout, ir, ctx, offset_x, offset_y, &mut labels_drawn);
 
         ctx.restore();
+        self.draw_generic_diagram_title(ctx, ir, canvas_width);
 
         CanvasRenderResult {
             draw_calls: self.draw_calls,
@@ -208,6 +209,28 @@ impl Canvas2dRenderer {
             labels_drawn,
             viewport,
         }
+    }
+
+    fn draw_generic_diagram_title<C: Canvas2dContext>(
+        &mut self,
+        ctx: &mut C,
+        ir: &MermaidDiagramIr,
+        canvas_width: f64,
+    ) {
+        let Some(title) = generic_canvas_diagram_title(ir) else {
+            return;
+        };
+
+        ctx.set_fill_style(&self.config.label_color);
+        ctx.set_font(&format!("{}px {}", self.config.font_size, self.config.font_family));
+        ctx.set_text_align(TextAlign::Center);
+        ctx.set_text_baseline(TextBaseline::Top);
+        ctx.fill_text(
+            title,
+            canvas_width / 2.0,
+            (self.config.padding * 0.5).max(self.config.font_size * 0.5),
+        );
+        self.draw_calls += 1;
     }
 
     /// Render a target-agnostic render scene to a Canvas2D context.
@@ -452,7 +475,7 @@ impl Canvas2dRenderer {
         match marker {
             MarkerKind::None => {}
             MarkerKind::Circle => {
-                draw_circle_marker(ctx, x, y, 4.0, "#fff", stroke_color);
+                draw_circle_marker(ctx, x, y, 4.0, &self.config.node_fill, stroke_color);
                 self.draw_calls += 1;
             }
             MarkerKind::Cross => {
@@ -829,16 +852,16 @@ impl Canvas2dRenderer {
             let w = f64::from(note.bounds.width);
             let h = f64::from(note.bounds.height);
 
-            // Note background (light yellow).
-            ctx.set_fill_style("rgba(254,249,195,0.9)");
+            // Note background — uses config colors for theme awareness.
+            ctx.set_fill_style(&self.config.node_fill);
             ctx.fill_rect(x, y, w, h);
-            ctx.set_stroke_style("#ca8a04");
+            ctx.set_stroke_style(&self.config.node_stroke);
             ctx.set_line_width(1.0);
             ctx.stroke_rect(x, y, w, h);
 
             // Note text.
             if !note.text.is_empty() {
-                ctx.set_fill_style("#713f12");
+                ctx.set_fill_style(&self.config.label_color);
                 ctx.set_font(&format!(
                     "{}px {}",
                     self.config.font_size * 0.85,
@@ -922,7 +945,14 @@ impl Canvas2dRenderer {
                         self.draw_calls += 1;
                     }
                     ArrowType::Circle => {
-                        draw_circle_marker(ctx, ex, ey, 4.0, "#fff", &self.config.edge_stroke);
+                        draw_circle_marker(
+                            ctx,
+                            ex,
+                            ey,
+                            4.0,
+                            &self.config.node_fill,
+                            &self.config.edge_stroke,
+                        );
                         self.draw_calls += 1;
                     }
                     ArrowType::Cross => {
@@ -1343,6 +1373,23 @@ fn class_vis_char(vis: fm_core::ClassVisibility) -> char {
         fm_core::ClassVisibility::Private => '-',
         fm_core::ClassVisibility::Protected => '#',
         fm_core::ClassVisibility::Package => '~',
+    }
+}
+
+fn generic_canvas_diagram_title(ir: &MermaidDiagramIr) -> Option<&str> {
+    let has_specialized_title_renderer = (ir.diagram_type == fm_core::DiagramType::Pie
+        && ir
+            .pie_meta
+            .as_ref()
+            .is_some_and(|meta| !meta.slices.is_empty()))
+        || (ir.diagram_type == fm_core::DiagramType::Gantt && ir.gantt_meta.is_some())
+        || (ir.diagram_type == fm_core::DiagramType::XyChart && ir.xy_chart_meta.is_some())
+        || (ir.diagram_type == fm_core::DiagramType::QuadrantChart && ir.quadrant_meta.is_some());
+
+    if has_specialized_title_renderer {
+        None
+    } else {
+        ir.meta.title.as_deref()
     }
 }
 

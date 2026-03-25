@@ -142,6 +142,7 @@ impl TermRenderer {
             }
         }
 
+        self.render_generic_diagram_title(&mut buffer.cells, cell_width, ir);
         let output = buffer.to_string();
 
         TermRenderResult {
@@ -1241,11 +1242,49 @@ impl TermRenderer {
             }
         }
 
+        if let Some(title) = generic_terminal_diagram_title(ir)
+            && let Some(first_line) = lines.first_mut()
+        {
+            let title = self.truncate_label(title);
+            let title_chars: Vec<char> = title.chars().collect();
+            let title_len = title_chars.len().min(cell_width);
+            let start_x = cell_width.saturating_sub(title_len) / 2;
+            for (index, ch) in title_chars.into_iter().take(title_len).enumerate() {
+                let col = start_x + index;
+                if col < first_line.len() {
+                    first_line[col] = ch;
+                }
+            }
+        }
+
         lines
             .into_iter()
             .map(|l| l.into_iter().collect::<String>())
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    fn render_generic_diagram_title(
+        &self,
+        cells: &mut [char],
+        row_width: usize,
+        ir: &MermaidDiagramIr,
+    ) {
+        let Some(title) = generic_terminal_diagram_title(ir) else {
+            return;
+        };
+        if row_width == 0 || cells.len() < row_width {
+            return;
+        }
+
+        let title = self.truncate_label(title);
+        let title_chars: Vec<char> = title.chars().collect();
+        let title_len = title_chars.len().min(row_width);
+        let start_x = row_width.saturating_sub(title_len) / 2;
+
+        for (index, ch) in title_chars.into_iter().take(title_len).enumerate() {
+            cells[start_x + index] = ch;
+        }
     }
 
     fn bounds_to_cells(
@@ -1617,6 +1656,23 @@ fn is_block_beta_space_node(node: &fm_core::IrNode) -> bool {
             .classes
             .iter()
             .any(|class_name| class_name.eq_ignore_ascii_case("block-beta-space"))
+}
+
+fn generic_terminal_diagram_title(ir: &MermaidDiagramIr) -> Option<&str> {
+    let has_specialized_title_renderer = (ir.diagram_type == fm_core::DiagramType::Pie
+        && ir
+            .pie_meta
+            .as_ref()
+            .is_some_and(|meta| !meta.slices.is_empty()))
+        || (ir.diagram_type == fm_core::DiagramType::Gantt && ir.gantt_meta.is_some())
+        || (ir.diagram_type == fm_core::DiagramType::XyChart && ir.xy_chart_meta.is_some())
+        || (ir.diagram_type == fm_core::DiagramType::QuadrantChart && ir.quadrant_meta.is_some());
+
+    if has_specialized_title_renderer {
+        None
+    } else {
+        ir.meta.title.as_deref()
+    }
 }
 
 /// Render a pie chart as an ASCII ellipse with wedge detection and a side legend.
@@ -2495,6 +2551,38 @@ mod tests {
 
         assert!(!build_line.contains("build_1"));
         assert!(verify_line.find('█').unwrap_or(0) > build_line.find('░').unwrap_or(0));
+    }
+
+    #[test]
+    fn renders_generic_diagram_title_in_compact_mode() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.meta.title = Some("Shipping History".to_string());
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            ..IrNode::default()
+        });
+
+        let config = TermRenderConfig::compact();
+        let result = render_diagram_with_config(&ir, &config, 40, 12);
+        let first_line = result.output.lines().next().unwrap_or("");
+
+        assert!(first_line.contains("Shipping"));
+    }
+
+    #[test]
+    fn renders_generic_diagram_title_in_rich_mode() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.meta.title = Some("Shipping History".to_string());
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            ..IrNode::default()
+        });
+
+        let config = TermRenderConfig::rich();
+        let result = render_diagram_with_config(&ir, &config, 40, 12);
+        let first_line = result.output.lines().next().unwrap_or("");
+
+        assert!(first_line.contains("Shipping History"));
     }
 
     #[test]
