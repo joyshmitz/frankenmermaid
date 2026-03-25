@@ -28,7 +28,7 @@
     "flowchart_cycle": {
       "edge_count": 3,
       "layout_algorithm": "auto",
-      "layout_checksum": "80a20d3dd2184472",
+      "layout_checksum": "3b398fed853ebb62",
       "layout_height": 543.5,
       "layout_width": 212.0,
       "node_count": 3
@@ -36,7 +36,7 @@
     "flowchart_simple": {
       "edge_count": 4,
       "layout_algorithm": "auto",
-      "layout_checksum": "4ac6d797262a162b",
+      "layout_checksum": "8699d9dcfa417211",
       "layout_height": 317.0,
       "layout_width": 672.200012,
       "node_count": 4
@@ -108,9 +108,9 @@
     "state_basic": {
       "edge_count": 3,
       "layout_algorithm": "auto",
-      "layout_checksum": "82b7b3f48cf84952",
-      "layout_height": 357.0,
-      "layout_width": 445.549988,
+      "layout_checksum": "056eb9aa8f479467",
+      "layout_height": 497.0,
+      "layout_width": 271.699982,
       "node_count": 3
     },
     "timeline_basic": {

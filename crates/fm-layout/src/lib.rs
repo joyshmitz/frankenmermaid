@@ -6300,7 +6300,7 @@ fn cycle_removal_greedy(
             let right_score = out_degree[*right] as isize - in_degree[*right] as isize;
             left_score
                 .cmp(&right_score)
-                .then_with(|| compare_priority(*left, *right, node_priority))
+                .then_with(|| compare_priority(*right, *left, node_priority))
         }) else {
             break;
         };

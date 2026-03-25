@@ -223,10 +223,12 @@ impl ArrowheadMarker {
     /// Create a circle marker.
     #[must_use]
     pub fn circle_marker(id: &str, fill: &str) -> Self {
-        // Use a path to approximate a circle
+        // Two semicircular arcs to form a complete circle (SVG arcs with
+        // identical start/end points are degenerate and render nothing).
         let path = PathBuilder::new()
             .move_to(6.0, 3.0)
-            .arc_to(3.0, 3.0, 0.0, true, true, 6.0, 3.0)
+            .arc_to(3.0, 3.0, 0.0, false, true, 0.0, 3.0)
+            .arc_to(3.0, 3.0, 0.0, false, true, 6.0, 3.0)
             .close()
             .build();
 
@@ -443,17 +445,17 @@ impl Gradient {
             GradientKind::Linear { x1, y1, x2, y2 } => {
                 Element::new(crate::element::ElementKind::LinearGradient)
                     .id(&self.id)
-                    .attr("x1", &format!("{}%", (x1 * 100.0) as i32))
-                    .attr("y1", &format!("{}%", (y1 * 100.0) as i32))
-                    .attr("x2", &format!("{}%", (x2 * 100.0) as i32))
-                    .attr("y2", &format!("{}%", (y2 * 100.0) as i32))
+                    .attr("x1", &format!("{:.1}%", x1 * 100.0))
+                    .attr("y1", &format!("{:.1}%", y1 * 100.0))
+                    .attr("x2", &format!("{:.1}%", x2 * 100.0))
+                    .attr("y2", &format!("{:.1}%", y2 * 100.0))
             }
             GradientKind::Radial { cx, cy, r } => {
                 Element::new(crate::element::ElementKind::RadialGradient)
                     .id(&self.id)
-                    .attr("cx", &format!("{}%", (cx * 100.0) as i32))
-                    .attr("cy", &format!("{}%", (cy * 100.0) as i32))
-                    .attr("r", &format!("{}%", (r * 100.0) as i32))
+                    .attr("cx", &format!("{:.1}%", cx * 100.0))
+                    .attr("cy", &format!("{:.1}%", cy * 100.0))
+                    .attr("r", &format!("{:.1}%", r * 100.0))
             }
         };
 
