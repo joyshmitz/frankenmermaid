@@ -1072,7 +1072,7 @@ impl ArrowType {
             Self::StickArrowTopReverseDotted => "//--",
             Self::StickArrowBottomReverseDotted => "\\\\--",
             Self::Circle => "--o",
-            Self::Cross => "--x",
+            Self::Cross => "-x",
             Self::ThickLine => "===",
             Self::DottedLine => "-.-",
             Self::DoubleArrow => "<-->",
@@ -2277,10 +2277,9 @@ impl MermaidBudgetLedger {
     #[must_use]
     pub fn new(pressure: &MermaidPressureReport) -> Self {
         let total_budget_ms: u64 = match pressure.tier {
-            MermaidPressureTier::Unknown => 120,
+            MermaidPressureTier::Unknown | MermaidPressureTier::High => 120,
             MermaidPressureTier::Nominal => 250,
             MermaidPressureTier::Elevated => 180,
-            MermaidPressureTier::High => 120,
             MermaidPressureTier::Critical => 80,
         };
         let parse_budget_ms = total_budget_ms.div_ceil(5);
@@ -4127,7 +4126,7 @@ mod tests {
             (ArrowType::StickArrowTopReverseDotted, "//--"),
             (ArrowType::StickArrowBottomReverseDotted, "\\\\--"),
             (ArrowType::Circle, "--o"),
-            (ArrowType::Cross, "--x"),
+            (ArrowType::Cross, "-x"),
             (ArrowType::ThickLine, "==="),
             (ArrowType::DottedLine, "-.-"),
             (ArrowType::DoubleArrow, "<-->"),

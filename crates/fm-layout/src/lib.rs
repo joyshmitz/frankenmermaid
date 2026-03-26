@@ -1507,7 +1507,9 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
     }
 
     let mut traced = match guarded_dispatch.selected {
-        LayoutAlgorithm::Sugiyama => layout_diagram_sugiyama_traced_with_config(ir, config),
+        LayoutAlgorithm::Sugiyama | LayoutAlgorithm::Auto => {
+            layout_diagram_sugiyama_traced_with_config(ir, config)
+        }
         LayoutAlgorithm::Force => layout_diagram_force_traced(ir),
         LayoutAlgorithm::Tree => layout_diagram_tree_traced(ir),
         LayoutAlgorithm::Radial => layout_diagram_radial_traced(ir),
@@ -1516,13 +1518,11 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
         LayoutAlgorithm::XyChart => layout_diagram_xychart_traced(ir),
         LayoutAlgorithm::Sankey => layout_diagram_sankey_traced(ir),
         LayoutAlgorithm::Kanban => layout_diagram_kanban_traced(ir),
-        LayoutAlgorithm::Grid => layout_diagram_grid_traced(ir),
+        LayoutAlgorithm::Grid | LayoutAlgorithm::Packet => layout_diagram_grid_traced(ir),
         LayoutAlgorithm::Sequence => layout_diagram_sequence_traced(ir),
         LayoutAlgorithm::Pie => layout_diagram_pie_traced(ir),
         LayoutAlgorithm::Quadrant => layout_diagram_quadrant_traced(ir),
         LayoutAlgorithm::GitGraph => layout_diagram_gitgraph_traced(ir),
-        LayoutAlgorithm::Packet => layout_diagram_grid_traced(ir), // Reuse grid layout for packet
-        LayoutAlgorithm::Auto => layout_diagram_sugiyama_traced_with_config(ir, config), // Safe fallback
     };
     traced.trace.dispatch = guarded_dispatch;
     traced.trace.guard = guard;
