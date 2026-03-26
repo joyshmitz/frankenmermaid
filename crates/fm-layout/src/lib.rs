@@ -5994,36 +5994,56 @@ fn detect_cycle_components(
     }
 
     impl TarjanState<'_> {
-        fn strong_connect(&mut self, node: usize) {
-            self.indices[node] = Some(self.index);
-            self.lowlink[node] = self.index;
+        fn strong_connect(&mut self, start_node: usize) {
+            let mut call_stack = vec![(start_node, 0_usize)];
+
+            self.indices[start_node] = Some(self.index);
+            self.lowlink[start_node] = self.index;
             self.index = self.index.saturating_add(1);
-            self.stack.push(node);
-            self.on_stack[node] = true;
+            self.stack.push(start_node);
+            self.on_stack[start_node] = true;
 
-            for edge_slot in self.outgoing_edge_slots[node].iter().copied() {
-                let next = self.edges[edge_slot].target;
-                if self.indices[next].is_none() {
-                    self.strong_connect(next);
-                    self.lowlink[node] = self.lowlink[node].min(self.lowlink[next]);
-                } else if self.on_stack[next] {
-                    self.lowlink[node] =
-                        self.lowlink[node].min(self.indices[next].unwrap_or(self.lowlink[node]));
-                }
-            }
+            while let Some((node, edge_idx)) = call_stack.pop() {
+                let outgoing = &self.outgoing_edge_slots[node];
 
-            if self.lowlink[node] == self.indices[node].unwrap_or(self.lowlink[node]) {
-                let mut component = Vec::new();
-                while let Some(top) = self.stack.pop() {
-                    self.on_stack[top] = false;
-                    component.push(top);
-                    if top == node {
-                        break;
+                if edge_idx < outgoing.len() {
+                    call_stack.push((node, edge_idx + 1));
+
+                    let edge_slot = outgoing[edge_idx];
+                    let next = self.edges[edge_slot].target;
+
+                    if self.indices[next].is_none() {
+                        self.indices[next] = Some(self.index);
+                        self.lowlink[next] = self.index;
+                        self.index = self.index.saturating_add(1);
+                        self.stack.push(next);
+                        self.on_stack[next] = true;
+                        call_stack.push((next, 0));
+                    } else if self.on_stack[next] {
+                        self.lowlink[node] = self
+                            .lowlink[node]
+                            .min(self.indices[next].unwrap_or(self.lowlink[node]));
+                    }
+                } else {
+                    if self.lowlink[node] == self.indices[node].unwrap_or(self.lowlink[node]) {
+                        let mut component = Vec::new();
+                        while let Some(top) = self.stack.pop() {
+                            self.on_stack[top] = false;
+                            component.push(top);
+                            if top == node {
+                                break;
+                            }
+                        }
+                        component.sort_by(|left, right| {
+                            compare_priority(*left, *right, self.node_priority)
+                        });
+                        self.components.push(component);
+                    }
+
+                    if let Some(&(parent, _)) = call_stack.last() {
+                        self.lowlink[parent] = self.lowlink[parent].min(self.lowlink[node]);
                     }
                 }
-                component
-                    .sort_by(|left, right| compare_priority(*left, *right, self.node_priority));
-                self.components.push(component);
             }
         }
     }
