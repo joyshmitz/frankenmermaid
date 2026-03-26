@@ -30,6 +30,9 @@ const CASE_IDS: &[&str] = &[
     "all_edge_types",
     "requirement_basic",
     "c4_basic",
+    "stress_120_nodes",
+    "empty_diagram",
+    "single_node",
 ];
 
 fn golden_dir() -> PathBuf {

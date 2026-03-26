@@ -1204,20 +1204,45 @@ fn terminal_size(width: Option<u32>, height: Option<u32>) -> (usize, usize) {
 }
 
 fn extract_svg_dimensions(svg: &str) -> (Option<u32>, Option<u32>) {
-    // Simple regex-free extraction of width/height from SVG
+    // Simple regex-free extraction of width/height from SVG, with viewBox fallback for
+    // responsive SVGs that use percentage sizing.
     let width = svg.find("width=\"").and_then(|i| {
         let start = i + 7;
         let end = svg[start..].find('"').map(|e| start + e)?;
-        svg[start..end].parse::<f32>().ok().map(|v| v as u32)
+        parse_svg_dimension_value(&svg[start..end])
     });
 
     let height = svg.find("height=\"").and_then(|i| {
         let start = i + 8;
         let end = svg[start..].find('"').map(|e| start + e)?;
-        svg[start..end].parse::<f32>().ok().map(|v| v as u32)
+        parse_svg_dimension_value(&svg[start..end])
     });
 
-    (width, height)
+    match (width, height) {
+        (Some(width), Some(height)) => (Some(width), Some(height)),
+        _ => extract_viewbox_dimensions(svg).unwrap_or((width, height)),
+    }
+}
+
+fn parse_svg_dimension_value(value: &str) -> Option<u32> {
+    value
+        .parse::<f32>()
+        .ok()
+        .filter(|parsed| parsed.is_finite() && *parsed > 0.0)
+        .map(|parsed| parsed.ceil() as u32)
+}
+
+fn extract_viewbox_dimensions(svg: &str) -> Option<(Option<u32>, Option<u32>)> {
+    let start = svg.find("viewBox=\"")? + 9;
+    let end = svg[start..].find('"').map(|offset| start + offset)?;
+    let mut parts = svg[start..end]
+        .split(|ch: char| ch.is_ascii_whitespace() || ch == ',')
+        .filter(|part| !part.is_empty());
+    let _min_x = parts.next()?;
+    let _min_y = parts.next()?;
+    let width = parse_svg_dimension_value(parts.next()?);
+    let height = parse_svg_dimension_value(parts.next()?);
+    Some((width, height))
 }
 
 #[cfg(feature = "png")]
@@ -2012,8 +2037,8 @@ mod validate_tests {
 mod render_tests {
     use super::{
         ColorChoice, OutputFormat, ThemePreset, build_svg_render_config, diff_use_colors,
-        normalize_positive_font_size, parse_positive_dimension_arg, parse_positive_font_size_arg,
-        render_format, terminal_size,
+        extract_svg_dimensions, normalize_positive_font_size, parse_positive_dimension_arg,
+        parse_positive_font_size_arg, render_format, terminal_size,
     };
     use fm_layout::layout_diagram;
     use fm_parser::parse;
@@ -2095,6 +2120,18 @@ mod render_tests {
     fn terminal_size_falls_back_for_zero_dimensions() {
         assert_eq!(terminal_size(Some(0), Some(0)), (80, 24));
         assert_eq!(terminal_size(Some(120), Some(0)), (120, 24));
+    }
+
+    #[test]
+    fn extract_svg_dimensions_falls_back_to_viewbox_for_responsive_svg() {
+        let svg = r#"<svg viewBox="0 0 320.5 180.2" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"></svg>"#;
+        assert_eq!(extract_svg_dimensions(svg), (Some(321), Some(181)));
+    }
+
+    #[test]
+    fn extract_svg_dimensions_rounds_positive_fractional_sizes_up() {
+        let svg = r#"<svg width="0.5" height="1.2" xmlns="http://www.w3.org/2000/svg"></svg>"#;
+        assert_eq!(extract_svg_dimensions(svg), (Some(1), Some(2)));
     }
 
     #[test]

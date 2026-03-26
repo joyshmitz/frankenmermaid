@@ -41,6 +41,14 @@
       "layout_width": 893.937439,
       "node_count": 16
     },
+    "empty_diagram": {
+      "edge_count": 0,
+      "layout_algorithm": "auto",
+      "layout_checksum": "af617ed0c68a8096",
+      "layout_height": 0.0,
+      "layout_width": 0.0,
+      "node_count": 0
+    },
     "er_basic": {
       "edge_count": 2,
       "layout_algorithm": "auto",
@@ -137,6 +145,14 @@
       "layout_width": 363.350006,
       "node_count": 2
     },
+    "single_node": {
+      "edge_count": 0,
+      "layout_algorithm": "auto",
+      "layout_checksum": "534d72133af8fabd",
+      "layout_height": 170.5,
+      "layout_width": 241.175003,
+      "node_count": 1
+    },
     "state_basic": {
       "edge_count": 3,
       "layout_algorithm": "auto",
@@ -144,6 +160,14 @@
       "layout_height": 497.0,
       "layout_width": 271.699982,
       "node_count": 3
+    },
+    "stress_120_nodes": {
+      "edge_count": 130,
+      "layout_algorithm": "auto",
+      "layout_checksum": "61fa2e5fc1b512d7",
+      "layout_height": 22364.0,
+      "layout_width": 245.875,
+      "node_count": 120
     },
     "timeline_basic": {
       "edge_count": 6,
