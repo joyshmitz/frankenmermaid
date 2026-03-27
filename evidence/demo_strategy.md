@@ -264,6 +264,7 @@ Playground section:
 - Render actions must be explicit and reproducible; any debounced or cancellable pipeline later added must preserve the current "what output corresponds to what input" clarity.
 - The editor surface should expose authoring affordances directly in the page: syntax lens, structural hints, sample-cycling shortcuts, and URL-safe source overrides that survive deep-link restoration.
 - The live authoring loop should be latest-edit-wins: stale async runs must be discarded, and visible stage timing/error state should explain what actually rendered.
+- Diagnostics should be first-class in the playground: line-linked markers, remediation hints, and preserved safe fallback preview should keep bad inputs navigable instead of collapsing the page into opaque errors.
 - The section should function as the home for future telemetry, determinism, diagnostics, and export labs rather than scattering those surfaces across the page.
 
 Support Evidence section:
@@ -321,6 +322,13 @@ Non-negotiable responsive rules:
 - `bd-2u0.5.5.4` should keep gallery breadth subordinate to spotlight-first narrative sequencing.
 - `bd-2u0.5.6.1` and `bd-2u0.5.4.3` should extend the playground/support-evidence model instead of inventing detached diagnostics panels.
 - `bd-2u0.5.8.1` should carry these contracts into shared core surface boundaries for `/web` and `/web_react`.
+
+### Shared-Core Follow-Through
+
+- The concrete shared-core boundary map now lives in `evidence/contracts/showcase_shared_core_contract.md`.
+- `/web` and `/web_react` should treat that file as the adapter contract for scenario catalog, URL codec, shell controller, render pipeline, diagnostics projector, fallback preservation, and host-service boundaries.
+- The shared validation contract now lives in `evidence/contracts/showcase_test_taxonomy_and_logging_schema.md`.
+- Showcase-related beads should emit evidence against that taxonomy and schema rather than defining bead-local logging conventions.
 
 ## Launch Scope Boundary
 

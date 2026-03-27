@@ -41,6 +41,9 @@ pub enum NodeChange {
     ShapeChanged { old: NodeShape, new: NodeShape },
     ClassesChanged { old: Vec<String>, new: Vec<String> },
     MembersChanged { old: Vec<String>, new: Vec<String> },
+    HrefChanged { old: Option<String>, new: Option<String> },
+    TooltipChanged { old: Option<String>, new: Option<String> },
+    MetadataChanged,
 }
 
 /// A diffed edge with its status.
@@ -62,6 +65,7 @@ pub struct DiffEdge {
 pub enum EdgeChange {
     ArrowChanged { old: ArrowType, new: ArrowType },
     LabelChanged { old: String, new: String },
+    ErNotationChanged { old: Option<String>, new: Option<String> },
 }
 
 /// Complete diff result between two diagrams.
@@ -260,6 +264,24 @@ fn compare_nodes(
         });
     }
 
+    if old_node.href != new_node.href {
+        changes.push(NodeChange::HrefChanged {
+            old: old_node.href.clone(),
+            new: new_node.href.clone(),
+        });
+    }
+
+    if old_node.tooltip != new_node.tooltip {
+        changes.push(NodeChange::TooltipChanged {
+            old: old_node.tooltip.clone(),
+            new: new_node.tooltip.clone(),
+        });
+    }
+
+    if old_node.class_meta != new_node.class_meta || old_node.requirement_meta != new_node.requirement_meta || old_node.c4_meta != new_node.c4_meta {
+        changes.push(NodeChange::MetadataChanged);
+    }
+
     changes
 }
 
@@ -405,6 +427,13 @@ fn compare_edges(
         changes.push(EdgeChange::LabelChanged {
             old: old_label,
             new: new_label,
+        });
+    }
+
+    if old_edge.er_notation != new_edge.er_notation {
+        changes.push(EdgeChange::ErNotationChanged {
+            old: old_edge.er_notation.clone(),
+            new: new_edge.er_notation.clone(),
         });
     }
 
@@ -650,6 +679,9 @@ fn format_node_change(change: &NodeChange) -> String {
         NodeChange::ShapeChanged { old, new } => format!("shape: {old:?} -> {new:?}"),
         NodeChange::ClassesChanged { old, new } => format!("classes: {old:?} -> {new:?}"),
         NodeChange::MembersChanged { old, new } => format!("members: {old:?} -> {new:?}"),
+        NodeChange::HrefChanged { old, new } => format!("href: {old:?} -> {new:?}"),
+        NodeChange::TooltipChanged { old, new } => format!("tooltip: {old:?} -> {new:?}"),
+        NodeChange::MetadataChanged => "metadata changed".to_string(),
     }
 }
 
@@ -657,6 +689,7 @@ fn format_edge_change(change: &EdgeChange) -> String {
     match change {
         EdgeChange::ArrowChanged { old, new } => format!("arrow: {old:?} -> {new:?}"),
         EdgeChange::LabelChanged { old, new } => format!("label: {old:?} -> {new:?}"),
+        EdgeChange::ErNotationChanged { old, new } => format!("er_notation: {old:?} -> {new:?}"),
     }
 }
 

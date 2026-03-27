@@ -25,7 +25,8 @@ pub fn parse_dot(input: &str) -> ParseResult {
     let directed = is_directed_graph(input);
     let body = extract_body(input);
     let body_without_comments = strip_all_comments(body);
-    let normalized_body = normalize_dot_body(&body_without_comments);
+    let expanded_groups = expand_edge_groups(&body_without_comments);
+    let normalized_body = normalize_dot_body(&expanded_groups);
     let mut active_clusters: Vec<usize> = Vec::new();
     let mut active_subgraphs: Vec<usize> = Vec::new();
 
@@ -269,48 +270,11 @@ fn parse_dot_edge_statement(
 
     let edge_label_str = shared_attrs.and_then(parse_dot_label);
 
-    // Expand edge groups: "A -> {B C D}" becomes ["A -> B", "A -> C", "A -> D"].
-    // Check each window for brace groups and expand them.
+    // Edge groups (A -> {B C D}) are expanded in expand_edge_groups() before
+    // normalization, so they arrive here as individual "A -> B", "A -> C" etc.
     for window in parts.windows(2) {
         let from_text = window[0].trim();
         let to_text = window[1].trim();
-
-        // Handle edge groups: A -> {B C D}
-        if to_text.starts_with('{') && to_text.ends_with('}') {
-            let inner = to_text[1..to_text.len() - 1].trim();
-            let group_members: Vec<&str> = inner
-                .split_whitespace()
-                .filter(|s| !s.is_empty())
-                .collect();
-            if !group_members.is_empty() {
-                let Some(from_node) = parse_dot_node_fragment(from_text) else {
-                    continue;
-                };
-                let from = builder.intern_node(
-                    &from_node.id,
-                    from_node.label.as_deref(),
-                    NodeShape::Rect,
-                    span,
-                );
-                for member in &group_members {
-                    let Some(to_node) = parse_dot_node_fragment(member) else {
-                        continue;
-                    };
-                    let to = builder.intern_node(
-                        &to_node.id,
-                        to_node.label.as_deref(),
-                        NodeShape::Rect,
-                        span,
-                    );
-                    if let (Some(from_id), Some(to_id)) = (from, to) {
-                        builder.push_edge(from_id, to_id, arrow, edge_label_str.as_deref(), span);
-                        add_node_to_active_groups(builder, active_clusters, active_subgraphs, from_id);
-                        add_node_to_active_groups(builder, active_clusters, active_subgraphs, to_id);
-                    }
-                }
-                continue;
-            }
-        }
 
         let Some(from_node) = parse_dot_node_fragment(from_text) else {
             builder.add_warning(format!(
@@ -653,6 +617,60 @@ fn normalize_dot_body(body: &str) -> String {
     output
 }
 
+/// Pre-expand DOT edge group syntax: `A -> {B C D}` → `A -> B; A -> C; A -> D`.
+/// This must run BEFORE `normalize_dot_body` which inserts semicolons around braces.
+fn expand_edge_groups(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut rest = input;
+
+    while let Some(brace_start) = rest.find('{') {
+        // Check if this brace is preceded by an edge operator (-> or --)
+        let before = &rest[..brace_start];
+        let is_edge_group = before.trim_end().ends_with("->") || before.trim_end().ends_with("--");
+
+        if !is_edge_group {
+            // Not an edge group — might be a subgraph brace. Pass through.
+            output.push_str(&rest[..=brace_start]);
+            rest = &rest[brace_start + 1..];
+            continue;
+        }
+
+        let Some(brace_end) = rest[brace_start..].find('}') else {
+            // Unclosed brace — pass through rest.
+            output.push_str(rest);
+            return output;
+        };
+        let brace_end = brace_start + brace_end;
+
+        // Extract source node (everything before the operator).
+        let operator_end = before.trim_end().len();
+        let op_len = 2; // "--" or "->"
+        let source = before[..operator_end - op_len].trim();
+        let operator = &before.trim_end()[operator_end - op_len..operator_end];
+
+        // Extract group members.
+        let inner = rest[brace_start + 1..brace_end].trim();
+        let members: Vec<&str> = inner.split_whitespace().filter(|s| !s.is_empty()).collect();
+
+        // Expand: emit "source -> member" for each member.
+        for (i, member) in members.iter().enumerate() {
+            if i > 0 {
+                output.push_str("; ");
+            }
+            output.push_str(source);
+            output.push(' ');
+            output.push_str(operator);
+            output.push(' ');
+            output.push_str(member);
+        }
+
+        rest = &rest[brace_end + 1..];
+    }
+
+    output.push_str(rest);
+    output
+}
+
 fn clean_optional(raw: &str) -> Option<String> {
     let cleaned = raw.trim().trim_matches('"').trim_matches('\'').trim();
     (!cleaned.is_empty()).then_some(cleaned.to_string())
@@ -875,8 +893,14 @@ fn dot_port_syntax_stripped_from_node_ids() {
     let result = parse_dot(input);
     assert_eq!(result.ir.edges.len(), 1, "should parse edge");
     let node_ids: Vec<&str> = result.ir.nodes.iter().map(|n| n.id.as_str()).collect();
-    assert!(node_ids.contains(&"A"), "node A should exist (port stripped)");
-    assert!(node_ids.contains(&"B"), "node B should exist (port stripped)");
+    assert!(
+        node_ids.contains(&"A"),
+        "node A should exist (port stripped)"
+    );
+    assert!(
+        node_ids.contains(&"B"),
+        "node B should exist (port stripped)"
+    );
 }
 
 #[test]
