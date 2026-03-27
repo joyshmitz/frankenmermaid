@@ -75,6 +75,109 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
+    .split-shell {
+      --shell-left: minmax(0, 1.08fr);
+      --shell-right: minmax(18rem, 0.92fr);
+    }
+
+    .split-shell[data-balance="wide-left"] {
+      --shell-left: minmax(0, 1.18fr);
+      --shell-right: minmax(17rem, 0.82fr);
+    }
+
+    .split-shell[data-balance="balanced"] {
+      --shell-left: minmax(0, 1fr);
+      --shell-right: minmax(17rem, 1fr);
+    }
+
+    .split-shell[data-balance="wide-right"] {
+      --shell-left: minmax(0, 0.9fr);
+      --shell-right: minmax(18rem, 1.1fr);
+    }
+
+    .shell-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: flex-start;
+    }
+
+    .shell-controls {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .shell-toggle,
+    .shell-rail-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(226, 232, 240, 0.92);
+      border-radius: 999px;
+      padding: 0.55rem 0.95rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+    }
+
+    .shell-toggle:hover,
+    .shell-rail-toggle:hover {
+      border-color: rgba(76, 201, 255, 0.3);
+      background: rgba(76, 201, 255, 0.12);
+      color: #ffffff;
+    }
+
+    .shell-toggle[aria-pressed="true"] {
+      border-color: rgba(122, 245, 199, 0.34);
+      background: linear-gradient(135deg, rgba(76, 201, 255, 0.18), rgba(122, 245, 199, 0.16));
+      color: #ffffff;
+    }
+
+    .shell-rail-toggle[data-rail="collapsed"] {
+      border-color: rgba(255, 154, 183, 0.3);
+      background: rgba(255, 154, 183, 0.12);
+      color: #ffd0dc;
+    }
+
+    .shell-grid {
+      display: grid;
+      gap: 1.5rem;
+      align-items: start;
+      grid-template-columns: var(--shell-left) var(--shell-right);
+    }
+
+    .shell-primary,
+    .shell-rail {
+      min-width: 0;
+    }
+
+    .shell-primary {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .shell-rail {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .split-shell[data-rail="collapsed"] .shell-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .split-shell[data-rail="collapsed"] .shell-rail {
+      display: none;
+    }
+
     .gridline {
       background-image:
         linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
@@ -449,6 +552,18 @@
         flex-shrink: 0;
         scroll-snap-align: start;
       }
+
+      .shell-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .shell-toolbar {
+        justify-content: space-between;
+      }
+
+      .shell-controls {
+        width: 100%;
+      }
     }
 
     /* --- Gallery filter scroll on mobile --- */
@@ -467,6 +582,20 @@
 
       #gallery-filters > * {
         flex-shrink: 0;
+      }
+
+      .shell-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .shell-controls {
+        gap: 0.4rem;
+      }
+
+      .shell-toggle,
+      .shell-rail-toggle {
+        width: 100%;
       }
     }
 
@@ -746,7 +875,7 @@
           </div>
         </section>
 
-        <section id="section-showcase" class="scroll-mt-16 glass rounded-[2rem] p-6 shadow-panel sm:p-8">
+        <section id="section-showcase" class="scroll-mt-16 glass split-shell rounded-[2rem] p-6 shadow-panel sm:p-8" data-shell="showcase" data-balance="wide-left" data-rail="expanded">
           <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div class="max-w-4xl">
               <p class="text-xs font-semibold uppercase tracking-[0.28em] text-cobalt">Showcase atlas</p>
@@ -755,31 +884,39 @@
                 This section leads with large live renders from the frankenmermaid browser runtime. It spotlights one serious sample from every major diagram family so the page proves visual output immediately instead of burying it under tooling panels.
               </p>
             </div>
-            <div class="grid grid-cols-3 gap-3">
-              <div class="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 sm:px-5 sm:py-4">
-                <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 sm:text-xs">Corpus</div>
-                <div class="mt-1 text-2xl font-black text-white sm:mt-2 sm:text-3xl">80</div>
-                <div class="mt-0.5 hidden text-sm text-slate-300 sm:block">realistic scenarios</div>
+            <div class="shell-toolbar lg:max-w-2xl">
+              <div class="grid grid-cols-3 gap-3">
+                <div class="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 sm:px-5 sm:py-4">
+                  <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 sm:text-xs">Corpus</div>
+                  <div class="mt-1 text-2xl font-black text-white sm:mt-2 sm:text-3xl">80</div>
+                  <div class="mt-0.5 hidden text-sm text-slate-300 sm:block">realistic scenarios</div>
+                </div>
+                <div class="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 sm:px-5 sm:py-4">
+                  <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 sm:text-xs">Families</div>
+                  <div class="mt-1 text-2xl font-black text-white sm:mt-2 sm:text-3xl">10</div>
+                  <div class="mt-0.5 hidden text-sm text-slate-300 sm:block">diagram types</div>
+                </div>
+                <div class="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 sm:px-5 sm:py-4">
+                  <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 sm:text-xs">Mode</div>
+                  <div class="mt-1 text-2xl font-black text-mint sm:mt-2 sm:text-3xl">Live</div>
+                  <div class="mt-0.5 hidden text-sm text-slate-300 sm:block">WASM output</div>
+                </div>
               </div>
-              <div class="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 sm:px-5 sm:py-4">
-                <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 sm:text-xs">Families</div>
-                <div class="mt-1 text-2xl font-black text-white sm:mt-2 sm:text-3xl">10</div>
-                <div class="mt-0.5 hidden text-sm text-slate-300 sm:block">diagram types</div>
-              </div>
-              <div class="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 sm:px-5 sm:py-4">
-                <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 sm:text-xs">Mode</div>
-                <div class="mt-1 text-2xl font-black text-mint sm:mt-2 sm:text-3xl">Live</div>
-                <div class="mt-0.5 hidden text-sm text-slate-300 sm:block">WASM output</div>
+              <div class="shell-controls">
+                <button type="button" class="shell-toggle" data-shell-target="showcase" data-shell-balance="wide-left" aria-pressed="true">Artifact First</button>
+                <button type="button" class="shell-toggle" data-shell-target="showcase" data-shell-balance="balanced" aria-pressed="false">Balanced</button>
+                <button type="button" class="shell-rail-toggle" data-shell-target="showcase" data-shell-rail="expanded">Collapse Rail</button>
               </div>
             </div>
           </div>
 
-          <div class="mt-8 grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-            <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
-              <div class="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <div class="flex flex-wrap items-center gap-3">
-                    <h3 id="spotlight-title" class="text-2xl font-black text-white">Loading spotlight…</h3>
+          <div class="shell-grid mt-8">
+            <div class="shell-primary">
+              <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
+                <div class="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div class="flex flex-wrap items-center gap-3">
+                      <h3 id="spotlight-title" class="text-2xl font-black text-white">Loading spotlight…</h3>
                     <span id="spotlight-status" class="pill rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]">pending</span>
                     <span id="spotlight-category" class="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200">category</span>
                   </div>
@@ -819,7 +956,7 @@
               </div>
             </div>
 
-            <div class="space-y-4">
+            <div class="shell-rail">
               <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
                 <div class="flex items-center justify-between gap-3">
                   <div>
@@ -877,7 +1014,7 @@
           <div id="gallery-grid" class="diagram-wall mt-8"></div>
         </section>
 
-        <section id="section-playground" class="scroll-mt-16 glass rounded-[2rem] p-6 shadow-panel sm:p-8">
+        <section id="section-playground" class="scroll-mt-16 glass split-shell rounded-[2rem] p-6 shadow-panel sm:p-8" data-shell="playground" data-balance="balanced" data-rail="expanded">
           <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div class="max-w-3xl">
               <p class="text-xs font-semibold uppercase tracking-[0.28em] text-cobalt">Live playground</p>
@@ -887,11 +1024,19 @@
                 is rendered on the right as a baseline comparison.
               </p>
             </div>
-            <div class="flex flex-wrap gap-2" id="sample-buttons"></div>
+            <div class="shell-toolbar">
+              <div class="flex flex-wrap gap-2" id="sample-buttons"></div>
+              <div class="shell-controls">
+                <button type="button" class="shell-toggle" data-shell-target="playground" data-shell-balance="wide-left" aria-pressed="false">Editor First</button>
+                <button type="button" class="shell-toggle" data-shell-target="playground" data-shell-balance="balanced" aria-pressed="true">Balanced</button>
+                <button type="button" class="shell-toggle" data-shell-target="playground" data-shell-balance="wide-right" aria-pressed="false">Output First</button>
+                <button type="button" class="shell-rail-toggle" data-shell-target="playground" data-shell-rail="expanded">Collapse Rail</button>
+              </div>
+            </div>
           </div>
 
-          <div class="mt-7 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <div class="order-2 space-y-6 xl:order-1">
+          <div class="shell-grid mt-7">
+            <div class="shell-primary order-2 xl:order-1">
               <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-4">
                 <div class="mb-3 flex items-center justify-between gap-3">
                   <label for="diagram-input" class="text-sm font-semibold text-white">Diagram source</label>
@@ -933,7 +1078,7 @@
               </div>
             </div>
 
-            <div class="order-1 space-y-6 xl:order-2">
+            <div class="shell-rail order-1 xl:order-2">
               <div class="space-y-4">
                 <div class="viz-card rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
                   <div class="flex items-center justify-between gap-3">
@@ -989,8 +1134,24 @@
           </div>
         </section>
 
-        <section id="section-support" class="scroll-mt-16 grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
-          <div class="glass rounded-[2rem] p-6 shadow-panel sm:p-8">
+        <section id="section-support" class="scroll-mt-16 split-shell" data-shell="support" data-balance="balanced" data-rail="expanded">
+          <div class="mb-5 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div class="max-w-3xl">
+              <p class="text-xs font-semibold uppercase tracking-[0.28em] text-flare">Support and evidence</p>
+              <h2 class="mt-2 text-2xl font-bold text-white">Support truth, matrix coverage, and project reading guidance</h2>
+              <p class="mt-3 text-sm leading-6 text-slate-300">
+                This section is the due-diligence rail for the showcase: capability truth, scenario coverage, and reading guidance should stay reviewable without displacing the primary visual story above.
+              </p>
+            </div>
+            <div class="shell-controls">
+              <button type="button" class="shell-toggle" data-shell-target="support" data-shell-balance="wide-left" aria-pressed="false">Coverage First</button>
+              <button type="button" class="shell-toggle" data-shell-target="support" data-shell-balance="balanced" aria-pressed="true">Balanced</button>
+              <button type="button" class="shell-rail-toggle" data-shell-target="support" data-shell-rail="expanded">Collapse Notes</button>
+            </div>
+          </div>
+
+          <div class="shell-grid">
+          <div class="glass shell-primary rounded-[2rem] p-6 shadow-panel sm:p-8">
             <p class="text-xs font-semibold uppercase tracking-[0.28em] text-cobalt">Support reality</p>
             <h2 class="mt-2 text-2xl font-bold text-white">Current diagram support from the checked-in capability artifact</h2>
             <div id="support-grid" class="mt-6 grid gap-3 sm:grid-cols-2"></div>
@@ -1004,7 +1165,7 @@
             </div>
           </div>
 
-          <div class="glass rounded-[2rem] p-6 shadow-panel sm:p-8">
+          <div class="glass shell-rail rounded-[2rem] p-6 shadow-panel sm:p-8">
             <p class="text-xs font-semibold uppercase tracking-[0.28em] text-flare">Render notes</p>
             <h2 class="mt-2 text-2xl font-bold text-white">How to read the current state of the project</h2>
             <div class="mt-6 space-y-4">
@@ -1027,6 +1188,7 @@
                 </p>
               </div>
             </div>
+          </div>
           </div>
         </section>
       </main>
@@ -1644,6 +1806,53 @@
     function setChip(el, text, cls) {
       el.textContent = text;
       el.className = `rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${cls}`;
+    }
+
+    function applyShellState(shell) {
+      const balance = shell.dataset.balance || "balanced";
+      const rail = shell.dataset.rail || "expanded";
+
+      for (const button of shell.querySelectorAll("[data-shell-balance]")) {
+        button.setAttribute("aria-pressed", String(button.dataset.shellBalance === balance));
+      }
+
+      for (const button of shell.querySelectorAll("[data-shell-rail]")) {
+        button.dataset.rail = rail;
+        if (button.dataset.shellTarget === "support") {
+          button.textContent = rail === "collapsed" ? "Show Notes" : "Collapse Notes";
+        } else {
+          button.textContent = rail === "collapsed" ? "Show Rail" : "Collapse Rail";
+        }
+      }
+    }
+
+    function initShellControls() {
+      for (const shell of document.querySelectorAll("[data-shell]")) {
+        applyShellState(shell);
+      }
+
+      document.addEventListener("click", (event) => {
+        const balanceButton = event.target.closest("[data-shell-balance]");
+        if (balanceButton) {
+          const shell = document.querySelector(`[data-shell="${balanceButton.dataset.shellTarget}"]`);
+          if (!shell) {
+            return;
+          }
+          shell.dataset.balance = balanceButton.dataset.shellBalance;
+          applyShellState(shell);
+          return;
+        }
+
+        const railButton = event.target.closest("[data-shell-rail]");
+        if (railButton) {
+          const shell = document.querySelector(`[data-shell="${railButton.dataset.shellTarget}"]`);
+          if (!shell) {
+            return;
+          }
+          shell.dataset.rail = shell.dataset.rail === "collapsed" ? "expanded" : "collapsed";
+          applyShellState(shell);
+        }
+      });
     }
 
     function pretty(value) {
@@ -2378,6 +2587,7 @@
 
     async function boot() {
       await loadCoverageArtifact();
+      initShellControls();
       createSampleButtons();
       renderFeatureStrip();
       renderFilterControls();
