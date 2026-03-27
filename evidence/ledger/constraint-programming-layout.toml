@@ -1,0 +1,25 @@
+concept_id = "constraint-programming-layout"
+concept_name = "Constraint Programming for Layout"
+graveyard_section = "§9.7"
+graveyard_score = 3.0
+tier = "b"
+contract_path = "evidence/contracts/constraint-programming-layout.md"
+hypothesis = "Constraint-aware layout can enforce explicit user intent that the current pipeline ignores."
+predicted_improvement = "Full or near-full satisfaction of SameRank, MinLength, Pin, and OrderInRank constraints."
+predicted_risk = "Solver complexity and conflicting constraints may hurt latency and ergonomics."
+notes = ["Seeded from the corresponding decision contract."]
+
+[baseline]
+
+[baseline.metrics]
+
+[implementation]
+beads = []
+
+[post_measurement]
+
+[post_measurement.metrics]
+
+[decision]
+status = "pending"
+rationale = "Not yet evaluated."

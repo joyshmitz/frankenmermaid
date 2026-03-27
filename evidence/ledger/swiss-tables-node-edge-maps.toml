@@ -1,0 +1,25 @@
+concept_id = "swiss-tables-node-edge-maps"
+concept_name = "Swiss Tables for Node/Edge Maps"
+graveyard_section = "§7.7"
+graveyard_score = 3.0
+tier = "b"
+contract_path = "evidence/contracts/swiss-tables-node-edge-maps.md"
+hypothesis = "Deterministic Swiss-table maps can speed layout hot paths without changing outputs."
+predicted_improvement = "20% lookup throughput uplift and 5%+ end-to-end layout speedup."
+predicted_risk = "Determinism or wasm constraints could erase the practical gain."
+notes = ["Seeded from the corresponding decision contract."]
+
+[baseline]
+
+[baseline.metrics]
+
+[implementation]
+beads = []
+
+[post_measurement]
+
+[post_measurement.metrics]
+
+[decision]
+status = "pending"
+rationale = "Not yet evaluated."

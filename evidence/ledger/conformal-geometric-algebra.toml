@@ -1,0 +1,25 @@
+concept_id = "conformal-geometric-algebra"
+concept_name = "Conformal Geometric Algebra"
+graveyard_section = "§12.11"
+graveyard_score = 2.0
+tier = "c"
+contract_path = "evidence/contracts/conformal-geometric-algebra.md"
+hypothesis = "CGA could simplify geometric transformations and unlock curved/radial layout work."
+predicted_improvement = "Cleaner geometric composition with limited performance regression."
+predicted_risk = "Readability, maintenance cost, and wasm portability could be unacceptable."
+notes = ["Seeded from the corresponding decision contract."]
+
+[baseline]
+
+[baseline.metrics]
+
+[implementation]
+beads = []
+
+[post_measurement]
+
+[post_measurement.metrics]
+
+[decision]
+status = "pending"
+rationale = "Not yet evaluated."

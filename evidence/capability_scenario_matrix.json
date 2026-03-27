@@ -7,6 +7,7 @@
   "sources": [
     "README.md",
     "evidence/demo_strategy.md",
+    "evidence/pattern_inventory.md",
     "evidence/capability_matrix.json",
     "frankenmermaid_demo_showcase.html",
     "crates/fm-cli/tests/golden_svg_test.rs"

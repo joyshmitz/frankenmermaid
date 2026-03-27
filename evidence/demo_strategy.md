@@ -16,6 +16,7 @@ This strategy is grounded in the current repo state rather than aspirational par
 Primary sources:
 - `README.md`
 - `frankenmermaid_demo_showcase.html`
+- `evidence/pattern_inventory.md`
 - `evidence/capability_matrix.json`
 - `evidence/capability_scenario_matrix.json`
 - `evidence/demo_resilience_fixture_suite.json`
@@ -31,6 +32,7 @@ Current product truth that the demo must respect:
 - The most differentiated product claims are resilience to malformed input, deterministic output, cycle-aware layout handling, terminal rendering, and inspectable diagnostics.
 - Capability breadth is large, but many diagram families are still `partial` in `evidence/capability_matrix.json`; the demo must highlight breadth without implying uniform depth.
 - Recovery and stress examples should now be anchored in `evidence/demo_resilience_fixture_suite.json` rather than ad hoc fixture mentions.
+- Upstream showcase mining in `evidence/pattern_inventory.md` should guide information architecture, sample registry design, and validation seams without creating fake parity claims.
 
 ## Demo Thesis
 
@@ -183,6 +185,140 @@ Required proof:
 | 3 | J3 Deterministic and Reviewable for CI | 4 | 5 | Converts architecture quality into operational trust |
 | 4 | J5 Embeddable Browser Runtime with Inspectable Metadata | 4 | 4 | Critical for modern product integration story |
 | 5 | J4 Terminal-First Incident or Remote Workflow | 3 | 4 | Highly memorable differentiator, but secondary for broad adoption |
+
+## Showcase Information Architecture Contract
+
+Primary bead:
+- `bd-2u0.5.3.1`
+
+Upstream design inputs:
+- `evidence/pattern_inventory.md`
+- `frankenmermaid_demo_showcase.html`
+
+Design intent:
+- The showcase must behave like a decision tool, not a feature dump.
+- Section order must follow the ranked journey order closely enough that a first-time visitor gets the resilience story first, the shared-engine story second, and the proof/evidence story before deeper exploration.
+- The current standalone HTML is directionally correct, but the sections should be interpreted as a formal contract for future `/web` and `/web_react` surfaces rather than as a one-off page.
+
+### Top-Level Sections and Order
+
+1. Runtime
+   Purpose:
+   Prove whether the browser-facing runtime is actually live, what source it loaded from, and whether the surface is honest about failures.
+
+2. Spotlight
+   Purpose:
+   Show one large, realistic scenario that demonstrates why the engine is worth caring about before the visitor sees the full atlas.
+
+3. Gallery
+   Purpose:
+   Provide broad scenario discoverability without displacing the curated narrative path.
+
+4. Playground
+   Purpose:
+   Let the user inspect real API surfaces, compare outputs, and validate the shared-engine/browser story interactively.
+
+5. Support Evidence
+   Purpose:
+   Surface capability coverage, support honesty, and future architecture/evidence contracts in a reviewable form.
+
+Ordering rationale:
+- Runtime first because J5 credibility and browser honesty are prerequisites for trusting the rest of the page.
+- Spotlight second because the first large visual should sell J1/J2 immediately.
+- Gallery third because breadth should follow, not precede, the flagship proof.
+- Playground fourth because hands-on inspection matters more after the visitor has context.
+- Support evidence last because it is proof and due diligence, not the emotional hook.
+
+### Section-to-Journey Mapping
+
+| Section | Primary journeys served | Secondary journeys served |
+|---|---|---|
+| Runtime | J5 | J3 |
+| Spotlight | J1, J2 | J4 |
+| Gallery | J2 | J3, J4 |
+| Playground | J2, J5 | J1, J3 |
+| Support Evidence | J3 | J1, J5 |
+
+### Panel Responsibilities and Interaction Contracts
+
+Runtime section:
+- Left panel owns live bootstrap truth: source URL, mode, retry action, endpoint diagnostics, and failure transparency.
+- Right panel owns the "why this matters" framing and the short differentiation summary.
+- The runtime panel must never imply publication success when the runtime is unavailable; it must degrade to explicit evidence of absence.
+
+Spotlight section:
+- Main panel owns the featured scenario render at serious size, plus the "why this sample matters" explanation and source text.
+- Side rail owns category switching and proof-callout cards.
+- Clicking a feature-strip item updates the spotlight without losing scenario identity.
+- Opening the spotlight in the editor must preserve scenario identity so later deep-link/state beads can make the handoff reproducible.
+
+Gallery section:
+- Filter row owns category chips and search.
+- Grid owns broad capability discoverability and navigation back to the spotlight/editor.
+- Gallery cards should default to visual output first and source second.
+- Gallery state must stay subordinate to canonical scenario IDs from `evidence/capability_scenario_matrix.json`.
+
+Playground section:
+- Left column owns authoring and raw API inspection: source editor, `detectType()`, `sourceSpans()`, and `parse()`.
+- Right column owns rendered outputs and matrix-backed evidence: FrankenMermaid SVG, Mermaid baseline, canvas surface, capability summary, and capability table.
+- Render actions must be explicit and reproducible; any debounced or cancellable pipeline later added must preserve the current "what output corresponds to what input" clarity.
+- The section should function as the home for future telemetry, determinism, diagnostics, and export labs rather than scattering those surfaces across the page.
+
+Support Evidence section:
+- Support grid owns concise proof cards summarizing what the project can honestly claim now.
+- Coverage summary/table owns matrix-backed support truth and should remain machine-readable in spirit even when visually styled.
+- The architecture/pipeline explainer should live here or immediately adjacent to this section, because it is evidence and interpretation, not hero copy.
+
+### Route and Surface Contract
+
+Standalone static route:
+- `frankenmermaid_demo_showcase.html` remains the initial contract reference for `file://` and static-hosted usage.
+
+Future hosted/static route:
+- `/web` should preserve the same section order and evidence obligations unless there is a deliberate divergence recorded in `bd-2u0.5.10.3`.
+
+Future React route:
+- `/web_react` may improve interaction mechanics, but it should preserve the same decision order, scenario identity model, and proof surfaces.
+
+Shared cross-surface invariants:
+- The same scenario ID should mean the same narrative example across all surfaces.
+- Runtime truth, capability truth, and diagnostics truth must not vary semantically by host.
+- Any surface-specific enhancement must be clearly additive, not a hidden semantic fork.
+
+### Breakpoint and Layout Rules
+
+Desktop:
+- Maintain a sticky top navigation plus two-column section layouts where one side carries proof/context and the other side carries the primary artifact.
+- Spotlight and playground should preserve a dominant visual/output viewport.
+
+Tablet:
+- Preserve section order and most panel pairings, but allow side rails to collapse beneath the primary artifact.
+- Filters and action rows may wrap, but core CTA order must remain stable.
+
+Mobile:
+- Collapse each section to a single vertical stack.
+- Keep navigation compact and scroll-oriented rather than trying to preserve split panes.
+- Within each section, order content as: claim -> primary artifact -> controls -> supporting evidence -> raw source/details.
+
+Non-negotiable responsive rules:
+- No breakpoint may hide the runtime truth panel entirely.
+- No breakpoint may place broad gallery browsing ahead of the flagship spotlight.
+- Playground raw inspection panels may collapse, but render outputs and key evidence summaries must stay visible without requiring source expansion first.
+
+### Architecture Explainer Placement Contract
+
+- The shared-pipeline explainer must be visibly reachable from the main showcase flow.
+- It should sit after the visitor has seen at least one large visual proof and at least one inspectable evidence surface.
+- The explainer should show `parse -> IR -> layout -> render -> surfaces`, then connect those stages to concrete files and current capability claims.
+- It must not read like generic architecture documentation; it should explain why the pipeline produces trust, inspectability, and multi-surface leverage.
+
+### Immediate Downstream Implications
+
+- `bd-2u0.5.3.2` should implement the shell against this section order and the responsive degradation rules above.
+- `bd-2u0.5.4.1` should treat the playground as the canonical editor/instrumentation home, not create a parallel authoring surface elsewhere.
+- `bd-2u0.5.5.4` should keep gallery breadth subordinate to spotlight-first narrative sequencing.
+- `bd-2u0.5.6.1` and `bd-2u0.5.4.3` should extend the playground/support-evidence model instead of inventing detached diagnostics panels.
+- `bd-2u0.5.8.1` should carry these contracts into shared core surface boundaries for `/web` and `/web_react`.
 
 ## Launch Scope Boundary
 

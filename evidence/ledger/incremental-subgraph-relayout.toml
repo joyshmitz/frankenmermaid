@@ -1,0 +1,25 @@
+concept_id = "incremental-subgraph-relayout"
+concept_name = "Incremental Subgraph Re-Layout"
+graveyard_section = "§6.1"
+graveyard_score = 3.0
+tier = "a"
+contract_path = "evidence/contracts/incremental-subgraph-relayout.md"
+hypothesis = "Incremental relayout can cut edit latency dramatically for local changes."
+predicted_improvement = "<10ms local updates on large diagrams with correctness parity against full relayout."
+predicted_risk = "Invalidation boundaries and correctness proofs may be hard to keep deterministic."
+notes = ["Seeded from the corresponding decision contract."]
+
+[baseline]
+
+[baseline.metrics]
+
+[implementation]
+beads = []
+
+[post_measurement]
+
+[post_measurement.metrics]
+
+[decision]
+status = "pending"
+rationale = "Not yet evaluated."

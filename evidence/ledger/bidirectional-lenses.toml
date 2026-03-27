@@ -1,0 +1,25 @@
+concept_id = "bidirectional-lenses"
+concept_name = "Bidirectional Lenses for Diagram/Text Sync"
+graveyard_section = "§6.2"
+graveyard_score = 2.5
+tier = "b"
+contract_path = "evidence/contracts/bidirectional-lenses.md"
+hypothesis = "Lens-style get/put machinery can enable disciplined source<->diagram round-tripping."
+predicted_improvement = "Round-trip editing without losing author intent in supported edits."
+predicted_risk = "Source preservation and lens laws may be too costly for the current parser architecture."
+notes = ["Seeded from the corresponding decision contract."]
+
+[baseline]
+
+[baseline.metrics]
+
+[implementation]
+beads = []
+
+[post_measurement]
+
+[post_measurement.metrics]
+
+[decision]
+status = "pending"
+rationale = "Not yet evaluated."
