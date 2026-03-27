@@ -636,6 +636,149 @@
       box-shadow: 0 0 20px rgba(76, 201, 255, 0.08);
     }
 
+    .editor-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .editor-status {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .editor-shell {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .editor-surface {
+      display: grid;
+      grid-template-columns: 3.25rem minmax(0, 1fr);
+      min-height: 22rem;
+      border-radius: 1.25rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background:
+        linear-gradient(180deg, rgba(6, 14, 27, 0.98), rgba(9, 19, 35, 0.98));
+      overflow: hidden;
+    }
+
+    .editor-gutter {
+      margin: 0;
+      padding: 1rem 0.5rem 1rem 0.875rem;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      color: rgba(148, 163, 184, 0.72);
+      background: rgba(255, 255, 255, 0.03);
+      font-size: 0.75rem;
+      line-height: 1.5rem;
+      text-align: right;
+      user-select: none;
+      overflow: hidden;
+    }
+
+    .editor-pane {
+      position: relative;
+      min-height: 22rem;
+    }
+
+    .editor-overlay,
+    #diagram-input {
+      margin: 0;
+      padding: 1rem 1rem 1rem 1.125rem;
+      font-size: 0.875rem;
+      line-height: 1.5rem;
+      tab-size: 2;
+      white-space: pre;
+      overflow: auto;
+    }
+
+    .editor-overlay {
+      position: absolute;
+      inset: 0;
+      color: rgba(226, 232, 240, 0.9);
+      pointer-events: none;
+    }
+
+    #diagram-input {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      min-height: 22rem;
+      color: transparent;
+      caret-color: #f8fafc;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      resize: vertical;
+      outline: none;
+    }
+
+    .token-keyword { color: #7af5c7; }
+    .token-directive { color: #4cc9ff; }
+    .token-node { color: #fbbf24; }
+    .token-arrow { color: #ff9ab7; }
+    .token-comment { color: rgba(148, 163, 184, 0.82); }
+    .token-literal { color: #c084fc; }
+
+    .editor-aux-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
+    }
+
+    .editor-note {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 1.25rem;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 1rem;
+    }
+
+    .editor-note h3 {
+      margin: 0;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(148, 163, 184, 0.88);
+    }
+
+    .editor-hint-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.875rem;
+    }
+
+    .editor-shortcuts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.875rem;
+    }
+
+    .shortcut-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.45rem 0.75rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      color: rgba(226, 232, 240, 0.9);
+      font-size: 0.75rem;
+      line-height: 1.2;
+    }
+
+    .editor-nav {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
     /* --- Keyboard shortcut hint --- */
     .kbd {
       display: inline-flex;
@@ -681,6 +824,16 @@
 
       .stat-grid .text-3xl {
         font-size: 1.5rem !important;
+      }
+
+      .editor-surface {
+        grid-template-columns: 2.75rem minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 1023px) {
+      .editor-aux-grid {
+        grid-template-columns: 1fr;
       }
     }
 
@@ -1045,24 +1198,67 @@
           <div class="shell-grid mt-7">
             <div class="shell-primary order-2 xl:order-1">
               <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-4">
-                <div class="mb-3 flex items-center justify-between gap-3">
-                  <label for="diagram-input" class="text-sm font-semibold text-white">Diagram source</label>
-                  <button
-                    id="render-button"
-                    class="flex items-center gap-2 rounded-full border border-cobalt/30 bg-cobalt/15 px-4 py-2 text-sm font-semibold text-cobalt transition hover:bg-cobalt/25"
-                    type="button"
-                    title="Render diagram (Ctrl+Enter)"
-                  >
-                    Render
-                    <span class="kbd shortcut-hint">Ctrl+Enter</span>
-                  </button>
+                <div class="editor-toolbar">
+                  <div class="space-y-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <label for="diagram-input" class="text-sm font-semibold text-white">Diagram source</label>
+                      <span id="editor-family-chip" class="pill rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]">pending</span>
+                    </div>
+                    <div class="editor-status">
+                      <span id="editor-meta" class="text-xs uppercase tracking-[0.18em] text-slate-400">Loading editor metadata…</span>
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <div class="editor-nav">
+                      <button type="button" id="sample-prev" class="shell-toggle" title="Previous featured sample (Alt+ArrowLeft)">
+                        Prev
+                        <span class="kbd shortcut-hint">Alt+←</span>
+                      </button>
+                      <button type="button" id="sample-next" class="shell-toggle" title="Next featured sample (Alt+ArrowRight)">
+                        Next
+                        <span class="kbd shortcut-hint">Alt+→</span>
+                      </button>
+                    </div>
+                    <button
+                      id="render-button"
+                      class="flex items-center gap-2 rounded-full border border-cobalt/30 bg-cobalt/15 px-4 py-2 text-sm font-semibold text-cobalt transition hover:bg-cobalt/25"
+                      type="button"
+                      title="Render diagram (Ctrl+Enter)"
+                    >
+                      Render
+                      <span class="kbd shortcut-hint">Ctrl+Enter</span>
+                    </button>
+                  </div>
                 </div>
-                <textarea
-                  id="diagram-input"
-                  class="scrollbar-thin h-[22rem] w-full rounded-[1.25rem] border border-white/10 bg-[#07101e] p-4 text-sm leading-6 text-slate-100 outline-none transition focus:border-cobalt/40 focus:ring-1 focus:ring-cobalt/20"
-                  spellcheck="false"
-                  placeholder="Type or paste Mermaid diagram syntax here..."
-                ></textarea>
+                <div class="editor-shell mt-4">
+                  <div class="editor-surface">
+                    <pre id="editor-gutter" class="editor-gutter" aria-hidden="true">1</pre>
+                    <div class="editor-pane">
+                      <pre id="editor-highlight" class="editor-overlay scrollbar-thin" aria-hidden="true"></pre>
+                      <textarea
+                        id="diagram-input"
+                        class="scrollbar-thin"
+                        spellcheck="false"
+                        placeholder="Type or paste Mermaid diagram syntax here..."
+                      ></textarea>
+                    </div>
+                  </div>
+                  <div class="editor-aux-grid">
+                    <div class="editor-note">
+                      <h3>Syntax lens</h3>
+                      <pre id="editor-structure" class="scrollbar-thin mt-3 max-h-56 overflow-auto whitespace-pre-wrap text-xs leading-6 text-slate-200"></pre>
+                    </div>
+                    <div class="editor-note">
+                      <h3>Productivity affordances</h3>
+                      <div id="editor-hints" class="editor-hint-list"></div>
+                      <div class="editor-shortcuts">
+                        <span class="shortcut-pill"><span class="kbd shortcut-hint">Ctrl+Enter</span><span>Render current source</span></span>
+                        <span class="shortcut-pill"><span class="kbd shortcut-hint">Alt+←</span><span>Previous featured sample</span></span>
+                        <span class="shortcut-pill"><span class="kbd shortcut-hint">Alt+→</span><span>Next featured sample</span></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div class="grid gap-4 md:grid-cols-2">
@@ -1761,6 +1957,14 @@
     const els = {
       sampleButtons: document.getElementById("sample-buttons"),
       input: document.getElementById("diagram-input"),
+      editorGutter: document.getElementById("editor-gutter"),
+      editorHighlight: document.getElementById("editor-highlight"),
+      editorStructure: document.getElementById("editor-structure"),
+      editorMeta: document.getElementById("editor-meta"),
+      editorHints: document.getElementById("editor-hints"),
+      editorFamilyChip: document.getElementById("editor-family-chip"),
+      samplePrev: document.getElementById("sample-prev"),
+      sampleNext: document.getElementById("sample-next"),
       renderButton: document.getElementById("render-button"),
       retryRuntime: document.getElementById("retry-runtime"),
       runtimeBanner: document.getElementById("runtime-banner"),
@@ -1896,11 +2100,121 @@
       return JSON.stringify(value, null, 2);
     }
 
+    function countMatches(source, pattern) {
+      const matches = source.match(pattern);
+      return matches ? matches.length : 0;
+    }
+
     function escapeHtml(value) {
       return value
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
+    }
+
+    function highlightDiagramSource(source) {
+      return escapeHtml(source)
+        .replace(/^%%.*$/gm, (match) => `<span class="token-comment">${match}</span>`)
+        .replace(/\b(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram-v2|erDiagram|gantt|journey|timeline|pie|gitGraph|subgraph|section|participant|actor|class|state|title|dateFormat|branch|checkout|merge|commit)\b/g, '<span class="token-keyword">$1</span>')
+        .replace(/\b(TD|TB|BT|LR|RL)\b/g, '<span class="token-directive">$1</span>')
+        .replace(/(\-\->|\-\.\->|==>|-->|->>|-->>|==>|:::|:)/g, '<span class="token-arrow">$1</span>')
+        .replace(/(\[[^\]]+\]|\([^)]+\)|\{[^}]+\}|\"[^\"]+\")/g, '<span class="token-literal">$1</span>')
+        .replace(/\b([A-Z][A-Za-z0-9_]*)\b/g, '<span class="token-node">$1</span>');
+    }
+
+    function summarizeStructure(source) {
+      const lines = source.split("\n");
+      const family = currentSample?.category || "custom";
+      const nodeRefs = countMatches(source, /\b[A-Z][A-Za-z0-9_]*\b/g);
+      const arrows = countMatches(source, /(-->|==>|->>|-->>|-.->)/g);
+      const subgraphs = countMatches(source, /\bsubgraph\b/g);
+      const sections = countMatches(source, /\bsection\b/g);
+      const participants = countMatches(source, /\b(participant|actor)\b/g);
+      const comments = countMatches(source, /^%%.*$/gm);
+      const firstLine = lines[0] || "";
+
+      return [
+        `family: ${family}`,
+        `header: ${firstLine || "(empty source)"}`,
+        `lines: ${lines.length}`,
+        `node-like labels: ${nodeRefs}`,
+        `edge operators: ${arrows}`,
+        `subgraphs: ${subgraphs}`,
+        `sections: ${sections}`,
+        `participants/actors: ${participants}`,
+        `comment lines: ${comments}`,
+        "",
+        "Structural hints",
+        "---------------",
+        subgraphs > 0 ? "- This sample uses grouped subgraphs; keep branch labels short so the flow stays readable." : "- No grouped subgraphs detected; this should stay visually direct.",
+        arrows > 8 ? "- The diagram is edge-dense; decision labels and line breaks matter more than extra nodes." : "- Edge density is moderate; good candidate for quick iteration.",
+        participants > 0 ? "- Sequence-style participants are present; message verbs should stay explicit." : "- Non-sequence syntax dominates; focus on semantic grouping and labels.",
+        source.includes("%%") ? "- Comments are present; they are preserved in the authoring surface but ignored by render output." : "- No comments detected; add `%%` notes if you need author-only context."
+      ].join("\n");
+    }
+
+    function buildEditorHints(source) {
+      const hints = [];
+      if (currentSample?.label) {
+        hints.push(`${currentSample.label} baseline`);
+      }
+      if (spotlightSample?.id === currentSample?.id) {
+        hints.push("matches spotlight");
+      }
+      if (source !== (currentSample?.code || "")) {
+        hints.push("URL carries source override");
+      } else {
+        hints.push("URL can restore canonical source");
+      }
+      hints.push(`${source.split("\n").length} lines`);
+      return hints;
+    }
+
+    function syncEditorScroll() {
+      els.editorHighlight.scrollTop = els.input.scrollTop;
+      els.editorHighlight.scrollLeft = els.input.scrollLeft;
+      els.editorGutter.scrollTop = els.input.scrollTop;
+    }
+
+    function updateEditorChrome() {
+      const source = els.input.value || "";
+      const lines = source.split("\n");
+      els.editorGutter.textContent = lines.map((_, index) => String(index + 1)).join("\n");
+      els.editorHighlight.innerHTML = `${highlightDiagramSource(source)}\n`;
+      els.editorStructure.textContent = summarizeStructure(source);
+      els.editorMeta.textContent = `${currentSample?.label || "Custom source"} · ${lines.length} lines · ${source.length} chars`;
+      els.editorFamilyChip.className = `pill ${badgeClass((currentSample?.description || "").toLowerCase().includes("implemented") ? "implemented" : "partial")} rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]`;
+      els.editorFamilyChip.textContent = currentSample?.category || "custom";
+      els.editorHints.innerHTML = buildEditorHints(source)
+        .map((hint) => `<span class="pill rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.14em] text-slate-200">${escapeHtml(hint)}</span>`)
+        .join("");
+      syncEditorScroll();
+    }
+
+    function setCurrentSample(sample, options = {}) {
+      const { pushHistory = false, render = true, syncInput = true } = options;
+      currentSample = sample;
+      if (syncInput) {
+        els.input.value = sample.code;
+      }
+      updateActiveSample();
+      updateEditorChrome();
+      if (pushHistory) {
+        syncUrlState("push");
+      }
+      if (render) {
+        renderAll();
+      }
+    }
+
+    function cycleEditorSample(direction) {
+      const list = editorSamples;
+      const currentIndex = list.findIndex((entry) => entry.id === currentSample.id);
+      const nextIndex = currentIndex === -1
+        ? 0
+        : (currentIndex + direction + list.length) % list.length;
+      const nextSample = list[nextIndex];
+      setCurrentSample(nextSample, { pushHistory: true, render: true, syncInput: true });
     }
 
     function findSampleById(sampleId, fallback = editorSamples[0]) {
@@ -2013,6 +2327,7 @@
       suppressUrlSync = false;
       lastStateUrl = buildStateUrl().toString();
       history.replaceState(null, "", buildStateUrl());
+      updateEditorChrome();
     }
 
     function createSampleButtons() {
@@ -2025,11 +2340,7 @@
           "sample-button flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cobalt/30 hover:bg-cobalt/10";
         button.innerHTML = `<span class="category-dot category-dot-${sample.category}"></span><span>${sample.label}</span>`;
         button.addEventListener("click", () => {
-          currentSample = sample;
-          els.input.value = sample.code;
-          updateActiveSample();
-          syncUrlState("push");
-          renderAll();
+          setCurrentSample(sample, { pushHistory: true, render: true, syncInput: true });
         });
         els.sampleButtons.appendChild(button);
       }
@@ -2266,14 +2577,10 @@
           if (!sample) {
             return;
           }
-          currentSample = sample;
           spotlightSample = sample;
-          els.input.value = sample.code;
-          updateActiveSample();
+          setCurrentSample(sample, { pushHistory: true, render: true, syncInput: true });
           renderFeatureStrip();
-          syncUrlState("push");
           renderSpotlight();
-          renderAll();
           document.getElementById("section-playground").scrollIntoView({ behavior: "smooth", block: "start" });
         });
       }
@@ -2766,6 +3073,7 @@
       if (!els.input.value) {
         els.input.value = currentSample.code;
       }
+      updateEditorChrome();
       await loadFrankenRuntime();
       await renderSpotlight();
       await renderGallery();
@@ -2799,10 +3107,7 @@
 
     els.spotlightOpenEditor.addEventListener("click", () => {
       currentSample = spotlightSample;
-      els.input.value = spotlightSample.code;
-      updateActiveSample();
-      syncUrlState("push");
-      renderAll();
+      setCurrentSample(spotlightSample, { pushHistory: true, render: true, syncInput: true });
       document.getElementById("section-playground").scrollIntoView({ behavior: "smooth", block: "start" });
     });
 
@@ -2871,11 +3176,22 @@
 
     let debounced;
     els.input.addEventListener("input", () => {
+      updateEditorChrome();
       window.clearTimeout(debounced);
       debounced = window.setTimeout(() => {
         syncUrlState("replace");
         renderAll();
       }, 260);
+    });
+
+    els.input.addEventListener("scroll", syncEditorScroll);
+
+    els.samplePrev.addEventListener("click", () => {
+      cycleEditorSample(-1);
+    });
+
+    els.sampleNext.addEventListener("click", () => {
+      cycleEditorSample(1);
     });
 
     els.copyStateLink.addEventListener("click", async () => {
@@ -2960,6 +3276,14 @@
         event.preventDefault();
         renderAll();
       }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.key === "ArrowLeft") {
+        event.preventDefault();
+        cycleEditorSample(-1);
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.key === "ArrowRight") {
+        event.preventDefault();
+        cycleEditorSample(1);
+      }
       // Escape closes any zoomed diagram
       if (event.key === "Escape") {
         const zoomed = document.querySelector('[data-zoomed="true"]');
@@ -2974,7 +3298,11 @@
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
     const kbdHints = document.querySelectorAll(".kbd.shortcut-hint");
     for (const hint of kbdHints) {
-      hint.textContent = isMac ? "\u2318+Enter" : "Ctrl+Enter";
+      if (hint.textContent.includes("Alt+")) {
+        hint.textContent = hint.textContent.replace("Alt+", isMac ? "\u2325+" : "Alt+");
+      } else {
+        hint.textContent = isMac ? "\u2318+Enter" : "Ctrl+Enter";
+      }
     }
   </script>
 </body>
