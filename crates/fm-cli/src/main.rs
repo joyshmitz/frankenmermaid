@@ -440,6 +440,15 @@ struct RenderResult {
     layout_budget_ms: u64,
     render_budget_ms: u64,
     budget_exhausted: bool,
+    parse_used_ms: u64,
+    layout_used_ms: u64,
+    render_used_ms: u64,
+    degradation_target_fidelity: String,
+    degradation_reduce_decoration: bool,
+    degradation_simplify_routing: bool,
+    degradation_hide_labels: bool,
+    degradation_collapse_clusters: bool,
+    degradation_force_glyph_mode: Option<String>,
     output_bytes: usize,
     width: Option<u32>,
     height: Option<u32>,
@@ -473,12 +482,13 @@ struct DiffCommandOptions<'a> {
     output: Option<&'a str>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct RenderSurfaceOptions<'a> {
     theme: &'a str,
     font_size: Option<f32>,
     embed_source_spans: bool,
     dimensions: (Option<u32>, Option<u32>),
+    degradation: fm_core::MermaidDegradationPlan,
 }
 
 /// Result of detecting diagram type.
@@ -531,6 +541,15 @@ struct ValidateResult {
     layout_budget_ms: u64,
     render_budget_ms: u64,
     budget_exhausted: bool,
+    parse_used_ms: u64,
+    layout_used_ms: u64,
+    render_used_ms: u64,
+    degradation_target_fidelity: String,
+    degradation_reduce_decoration: bool,
+    degradation_simplify_routing: bool,
+    degradation_hide_labels: bool,
+    degradation_collapse_clusters: bool,
+    degradation_force_glyph_mode: Option<String>,
     diagnostics: Vec<ValidationDiagnostic>,
 }
 
@@ -1041,6 +1060,7 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             font_size,
             embed_source_spans,
             dimensions: (width, height),
+            degradation: guard_report.degradation.clone(),
         },
     )?;
     let render_time = render_start.elapsed();
@@ -1109,6 +1129,18 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             layout_budget_ms: budget_broker.layout.allocated_ms,
             render_budget_ms: budget_broker.render.allocated_ms,
             budget_exhausted: budget_broker.exhausted,
+            parse_used_ms: budget_broker.parse.used_ms,
+            layout_used_ms: budget_broker.layout.used_ms,
+            render_used_ms: budget_broker.render.used_ms,
+            degradation_target_fidelity: format!("{:?}", guard_report.degradation.target_fidelity),
+            degradation_reduce_decoration: guard_report.degradation.reduce_decoration,
+            degradation_simplify_routing: guard_report.degradation.simplify_routing,
+            degradation_hide_labels: guard_report.degradation.hide_labels,
+            degradation_collapse_clusters: guard_report.degradation.collapse_clusters,
+            degradation_force_glyph_mode: guard_report
+                .degradation
+                .force_glyph_mode
+                .map(|m| format!("{m:?}")),
             output_bytes: rendered.len(),
             width: actual_width,
             height: actual_height,
@@ -1153,10 +1185,12 @@ fn render_format(
         font_size,
         embed_source_spans,
         dimensions: (width, height),
+        degradation,
     } = options;
     match format {
         OutputFormat::Svg => {
-            let svg_config = build_svg_render_config(theme, font_size, embed_source_spans);
+            let mut svg_config = build_svg_render_config(theme, font_size, embed_source_spans);
+            svg_config.apply_degradation(&degradation);
             let svg = render_svg_with_layout(ir, layout, &svg_config);
             // Extract dimensions from SVG if available
             let (w, h) = extract_svg_dimensions(&svg);
@@ -1166,7 +1200,8 @@ fn render_format(
         OutputFormat::Png => {
             #[cfg(feature = "png")]
             {
-                let svg_config = build_svg_render_config(theme, font_size, embed_source_spans);
+                let mut svg_config = build_svg_render_config(theme, font_size, embed_source_spans);
+                svg_config.apply_degradation(&degradation);
                 let svg = render_svg_with_layout(ir, layout, &svg_config);
                 let (png, px_width, px_height) = svg_to_png(&svg, width, height)?;
                 Ok((png, Some(px_width), Some(px_height)))
@@ -1184,7 +1219,8 @@ fn render_format(
         OutputFormat::Term => {
             warn_if_unknown_theme(theme);
             let (cols, rows) = terminal_size(width, height);
-            let config = TermRenderConfig::rich();
+            let mut config = TermRenderConfig::rich();
+            config.apply_degradation(&degradation);
             let result = render_term_with_layout_and_config(ir, layout, &config, cols, rows);
             Ok((
                 result.output.into_bytes(),
@@ -1198,6 +1234,7 @@ fn render_format(
             let (cols, rows) = terminal_size(width, height);
             let mut config = TermRenderConfig::compact();
             config.glyph_mode = fm_core::MermaidGlyphMode::Ascii;
+            config.apply_degradation(&degradation);
             let result = render_term_with_layout_and_config(ir, layout, &config, cols, rows);
             Ok((
                 result.output.into_bytes(),
@@ -1570,11 +1607,11 @@ fn cmd_validate(
     );
     guard_report.observability = observability;
     let layout = &traced_layout.layout;
-    let svg_config = SvgRenderConfig {
+    let mut svg_config = SvgRenderConfig {
         include_source_spans: true,
-        shadows: !budget_broker.should_simplify_render(),
         ..SvgRenderConfig::default()
     };
+    svg_config.apply_degradation(&guard_report.degradation);
     let render_start = Instant::now();
     let svg_output = render_svg_with_layout(&parsed.ir, layout, &svg_config);
     let render_time = render_start.elapsed();
@@ -1630,6 +1667,18 @@ fn cmd_validate(
         layout_budget_ms: budget_broker.layout.allocated_ms,
         render_budget_ms: budget_broker.render.allocated_ms,
         budget_exhausted: budget_broker.exhausted,
+        parse_used_ms: budget_broker.parse.used_ms,
+        layout_used_ms: budget_broker.layout.used_ms,
+        render_used_ms: budget_broker.render.used_ms,
+        degradation_target_fidelity: format!("{:?}", guard_report.degradation.target_fidelity),
+        degradation_reduce_decoration: guard_report.degradation.reduce_decoration,
+        degradation_simplify_routing: guard_report.degradation.simplify_routing,
+        degradation_hide_labels: guard_report.degradation.hide_labels,
+        degradation_collapse_clusters: guard_report.degradation.collapse_clusters,
+        degradation_force_glyph_mode: guard_report
+            .degradation
+            .force_glyph_mode
+            .map(|m| format!("{m:?}")),
         diagnostics,
     };
     let _total_time = total_start.elapsed();
@@ -1939,6 +1988,28 @@ fn print_validate_text(result: &ValidateResult, fail_on: FailOnSeverity) {
 
     println!("  Nodes: {}", result.node_count);
     println!("  Edges: {}", result.edge_count);
+    println!(
+        "  Pressure: {} ({})",
+        result.pressure_tier, result.pressure_score_permille
+    );
+    println!(
+        "  Budget: {}ms total, exhausted={}",
+        result.budget_total_ms, result.budget_exhausted
+    );
+    if result.degradation_reduce_decoration
+        || result.degradation_simplify_routing
+        || result.degradation_hide_labels
+        || result.degradation_collapse_clusters
+    {
+        println!(
+            "  Degradation: {} (decoration={}, routing={}, labels={}, clusters={})",
+            result.degradation_target_fidelity,
+            result.degradation_reduce_decoration,
+            result.degradation_simplify_routing,
+            result.degradation_hide_labels,
+            result.degradation_collapse_clusters,
+        );
+    }
     println!("  Diagnostics: {}", result.diagnostics.len());
     println!("  Fail threshold: {:?}", fail_on);
 
@@ -2128,6 +2199,7 @@ mod render_tests {
                 font_size: None,
                 embed_source_spans: false,
                 dimensions: (Some(80), Some(24)),
+                degradation: fm_core::MermaidDegradationPlan::default(),
             },
         )
         .expect("terminal render should succeed");
@@ -2286,6 +2358,7 @@ fn render_and_output(
             font_size: None,
             embed_source_spans: false,
             dimensions: (None, None),
+            degradation: fm_core::MermaidDegradationPlan::default(),
         },
     )?;
 

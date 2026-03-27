@@ -505,6 +505,13 @@ fn apply_budget_svg_simplifications(
     }
 }
 
+fn apply_degradation_to_svg(
+    config: &mut SvgRenderConfig,
+    degradation: &fm_core::MermaidDegradationPlan,
+) {
+    config.apply_degradation(degradation);
+}
+
 #[must_use]
 pub fn render(input: &str) -> WasmRenderOutput {
     let runtime = read_runtime_config();
@@ -545,6 +552,7 @@ pub fn render(input: &str) -> WasmRenderOutput {
     let mut svg_config = runtime.svg.clone();
     svg_config.include_source_spans = true;
     apply_budget_svg_simplifications(&mut svg_config, &budget_broker);
+    apply_degradation_to_svg(&mut svg_config, &guard.degradation);
     let render_start = Instant::now();
     let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config);
     budget_broker
@@ -630,6 +638,7 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
     _guard.observability = observability;
     svg_config.include_source_spans = true;
     apply_budget_svg_simplifications(&mut svg_config, &budget_broker);
+    apply_degradation_to_svg(&mut svg_config, &_guard.degradation);
     let render_start = Instant::now();
     let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config);
     budget_broker
@@ -984,6 +993,7 @@ impl Diagram {
         let mut render_svg_config = next_svg.clone();
         render_svg_config.include_source_spans = true;
         apply_budget_svg_simplifications(&mut render_svg_config, &budget_broker);
+        apply_degradation_to_svg(&mut render_svg_config, &guard.degradation);
         let render_start = Instant::now();
         let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &render_svg_config);
 

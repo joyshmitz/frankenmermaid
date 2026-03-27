@@ -78,6 +78,33 @@ impl TermRenderConfig {
         }
     }
 
+    /// Apply a degradation plan to this config, adjusting fidelity and glyph mode.
+    pub fn apply_degradation(&mut self, plan: &fm_core::MermaidDegradationPlan) {
+        if let Some(glyph_mode) = plan.force_glyph_mode {
+            self.glyph_mode = glyph_mode;
+        }
+        if plan.collapse_clusters {
+            self.show_clusters = false;
+        }
+        if plan.hide_labels {
+            self.max_label_chars = 0;
+            self.max_label_lines = 0;
+        }
+        match plan.target_fidelity {
+            fm_core::MermaidFidelity::Compact => {
+                self.tier = MermaidTier::Compact;
+                self.render_mode = MermaidRenderMode::CellOnly;
+            }
+            fm_core::MermaidFidelity::Outline => {
+                self.tier = MermaidTier::Compact;
+                self.render_mode = MermaidRenderMode::CellOnly;
+                self.show_clusters = false;
+                self.diagonal_edges = false;
+            }
+            _ => {}
+        }
+    }
+
     /// Resolve the effective tier based on available space.
     #[must_use]
     pub fn effective_tier(&self, available_cols: usize, available_rows: usize) -> MermaidTier {
@@ -183,6 +210,47 @@ mod tests {
         let config = TermRenderConfig::default();
         assert!(config.max_width >= 80);
         assert!(config.max_height >= 24);
+    }
+
+    #[test]
+    fn apply_degradation_forces_ascii_and_compact() {
+        let mut config = TermRenderConfig::rich();
+        let plan = fm_core::MermaidDegradationPlan {
+            target_fidelity: fm_core::MermaidFidelity::Compact,
+            force_glyph_mode: Some(MermaidGlyphMode::Ascii),
+            collapse_clusters: true,
+            hide_labels: true,
+            ..fm_core::MermaidDegradationPlan::default()
+        };
+        config.apply_degradation(&plan);
+        assert_eq!(config.glyph_mode, MermaidGlyphMode::Ascii);
+        assert_eq!(config.tier, MermaidTier::Compact);
+        assert_eq!(config.render_mode, MermaidRenderMode::CellOnly);
+        assert!(!config.show_clusters);
+        assert_eq!(config.max_label_chars, 0);
+    }
+
+    #[test]
+    fn apply_degradation_default_is_noop() {
+        let original = TermRenderConfig::rich();
+        let mut config = original.clone();
+        config.apply_degradation(&fm_core::MermaidDegradationPlan::default());
+        assert_eq!(config.tier, original.tier);
+        assert_eq!(config.glyph_mode, original.glyph_mode);
+        assert_eq!(config.show_clusters, original.show_clusters);
+    }
+
+    #[test]
+    fn apply_degradation_outline_disables_everything() {
+        let mut config = TermRenderConfig::rich();
+        let plan = fm_core::MermaidDegradationPlan {
+            target_fidelity: fm_core::MermaidFidelity::Outline,
+            ..fm_core::MermaidDegradationPlan::default()
+        };
+        config.apply_degradation(&plan);
+        assert_eq!(config.tier, MermaidTier::Compact);
+        assert!(!config.show_clusters);
+        assert!(!config.diagonal_edges);
     }
 
     #[test]

@@ -131,6 +131,27 @@ pub struct SvgRenderConfig {
 }
 
 impl SvgRenderConfig {
+    /// Apply a degradation plan to this config, disabling visual effects as directed.
+    pub fn apply_degradation(&mut self, plan: &fm_core::MermaidDegradationPlan) {
+        if plan.reduce_decoration {
+            self.shadows = false;
+            self.node_gradients = false;
+            self.glow_enabled = false;
+        }
+        match plan.target_fidelity {
+            fm_core::MermaidFidelity::Compact => {
+                self.detail_tier = MermaidTier::Compact;
+            }
+            fm_core::MermaidFidelity::Outline => {
+                self.detail_tier = MermaidTier::Compact;
+                self.shadows = false;
+                self.node_gradients = false;
+                self.glow_enabled = false;
+            }
+            _ => {}
+        }
+    }
+
     /// Get the font metrics based on this configuration.
     #[must_use]
     pub fn font_metrics(&self) -> fm_core::FontMetrics {
@@ -6482,5 +6503,60 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn apply_degradation_disables_visual_effects() {
+        let mut config = SvgRenderConfig::default();
+        assert!(config.shadows);
+        assert!(config.node_gradients);
+        assert!(config.glow_enabled);
+
+        let plan = fm_core::MermaidDegradationPlan {
+            reduce_decoration: true,
+            ..fm_core::MermaidDegradationPlan::default()
+        };
+        config.apply_degradation(&plan);
+        assert!(!config.shadows);
+        assert!(!config.node_gradients);
+        assert!(!config.glow_enabled);
+    }
+
+    #[test]
+    fn apply_degradation_compact_sets_detail_tier() {
+        let mut config = SvgRenderConfig::default();
+        let plan = fm_core::MermaidDegradationPlan {
+            target_fidelity: fm_core::MermaidFidelity::Compact,
+            ..fm_core::MermaidDegradationPlan::default()
+        };
+        config.apply_degradation(&plan);
+        assert_eq!(config.detail_tier, MermaidTier::Compact);
+        // Shadows/gradients untouched if reduce_decoration is false
+        assert!(config.shadows);
+    }
+
+    #[test]
+    fn apply_degradation_outline_strips_all_decoration() {
+        let mut config = SvgRenderConfig::default();
+        let plan = fm_core::MermaidDegradationPlan {
+            target_fidelity: fm_core::MermaidFidelity::Outline,
+            ..fm_core::MermaidDegradationPlan::default()
+        };
+        config.apply_degradation(&plan);
+        assert!(!config.shadows);
+        assert!(!config.node_gradients);
+        assert!(!config.glow_enabled);
+        assert_eq!(config.detail_tier, MermaidTier::Compact);
+    }
+
+    #[test]
+    fn apply_degradation_default_is_noop() {
+        let original = SvgRenderConfig::default();
+        let mut config = SvgRenderConfig::default();
+        config.apply_degradation(&fm_core::MermaidDegradationPlan::default());
+        assert_eq!(config.shadows, original.shadows);
+        assert_eq!(config.node_gradients, original.node_gradients);
+        assert_eq!(config.glow_enabled, original.glow_enabled);
+        assert_eq!(config.detail_tier, original.detail_tier);
     }
 }

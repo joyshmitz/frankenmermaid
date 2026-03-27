@@ -2552,6 +2552,32 @@ pub enum MermaidFidelity {
     Outline,
 }
 
+/// User-selectable quality mode that biases degradation thresholds.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum MermaidQualityMode {
+    /// Full quality, no degradation even under pressure.
+    QualityFirst,
+    /// Default: degrade when budgets are exceeded.
+    #[default]
+    Auto,
+    /// Trade quality for speed when budget pressure is Elevated or higher.
+    Balanced,
+    /// Aggressively degrade to minimize latency.
+    LatencyFirst,
+}
+
+impl MermaidQualityMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::QualityFirst => "quality-first",
+            Self::Auto => "auto",
+            Self::Balanced => "balanced",
+            Self::LatencyFirst => "latency-first",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct MermaidDegradationPlan {
     pub target_fidelity: MermaidFidelity,
@@ -2560,6 +2586,239 @@ pub struct MermaidDegradationPlan {
     pub simplify_routing: bool,
     pub reduce_decoration: bool,
     pub force_glyph_mode: Option<MermaidGlyphMode>,
+}
+
+impl MermaidDegradationPlan {
+    /// Returns true if any degradation operator is active.
+    #[must_use]
+    pub fn is_degraded(&self) -> bool {
+        !matches!(
+            self.target_fidelity,
+            MermaidFidelity::Normal | MermaidFidelity::Rich
+        ) || self.hide_labels
+            || self.collapse_clusters
+            || self.simplify_routing
+            || self.reduce_decoration
+            || self.force_glyph_mode.is_some()
+    }
+
+    /// Produce a human-readable explanation of what degradation was applied and why.
+    #[must_use]
+    pub fn explain(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if !self.is_degraded() {
+            lines.push(String::from(
+                "No degradation applied; rendering at full quality.",
+            ));
+            return lines;
+        }
+        lines.push(String::from("Degraded rendering active:"));
+        if self.reduce_decoration {
+            lines.push(String::from(
+                "  - Decoration reduced: shadows, gradients, and glow effects disabled.",
+            ));
+        }
+        if self.simplify_routing {
+            lines.push(String::from(
+                "  - Edge routing simplified to reduce layout computation.",
+            ));
+        }
+        if self.force_glyph_mode.is_some() {
+            lines.push(String::from(
+                "  - Terminal output forced to ASCII glyphs for faster rendering.",
+            ));
+        }
+        match self.target_fidelity {
+            MermaidFidelity::Compact => {
+                lines.push(String::from(
+                    "  - Fidelity downgraded to Compact (reduced detail).",
+                ));
+            }
+            MermaidFidelity::Outline => {
+                lines.push(String::from(
+                    "  - Fidelity downgraded to Outline (skeleton only).",
+                ));
+            }
+            _ => {}
+        }
+        if self.collapse_clusters {
+            lines.push(String::from("  - Cluster/subgraph boundaries collapsed."));
+        }
+        if self.hide_labels {
+            lines.push(String::from("  - Non-essential labels hidden."));
+        }
+        lines.push(String::from(
+            "Remediation: reduce diagram complexity, lower pressure (close competing processes), or use --quality-mode=quality-first to force full quality.",
+        ));
+        lines
+    }
+}
+
+/// A named degradation operator that can be applied to reduce rendering cost.
+///
+/// Operators are ordered by cost-effectiveness: cheap quality reductions first,
+/// expensive structural changes last. The ordering is deterministic and stable.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum DegradationOperator {
+    /// Disable gradient fills and drop shadows.
+    ReduceDecoration,
+    /// Switch edge routing from orthogonal/spline to simplified straight lines.
+    SimplifyRouting,
+    /// Force ASCII glyph mode in terminal rendering.
+    ForceAsciiGlyphs,
+    /// Drop fidelity from Rich/Normal to Compact.
+    DowngradeToCompact,
+    /// Collapse cluster/subgraph boundaries (render as flat).
+    CollapseClusters,
+    /// Elide non-essential labels (keep only node IDs).
+    HideLabels,
+    /// Drop fidelity to Outline (skeleton only).
+    DowngradeToOutline,
+}
+
+impl DegradationOperator {
+    /// Canonical ordering: lower index = applied first (cheapest quality loss).
+    /// This ordering is the tie-break rule for determinism.
+    #[must_use]
+    pub const fn ordinal(self) -> u8 {
+        match self {
+            Self::ReduceDecoration => 0,
+            Self::SimplifyRouting => 1,
+            Self::ForceAsciiGlyphs => 2,
+            Self::DowngradeToCompact => 3,
+            Self::CollapseClusters => 4,
+            Self::HideLabels => 5,
+            Self::DowngradeToOutline => 6,
+        }
+    }
+
+    /// All operators in canonical order (cheapest first).
+    #[must_use]
+    pub const fn all_in_order() -> [Self; 7] {
+        [
+            Self::ReduceDecoration,
+            Self::SimplifyRouting,
+            Self::ForceAsciiGlyphs,
+            Self::DowngradeToCompact,
+            Self::CollapseClusters,
+            Self::HideLabels,
+            Self::DowngradeToOutline,
+        ]
+    }
+
+    /// Apply this operator to a mutable degradation plan.
+    pub fn apply(self, plan: &mut MermaidDegradationPlan) {
+        match self {
+            Self::ReduceDecoration => plan.reduce_decoration = true,
+            Self::SimplifyRouting => plan.simplify_routing = true,
+            Self::ForceAsciiGlyphs => {
+                plan.force_glyph_mode = Some(MermaidGlyphMode::Ascii);
+            }
+            Self::DowngradeToCompact => {
+                if matches!(
+                    plan.target_fidelity,
+                    MermaidFidelity::Rich | MermaidFidelity::Normal
+                ) {
+                    plan.target_fidelity = MermaidFidelity::Compact;
+                }
+            }
+            Self::CollapseClusters => plan.collapse_clusters = true,
+            Self::HideLabels => plan.hide_labels = true,
+            Self::DowngradeToOutline => {
+                plan.target_fidelity = MermaidFidelity::Outline;
+            }
+        }
+    }
+}
+
+/// Input signals that drive degradation operator selection.
+#[derive(Debug, Clone, Default)]
+pub struct DegradationContext {
+    pub pressure_tier: MermaidPressureTier,
+    pub route_budget_exceeded: bool,
+    pub layout_budget_exceeded: bool,
+    pub time_budget_exceeded: bool,
+    pub node_limit_exceeded: bool,
+    pub edge_limit_exceeded: bool,
+}
+
+/// Deterministically select and apply degradation operators based on context.
+///
+/// The selection algorithm applies operators in canonical order (cheapest first)
+/// until all budget/limit violations are addressed. The result is always the same
+/// for the same input — no randomness, no timing dependence.
+#[must_use]
+pub fn compute_degradation_plan(ctx: &DegradationContext) -> MermaidDegradationPlan {
+    let mut plan = MermaidDegradationPlan::default();
+    let mut applied = Vec::new();
+
+    let any_budget_exceeded =
+        ctx.route_budget_exceeded || ctx.layout_budget_exceeded || ctx.time_budget_exceeded;
+
+    // Walk operators in canonical order; apply each if its trigger condition is met.
+    for op in DegradationOperator::all_in_order() {
+        let should_apply = match op {
+            DegradationOperator::ReduceDecoration => {
+                any_budget_exceeded
+                    || matches!(
+                        ctx.pressure_tier,
+                        MermaidPressureTier::High | MermaidPressureTier::Critical
+                    )
+            }
+            DegradationOperator::SimplifyRouting => ctx.route_budget_exceeded,
+            DegradationOperator::ForceAsciiGlyphs => any_budget_exceeded,
+            DegradationOperator::DowngradeToCompact => any_budget_exceeded,
+            DegradationOperator::CollapseClusters => ctx.node_limit_exceeded && any_budget_exceeded,
+            DegradationOperator::HideLabels => ctx.node_limit_exceeded && ctx.time_budget_exceeded,
+            DegradationOperator::DowngradeToOutline => {
+                matches!(ctx.pressure_tier, MermaidPressureTier::Critical)
+                    && ctx.time_budget_exceeded
+            }
+        };
+        if should_apply {
+            op.apply(&mut plan);
+            applied.push(op);
+        }
+    }
+    plan
+}
+
+/// Compute the degradation plan and return the list of applied operators for audit.
+#[must_use]
+pub fn compute_degradation_plan_with_trace(
+    ctx: &DegradationContext,
+) -> (MermaidDegradationPlan, Vec<DegradationOperator>) {
+    let mut plan = MermaidDegradationPlan::default();
+    let mut applied = Vec::new();
+
+    let any_budget_exceeded =
+        ctx.route_budget_exceeded || ctx.layout_budget_exceeded || ctx.time_budget_exceeded;
+
+    for op in DegradationOperator::all_in_order() {
+        let should_apply = match op {
+            DegradationOperator::ReduceDecoration => {
+                any_budget_exceeded
+                    || matches!(
+                        ctx.pressure_tier,
+                        MermaidPressureTier::High | MermaidPressureTier::Critical
+                    )
+            }
+            DegradationOperator::SimplifyRouting => ctx.route_budget_exceeded,
+            DegradationOperator::ForceAsciiGlyphs => any_budget_exceeded,
+            DegradationOperator::DowngradeToCompact => any_budget_exceeded,
+            DegradationOperator::CollapseClusters => ctx.node_limit_exceeded && any_budget_exceeded,
+            DegradationOperator::HideLabels => ctx.node_limit_exceeded && ctx.time_budget_exceeded,
+            DegradationOperator::DowngradeToOutline => {
+                matches!(ctx.pressure_tier, MermaidPressureTier::Critical)
+                    && ctx.time_budget_exceeded
+            }
+        };
+        if should_apply {
+            op.apply(&mut plan);
+            applied.push(op);
+        }
+    }
+    (plan, applied)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -3736,23 +3995,25 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        ArrowType, Diagnostic, DiagnosticCategory, DiagnosticSeverity, DiagramPalettePreset,
-        DiagramType, FragmentAlternative, FragmentKind, GanttDate, GanttExclude, GanttTaskType,
-        GanttTickInterval, GraphDirection, IrActivation, IrAttributeKey, IrCluster, IrClusterId,
-        IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute, IrGanttMeta, IrGanttSection,
-        IrGanttTask, IrGraphCluster, IrGraphEdge, IrGraphNode, IrLabel, IrLabelId,
-        IrLifecycleEvent, IrNode, IrNodeId, IrNodeKind, IrParticipantGroup, IrPort, IrPortId,
-        IrPortSideHint, IrSequenceFragment, IrSequenceMeta, IrSequenceNote, IrSubgraph,
-        IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries, IrXySeriesKind, LifecycleEventKind,
-        MERMAID_SCHEMA_VERSION, MermaidConfig, MermaidDiagramIr, MermaidError, MermaidErrorCode,
-        MermaidFallbackAction, MermaidFallbackPolicy, MermaidLayoutDecisionAlternative,
-        MermaidLayoutDecisionLedger, MermaidLayoutDecisionRecord, MermaidNativePressureSignals,
-        MermaidPressureTier, MermaidSanitizeMode, MermaidSupportLevel, MermaidWarningCode,
-        MermaidWasmPressureSignals, NodeShape, NotePosition, Position, Span, StructuredDiagnostic,
-        capability_matrix, capability_matrix_json_pretty,
+        ArrowType, DegradationContext, DegradationOperator, Diagnostic, DiagnosticCategory,
+        DiagnosticSeverity, DiagramPalettePreset, DiagramType, FragmentAlternative, FragmentKind,
+        GanttDate, GanttExclude, GanttTaskType, GanttTickInterval, GraphDirection, IrActivation,
+        IrAttributeKey, IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute,
+        IrGanttMeta, IrGanttSection, IrGanttTask, IrGraphCluster, IrGraphEdge, IrGraphNode,
+        IrLabel, IrLabelId, IrLifecycleEvent, IrNode, IrNodeId, IrNodeKind, IrParticipantGroup,
+        IrPort, IrPortId, IrPortSideHint, IrSequenceFragment, IrSequenceMeta, IrSequenceNote,
+        IrSubgraph, IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries, IrXySeriesKind,
+        LifecycleEventKind, MERMAID_SCHEMA_VERSION, MermaidBudgetLedger, MermaidConfig,
+        MermaidDegradationPlan, MermaidDiagramIr, MermaidError, MermaidErrorCode,
+        MermaidFallbackAction, MermaidFallbackPolicy, MermaidFidelity, MermaidGlyphMode,
+        MermaidGuardReport, MermaidLayoutDecisionAlternative, MermaidLayoutDecisionLedger,
+        MermaidLayoutDecisionRecord, MermaidNativePressureSignals, MermaidPressureReport,
+        MermaidPressureTier, MermaidQualityMode, MermaidSanitizeMode, MermaidSupportLevel,
+        MermaidWarningCode, MermaidWasmPressureSignals, NodeShape, NotePosition, Position, Span,
+        StructuredDiagnostic, capability_matrix, capability_matrix_json_pretty,
         capability_readme_supported_diagram_types_markdown, capability_readme_surface_markdown,
         documented_diagram_types, mermaid_layout_guard_observability,
-        parse_mermaid_js_config_value, to_init_parse,
+        parse_mermaid_js_config_value, scale_budget, to_init_parse,
     };
 
     fn sample_span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -4457,6 +4718,447 @@ mod tests {
             .expect("accounting event should be emitted");
         assert_eq!(accounting.used_ms, Some(24));
         assert_eq!(accounting.remaining_total_ms, 96);
+    }
+
+    #[test]
+    fn pressure_tier_boundary_quantization_is_deterministic() {
+        // Exact boundary values for tier transitions
+        let cases: Vec<(u16, bool, MermaidPressureTier)> = vec![
+            (0, true, MermaidPressureTier::Nominal),
+            (349, true, MermaidPressureTier::Nominal),
+            (350, true, MermaidPressureTier::Elevated),
+            (649, true, MermaidPressureTier::Elevated),
+            (650, true, MermaidPressureTier::High),
+            (849, true, MermaidPressureTier::High),
+            (850, true, MermaidPressureTier::Critical),
+            (1000, true, MermaidPressureTier::Critical),
+            (500, false, MermaidPressureTier::Unknown),
+        ];
+        for (score, telemetry, expected) in cases {
+            assert_eq!(
+                MermaidPressureTier::from_quantized_score(score, telemetry),
+                expected,
+                "score={score}, telemetry={telemetry}"
+            );
+        }
+    }
+
+    #[test]
+    fn budget_allocation_varies_deterministically_by_pressure_tier() {
+        let tiers_and_budgets: Vec<(MermaidPressureTier, u64)> = vec![
+            (MermaidPressureTier::Nominal, 250),
+            (MermaidPressureTier::Elevated, 180),
+            (MermaidPressureTier::High, 120),
+            (MermaidPressureTier::Unknown, 120),
+            (MermaidPressureTier::Critical, 80),
+        ];
+        for (tier, expected_total) in tiers_and_budgets {
+            let pressure = MermaidPressureReport {
+                tier,
+                telemetry_available: true,
+                ..MermaidPressureReport::default()
+            };
+            let broker = MermaidBudgetLedger::new(&pressure);
+            assert_eq!(broker.total_budget_ms, expected_total, "tier={tier:?}");
+            // parse + layout + render must sum to total
+            let sum =
+                broker.parse.allocated_ms + broker.layout.allocated_ms + broker.render.allocated_ms;
+            assert_eq!(sum, expected_total, "stage sum mismatch for tier={tier:?}");
+            // layout gets the lion's share
+            assert!(
+                broker.layout.allocated_ms >= broker.parse.allocated_ms,
+                "layout should get more than parse for tier={tier:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn combined_high_cpu_and_memory_pressure_selects_worst_case_tier() {
+        let report = MermaidNativePressureSignals {
+            cpu_pressure_permille: Some(700),
+            memory_pressure_permille: Some(860),
+            io_pressure_permille: Some(200),
+            available_parallelism: Some(8),
+            rss_mib: Some(64),
+        }
+        .into_report();
+        // 860 is the max signal → Critical
+        assert_eq!(report.quantized_score_permille, 860);
+        assert_eq!(report.tier, MermaidPressureTier::Critical);
+    }
+
+    #[test]
+    fn all_stages_exceeding_budget_marks_global_exhaustion() {
+        let pressure = MermaidNativePressureSignals {
+            cpu_pressure_permille: Some(100),
+            ..MermaidNativePressureSignals::default()
+        }
+        .into_report();
+        let mut broker = MermaidBudgetLedger::new(&pressure);
+        assert_eq!(broker.total_budget_ms, 250);
+
+        // Exceed every stage
+        broker.record_parse(200);
+        assert!(broker.parse.exceeded);
+        broker.record_layout(200);
+        assert!(broker.layout.exceeded);
+        broker.record_render(200);
+        assert!(broker.render.exceeded);
+        assert!(broker.exhausted);
+        assert_eq!(broker.remaining_total_ms, 0);
+        // Event trail records exhaustion
+        let exhaustion_events: Vec<_> = broker
+            .events
+            .iter()
+            .filter(|e| e.kind == "accounting" && e.exceeded)
+            .collect();
+        assert!(
+            !exhaustion_events.is_empty(),
+            "should have at least one exhaustion accounting event"
+        );
+    }
+
+    #[test]
+    fn rebalance_gives_layout_three_quarters_of_remaining_budget() {
+        let pressure = MermaidPressureReport {
+            tier: MermaidPressureTier::Nominal,
+            telemetry_available: true,
+            ..MermaidPressureReport::default()
+        };
+        let mut broker = MermaidBudgetLedger::new(&pressure);
+        // Nominal: total=250, parse=50, layout=150, render=50
+        assert_eq!(broker.total_budget_ms, 250);
+
+        // Fast parse uses only 10ms
+        broker.record_parse(10);
+        // Remaining = 250 - 10 = 240
+        // Render tail = ceil(240/4) = 60
+        // Layout = 240 - 60 = 180
+        assert_eq!(broker.layout.allocated_ms, 180);
+        assert_eq!(broker.render.allocated_ms, 60);
+    }
+
+    #[test]
+    fn scale_budget_handles_edge_cases() {
+        // Zero allocated still returns at least 1
+        assert_eq!(scale_budget(200, 0, 250), 1);
+        // Equal to baseline returns default
+        assert_eq!(scale_budget(200, 250, 250), 200);
+        // Double baseline doubles budget
+        assert_eq!(scale_budget(200, 500, 250), 400);
+        // Very small allocation scales down proportionally
+        assert_eq!(scale_budget(4000, 25, 250), 400);
+    }
+
+    #[test]
+    fn should_simplify_render_triggers_on_high_pressure_or_low_render_budget() {
+        // High pressure → simplify
+        let pressure_high = MermaidPressureReport {
+            tier: MermaidPressureTier::High,
+            telemetry_available: true,
+            ..MermaidPressureReport::default()
+        };
+        let broker_high = MermaidBudgetLedger::new(&pressure_high);
+        assert!(broker_high.should_simplify_render());
+
+        // Critical → simplify
+        let pressure_crit = MermaidPressureReport {
+            tier: MermaidPressureTier::Critical,
+            telemetry_available: true,
+            ..MermaidPressureReport::default()
+        };
+        let broker_crit = MermaidBudgetLedger::new(&pressure_crit);
+        assert!(broker_crit.should_simplify_render());
+
+        // Nominal → no simplification (render budget > 24ms)
+        let pressure_nom = MermaidPressureReport {
+            tier: MermaidPressureTier::Nominal,
+            telemetry_available: true,
+            ..MermaidPressureReport::default()
+        };
+        let broker_nom = MermaidBudgetLedger::new(&pressure_nom);
+        assert!(!broker_nom.should_simplify_render());
+    }
+
+    #[test]
+    fn budget_ledger_serializes_and_deserializes_roundtrip() {
+        let pressure = MermaidNativePressureSignals {
+            cpu_pressure_permille: Some(500),
+            memory_pressure_permille: Some(300),
+            io_pressure_permille: Some(100),
+            available_parallelism: Some(4),
+            rss_mib: Some(512),
+        }
+        .into_report();
+        let mut broker = MermaidBudgetLedger::new(&pressure);
+        broker.record_parse(20);
+        broker.record_layout(80);
+        broker.record_render(15);
+
+        let json_str =
+            serde_json::to_string(&broker).expect("budget ledger should serialize to JSON");
+        let roundtrip: MermaidBudgetLedger =
+            serde_json::from_str(&json_str).expect("budget ledger should deserialize from JSON");
+        assert_eq!(roundtrip.total_budget_ms, broker.total_budget_ms);
+        assert_eq!(roundtrip.exhausted, broker.exhausted);
+        assert_eq!(roundtrip.pressure_tier, broker.pressure_tier);
+        assert_eq!(roundtrip.events.len(), broker.events.len());
+        assert_eq!(roundtrip.parse.used_ms, 20);
+        assert_eq!(roundtrip.layout.used_ms, 80);
+        assert_eq!(roundtrip.render.used_ms, 15);
+    }
+
+    #[test]
+    fn budget_broker_within_budget_is_not_exhausted() {
+        let pressure = MermaidPressureReport {
+            tier: MermaidPressureTier::Nominal,
+            telemetry_available: true,
+            ..MermaidPressureReport::default()
+        };
+        let mut broker = MermaidBudgetLedger::new(&pressure);
+        broker.record_parse(5);
+        broker.record_layout(30);
+        broker.record_render(10);
+        assert!(!broker.exhausted);
+        assert!(!broker.parse.exceeded);
+        assert!(!broker.layout.exceeded);
+        assert!(!broker.render.exceeded);
+        assert!(broker.remaining_total_ms > 0);
+    }
+
+    #[test]
+    fn wasm_frame_overrun_produces_high_pressure() {
+        // frame_time 2x budget = 2000 permille, clamped to 1000
+        let report = MermaidWasmPressureSignals {
+            frame_budget_ms: Some(16),
+            frame_time_ms: Some(32),
+            event_loop_lag_ms: None,
+            worker_saturation_permille: None,
+        }
+        .into_report();
+        assert_eq!(report.quantized_score_permille, 1000);
+        assert_eq!(report.tier, MermaidPressureTier::Critical);
+    }
+
+    #[test]
+    fn wasm_event_loop_lag_scales_pressure() {
+        // 10ms lag → 10*50 = 500 permille → Elevated
+        let report = MermaidWasmPressureSignals {
+            frame_budget_ms: None,
+            frame_time_ms: None,
+            event_loop_lag_ms: Some(10),
+            worker_saturation_permille: None,
+        }
+        .into_report();
+        assert_eq!(report.quantized_score_permille, 500);
+        assert_eq!(report.tier, MermaidPressureTier::Elevated);
+    }
+
+    #[test]
+    fn parallelism_single_core_produces_high_pressure() {
+        let report = MermaidNativePressureSignals {
+            available_parallelism: Some(1),
+            ..MermaidNativePressureSignals::default()
+        }
+        .into_report();
+        assert_eq!(report.quantized_score_permille, 900);
+        assert_eq!(report.tier, MermaidPressureTier::Critical);
+    }
+
+    #[test]
+    fn rss_high_memory_produces_pressure() {
+        let report = MermaidNativePressureSignals {
+            rss_mib: Some(4096),
+            ..MermaidNativePressureSignals::default()
+        }
+        .into_report();
+        // 4096 MiB → 920 permille → Critical
+        assert_eq!(report.quantized_score_permille, 920);
+        assert_eq!(report.tier, MermaidPressureTier::Critical);
+    }
+
+    #[test]
+    fn degradation_plan_explain_no_degradation() {
+        let plan = MermaidDegradationPlan::default();
+        let explanation = plan.explain();
+        assert_eq!(explanation.len(), 1);
+        assert!(explanation[0].contains("full quality"));
+    }
+
+    #[test]
+    fn degradation_plan_explain_lists_active_operators() {
+        let plan = MermaidDegradationPlan {
+            target_fidelity: MermaidFidelity::Compact,
+            reduce_decoration: true,
+            simplify_routing: true,
+            force_glyph_mode: Some(MermaidGlyphMode::Ascii),
+            ..MermaidDegradationPlan::default()
+        };
+        let explanation = plan.explain();
+        assert!(explanation.iter().any(|l| l.contains("Decoration reduced")));
+        assert!(explanation.iter().any(|l| l.contains("routing simplified")));
+        assert!(explanation.iter().any(|l| l.contains("ASCII")));
+        assert!(explanation.iter().any(|l| l.contains("Compact")));
+        assert!(explanation.iter().any(|l| l.contains("Remediation")));
+    }
+
+    #[test]
+    fn degradation_plan_is_degraded_detects_any_active_operator() {
+        assert!(!MermaidDegradationPlan::default().is_degraded());
+        assert!(
+            MermaidDegradationPlan {
+                reduce_decoration: true,
+                ..MermaidDegradationPlan::default()
+            }
+            .is_degraded()
+        );
+        assert!(
+            MermaidDegradationPlan {
+                target_fidelity: MermaidFidelity::Compact,
+                ..MermaidDegradationPlan::default()
+            }
+            .is_degraded()
+        );
+    }
+
+    #[test]
+    fn quality_mode_as_str_is_stable() {
+        assert_eq!(MermaidQualityMode::QualityFirst.as_str(), "quality-first");
+        assert_eq!(MermaidQualityMode::Auto.as_str(), "auto");
+        assert_eq!(MermaidQualityMode::Balanced.as_str(), "balanced");
+        assert_eq!(MermaidQualityMode::LatencyFirst.as_str(), "latency-first");
+    }
+
+    #[test]
+    fn degradation_plan_default_is_no_degradation() {
+        let plan = MermaidDegradationPlan::default();
+        assert_eq!(plan.target_fidelity, MermaidFidelity::Normal);
+        assert!(!plan.hide_labels);
+        assert!(!plan.collapse_clusters);
+        assert!(!plan.simplify_routing);
+        assert!(!plan.reduce_decoration);
+        assert!(plan.force_glyph_mode.is_none());
+    }
+
+    #[test]
+    fn degradation_operator_ordinals_are_unique_and_ascending() {
+        let ops = DegradationOperator::all_in_order();
+        for pair in ops.windows(2) {
+            assert!(
+                pair[0].ordinal() < pair[1].ordinal(),
+                "{:?} ordinal {} should be < {:?} ordinal {}",
+                pair[0],
+                pair[0].ordinal(),
+                pair[1],
+                pair[1].ordinal()
+            );
+        }
+    }
+
+    #[test]
+    fn no_degradation_when_everything_is_nominal() {
+        let ctx = DegradationContext {
+            pressure_tier: MermaidPressureTier::Nominal,
+            ..DegradationContext::default()
+        };
+        let (plan, applied) = crate::compute_degradation_plan_with_trace(&ctx);
+        assert!(applied.is_empty());
+        assert_eq!(plan.target_fidelity, MermaidFidelity::Normal);
+        assert!(!plan.reduce_decoration);
+        assert!(!plan.simplify_routing);
+        assert!(!plan.hide_labels);
+        assert!(!plan.collapse_clusters);
+        assert!(plan.force_glyph_mode.is_none());
+    }
+
+    #[test]
+    fn route_budget_exceeded_triggers_routing_and_decoration() {
+        let ctx = DegradationContext {
+            pressure_tier: MermaidPressureTier::Nominal,
+            route_budget_exceeded: true,
+            ..DegradationContext::default()
+        };
+        let (plan, applied) = crate::compute_degradation_plan_with_trace(&ctx);
+        assert!(plan.simplify_routing);
+        assert!(plan.reduce_decoration);
+        assert_eq!(plan.target_fidelity, MermaidFidelity::Compact);
+        assert!(applied.contains(&DegradationOperator::SimplifyRouting));
+        assert!(applied.contains(&DegradationOperator::ReduceDecoration));
+    }
+
+    #[test]
+    fn high_pressure_alone_triggers_decoration_reduction() {
+        let ctx = DegradationContext {
+            pressure_tier: MermaidPressureTier::High,
+            ..DegradationContext::default()
+        };
+        let (plan, applied) = crate::compute_degradation_plan_with_trace(&ctx);
+        assert!(plan.reduce_decoration);
+        assert!(applied.contains(&DegradationOperator::ReduceDecoration));
+        // No budget exceeded → no other operators
+        assert!(!plan.simplify_routing);
+        assert_eq!(plan.target_fidelity, MermaidFidelity::Normal);
+    }
+
+    #[test]
+    fn critical_pressure_with_time_exceeded_drops_to_outline() {
+        let ctx = DegradationContext {
+            pressure_tier: MermaidPressureTier::Critical,
+            time_budget_exceeded: true,
+            node_limit_exceeded: true,
+            ..DegradationContext::default()
+        };
+        let (plan, applied) = crate::compute_degradation_plan_with_trace(&ctx);
+        assert_eq!(plan.target_fidelity, MermaidFidelity::Outline);
+        assert!(plan.reduce_decoration);
+        assert!(plan.hide_labels);
+        assert!(plan.collapse_clusters);
+        assert!(applied.contains(&DegradationOperator::DowngradeToOutline));
+    }
+
+    #[test]
+    fn degradation_operator_application_is_deterministic() {
+        let ctx = DegradationContext {
+            pressure_tier: MermaidPressureTier::High,
+            route_budget_exceeded: true,
+            layout_budget_exceeded: true,
+            time_budget_exceeded: true,
+            node_limit_exceeded: true,
+            edge_limit_exceeded: true,
+        };
+        let (plan1, applied1) = crate::compute_degradation_plan_with_trace(&ctx);
+        let (plan2, applied2) = crate::compute_degradation_plan_with_trace(&ctx);
+        assert_eq!(plan1, plan2);
+        assert_eq!(applied1, applied2);
+    }
+
+    #[test]
+    fn degradation_operators_apply_in_canonical_order() {
+        let ctx = DegradationContext {
+            pressure_tier: MermaidPressureTier::Critical,
+            route_budget_exceeded: true,
+            time_budget_exceeded: true,
+            node_limit_exceeded: true,
+            ..DegradationContext::default()
+        };
+        let (_, applied) = crate::compute_degradation_plan_with_trace(&ctx);
+        for pair in applied.windows(2) {
+            assert!(
+                pair[0].ordinal() < pair[1].ordinal(),
+                "operators should be applied in ordinal order"
+            );
+        }
+    }
+
+    #[test]
+    fn guard_report_default_has_no_limits_exceeded() {
+        let report = MermaidGuardReport::default();
+        assert!(!report.node_limit_exceeded);
+        assert!(!report.edge_limit_exceeded);
+        assert!(!report.limits_exceeded);
+        assert!(!report.budget_exceeded);
+        assert!(!report.route_budget_exceeded);
+        assert!(!report.layout_budget_exceeded);
     }
 
     #[test]

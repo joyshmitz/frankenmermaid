@@ -37,12 +37,30 @@ pub struct DiffNode {
 /// What changed about a node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum NodeChange {
-    LabelChanged { old: String, new: String },
-    ShapeChanged { old: NodeShape, new: NodeShape },
-    ClassesChanged { old: Vec<String>, new: Vec<String> },
-    MembersChanged { old: Vec<String>, new: Vec<String> },
-    HrefChanged { old: Option<String>, new: Option<String> },
-    TooltipChanged { old: Option<String>, new: Option<String> },
+    LabelChanged {
+        old: String,
+        new: String,
+    },
+    ShapeChanged {
+        old: NodeShape,
+        new: NodeShape,
+    },
+    ClassesChanged {
+        old: Vec<String>,
+        new: Vec<String>,
+    },
+    MembersChanged {
+        old: Vec<String>,
+        new: Vec<String>,
+    },
+    HrefChanged {
+        old: Option<String>,
+        new: Option<String>,
+    },
+    TooltipChanged {
+        old: Option<String>,
+        new: Option<String>,
+    },
     MetadataChanged,
 }
 
@@ -63,9 +81,18 @@ pub struct DiffEdge {
 /// What changed about an edge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum EdgeChange {
-    ArrowChanged { old: ArrowType, new: ArrowType },
-    LabelChanged { old: String, new: String },
-    ErNotationChanged { old: Option<String>, new: Option<String> },
+    ArrowChanged {
+        old: ArrowType,
+        new: ArrowType,
+    },
+    LabelChanged {
+        old: String,
+        new: String,
+    },
+    ErNotationChanged {
+        old: Option<String>,
+        new: Option<String>,
+    },
 }
 
 /// Complete diff result between two diagrams.
@@ -278,7 +305,10 @@ fn compare_nodes(
         });
     }
 
-    if old_node.class_meta != new_node.class_meta || old_node.requirement_meta != new_node.requirement_meta || old_node.c4_meta != new_node.c4_meta {
+    if old_node.class_meta != new_node.class_meta
+        || old_node.requirement_meta != new_node.requirement_meta
+        || old_node.c4_meta != new_node.c4_meta
+    {
         changes.push(NodeChange::MetadataChanged);
     }
 

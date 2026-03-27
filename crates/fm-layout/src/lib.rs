@@ -7,9 +7,8 @@ use std::f32::consts::PI;
 use fm_core::{
     DiagramType, GanttDate, GanttExclude, GanttTaskType, GraphDirection, IrEndpoint, IrGanttMeta,
     IrNode, IrXyChartMeta, IrXySeriesKind, MermaidComplexity, MermaidConfig, MermaidDiagramIr,
-    MermaidFidelity, MermaidGlyphMode, MermaidGuardReport, MermaidLayoutDecisionAlternative,
-    MermaidLayoutDecisionLedger, MermaidLayoutDecisionRecord, MermaidPressureReport,
-    MermaidPressureTier, Span,
+    MermaidGuardReport, MermaidLayoutDecisionAlternative, MermaidLayoutDecisionLedger,
+    MermaidLayoutDecisionRecord, MermaidPressureReport, MermaidPressureTier, Span,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -9115,18 +9114,29 @@ pub fn build_layout_guard_report_with_pressure(
     let budget_exceeded = guard.time_budget_exceeded
         || guard.iteration_budget_exceeded
         || guard.route_budget_exceeded;
+    let node_limit_exceeded = ir.nodes.len() > max_nodes;
+    let edge_limit_exceeded = ir.edges.len() > max_edges;
+
+    let degradation = fm_core::compute_degradation_plan(&fm_core::DegradationContext {
+        pressure_tier: pressure.tier,
+        route_budget_exceeded: guard.route_budget_exceeded,
+        layout_budget_exceeded: guard.iteration_budget_exceeded,
+        time_budget_exceeded: guard.time_budget_exceeded,
+        node_limit_exceeded,
+        edge_limit_exceeded,
+    });
 
     MermaidGuardReport {
         complexity,
         label_chars_over,
         label_lines_over,
-        node_limit_exceeded: ir.nodes.len() > max_nodes,
-        edge_limit_exceeded: ir.edges.len() > max_edges,
+        node_limit_exceeded,
+        edge_limit_exceeded,
         label_limit_exceeded: label_chars_over > 0 || label_lines_over > 0,
         route_budget_exceeded: guard.route_budget_exceeded,
         layout_budget_exceeded: guard.time_budget_exceeded || guard.iteration_budget_exceeded,
-        limits_exceeded: ir.nodes.len() > max_nodes
-            || ir.edges.len() > max_edges
+        limits_exceeded: node_limit_exceeded
+            || edge_limit_exceeded
             || label_chars_over > 0
             || label_lines_over > 0,
         budget_exceeded,
@@ -9139,18 +9149,7 @@ pub fn build_layout_guard_report_with_pressure(
         observability: fm_core::MermaidObservabilityIds::default(),
         pressure,
         budget_broker: fm_core::MermaidBudgetLedger::default(),
-        degradation: fm_core::MermaidDegradationPlan {
-            target_fidelity: if budget_exceeded {
-                MermaidFidelity::Compact
-            } else {
-                MermaidFidelity::Normal
-            },
-            hide_labels: false,
-            collapse_clusters: false,
-            simplify_routing: guard.route_budget_exceeded,
-            reduce_decoration: budget_exceeded,
-            force_glyph_mode: budget_exceeded.then_some(MermaidGlyphMode::Ascii),
-        },
+        degradation,
     }
 }
 
