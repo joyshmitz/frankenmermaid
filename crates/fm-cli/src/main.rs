@@ -2519,15 +2519,15 @@ fn handle_render_request(
 #[cfg(feature = "serve")]
 fn open_browser(url: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
-    std::process::Command::new("open").arg(url).spawn()?;
+    let _ = std::process::Command::new("open").arg(url).status()?;
 
     #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open").arg(url).spawn()?;
+    let _ = std::process::Command::new("xdg-open").arg(url).status()?;
 
     #[cfg(target_os = "windows")]
-    std::process::Command::new("cmd")
+    let _ = std::process::Command::new("cmd")
         .args(["/c", "start", url])
-        .spawn()?;
+        .status()?;
 
     Ok(())
 }
