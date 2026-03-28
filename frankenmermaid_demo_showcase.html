@@ -1534,6 +1534,24 @@
                 </div>
 
                 <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">exportArtifactLab()</div>
+                      <div id="artifact-summary" class="mt-1 text-sm text-slate-300">Waiting for a committed render before building export artifacts.</div>
+                    </div>
+                    <div class="text-[11px] uppercase tracking-[0.18em] text-slate-500">state-traceable outputs</div>
+                  </div>
+                  <div id="artifact-actions" class="mt-4 flex flex-wrap gap-2">
+                    <button type="button" class="shell-toggle" data-artifact-export="svg">Download SVG</button>
+                    <button type="button" class="shell-toggle" data-artifact-export="png">Download PNG</button>
+                    <button type="button" class="shell-toggle" data-artifact-export="ir">Download IR</button>
+                    <button type="button" class="shell-toggle" data-artifact-export="state">Download State</button>
+                  </div>
+                  <div id="artifact-badges" class="mt-4 flex flex-wrap gap-2"></div>
+                  <div id="artifact-table" class="scrollbar-thin mt-4 max-h-72 overflow-auto rounded-[1.25rem] border border-white/10 bg-[#08101d] p-3"></div>
+                </div>
+
+                <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">safeFallbackPreview()</div>
@@ -2245,6 +2263,10 @@
       capabilitySummary: document.getElementById("capability-summary"),
       capabilityBadges: document.getElementById("capability-badges"),
       capabilityTable: document.getElementById("capability-table"),
+      artifactSummary: document.getElementById("artifact-summary"),
+      artifactActions: document.getElementById("artifact-actions"),
+      artifactBadges: document.getElementById("artifact-badges"),
+      artifactTable: document.getElementById("artifact-table"),
       layoutLabControls: document.getElementById("layout-lab-controls"),
       layoutLabSummary: document.getElementById("layout-lab-summary"),
       layoutLabBadges: document.getElementById("layout-lab-badges"),
@@ -2283,6 +2305,8 @@
     });
     let studioState = { ...defaultStudioState };
     let studioDebounceTimer = 0;
+    let latestFrankenResult = null;
+    let latestMermaidResult = null;
     let suppressUrlSync = false;
     let lastStateUrl = "";
     let renderRevision = 0;
@@ -2691,6 +2715,150 @@
       els.styleDelta.innerHTML = (deltas.length ? deltas : ["baseline unchanged"])
         .map((delta) => `<span class="pill rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.14em] text-slate-200">${escapeHtml(delta)}</span>`)
         .join("");
+    }
+
+    async function sha256HexFromBuffer(buffer) {
+      const digest = await crypto.subtle.digest("SHA-256", buffer);
+      return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    }
+
+    async function sha256HexFromText(text) {
+      return sha256HexFromBuffer(new TextEncoder().encode(text));
+    }
+
+    async function buildArtifactCatalog() {
+      const catalog = [];
+      const timestamp = new Date().toISOString();
+
+      if (latestFrankenResult?.fmHtml && !latestFrankenResult.fmRenderError && latestFrankenResult.fmHtml.trim().startsWith("<svg")) {
+        const svgText = latestFrankenResult.fmHtml;
+        catalog.push({
+          id: "svg",
+          label: "SVG",
+          mime: "image/svg+xml",
+          bytes: new TextEncoder().encode(svgText).length,
+          hash: await sha256HexFromText(svgText),
+          integrity: "valid svg root",
+          exportValue: svgText,
+          filename: `frankenmermaid-${latestCommittedRevision || 0}.svg`,
+          timestamp
+        });
+      }
+
+      if (els.canvas && typeof els.canvas.toDataURL === "function") {
+        const pngDataUrl = els.canvas.toDataURL("image/png");
+        const pngBase64 = pngDataUrl.split(",")[1] || "";
+        const pngBytes = Uint8Array.from(atob(pngBase64), (char) => char.charCodeAt(0));
+        if (pngBytes.length > 0) {
+          catalog.push({
+            id: "png",
+            label: "PNG",
+            mime: "image/png",
+            bytes: pngBytes.length,
+            hash: await sha256HexFromBuffer(pngBytes.buffer),
+            integrity: "non-empty canvas snapshot",
+            exportValue: pngBytes,
+            filename: `frankenmermaid-${latestCommittedRevision || 0}.png`,
+            timestamp
+          });
+        }
+      }
+
+      if (latestFrankenResult?.parsedValue?.ir) {
+        const irJson = JSON.stringify(latestFrankenResult.parsedValue.ir, null, 2);
+        catalog.push({
+          id: "ir",
+          label: "Parser IR",
+          mime: "application/json",
+          bytes: new TextEncoder().encode(irJson).length,
+          hash: await sha256HexFromText(irJson),
+          integrity: "contains diagram ir payload",
+          exportValue: irJson,
+          filename: `frankenmermaid-ir-${latestCommittedRevision || 0}.json`,
+          timestamp
+        });
+      }
+
+      const statePayload = JSON.stringify({
+        exported_at: timestamp,
+        revision: latestCommittedRevision || 0,
+        state: collectUrlState(),
+        runtime: frankenRuntime?.source || null,
+        studio: studioState,
+        timings: latestFrankenResult?.timings || null,
+        diagnostics: latestFrankenResult?.diagnostics || [],
+        guard: latestFrankenResult?.guardValue || null
+      }, null, 2);
+      catalog.push({
+        id: "state",
+        label: "Config and state",
+        mime: "application/json",
+        bytes: new TextEncoder().encode(statePayload).length,
+        hash: await sha256HexFromText(statePayload),
+        integrity: "contains canonical showcase state",
+        exportValue: statePayload,
+        filename: `frankenmermaid-state-${latestCommittedRevision || 0}.json`,
+        timestamp
+      });
+
+      return catalog;
+    }
+
+    async function renderArtifactLab() {
+      if (!latestFrankenResult) {
+        els.artifactSummary.textContent = "Waiting for a committed render before building export artifacts.";
+        els.artifactBadges.innerHTML = "";
+        els.artifactTable.innerHTML = "";
+        return;
+      }
+
+      const catalog = await buildArtifactCatalog();
+      els.artifactSummary.textContent = `Built ${catalog.length} reproducible artifact record${catalog.length === 1 ? "" : "s"} for revision ${latestCommittedRevision || 0}. Each entry includes size, hash, integrity note, and export format.`;
+      els.artifactBadges.innerHTML = catalog
+        .map((artifact) => `<span class="pill rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.14em] text-slate-200">${escapeHtml(`${artifact.label} · ${artifact.bytes} bytes`)}</span>`)
+        .join("");
+      const rows = catalog.map((artifact) => `
+        <tr class="border-b border-white/5 align-top">
+          <td class="px-3 py-3 font-medium text-white">${escapeHtml(artifact.label)}</td>
+          <td class="px-3 py-3 text-slate-300">${escapeHtml(artifact.integrity)}</td>
+          <td class="px-3 py-3 text-slate-300">${artifact.bytes}</td>
+          <td class="px-3 py-3 text-slate-300"><code>${escapeHtml(artifact.hash.slice(0, 16))}</code></td>
+          <td class="px-3 py-3 text-slate-500">${escapeHtml(artifact.timestamp)}</td>
+        </tr>
+      `).join("");
+      els.artifactTable.innerHTML = `
+        <table class="min-w-full text-left text-xs">
+          <thead class="sticky top-0 bg-[#08101d] text-slate-400">
+            <tr>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">Artifact</th>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">Integrity</th>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">Bytes</th>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">SHA-256</th>
+              <th class="px-3 py-2 font-semibold uppercase tracking-[0.18em]">Timestamp</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    async function exportArtifact(kind) {
+      const catalog = await buildArtifactCatalog();
+      const artifact = catalog.find((entry) => entry.id === kind);
+      if (!artifact) {
+        els.artifactSummary.textContent = `Artifact ${kind} is not available for the current revision.`;
+        return;
+      }
+      const blob = artifact.id === "png"
+        ? new Blob([artifact.exportValue], { type: artifact.mime })
+        : new Blob([artifact.exportValue], { type: artifact.mime });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = artifact.filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      els.artifactSummary.textContent = `Exported ${artifact.label} for revision ${latestCommittedRevision || 0} (${artifact.bytes} bytes, sha256 ${artifact.hash.slice(0, 16)}…).`;
     }
 
     function buildLayoutLabModel(result) {
@@ -4069,6 +4237,8 @@
       frankenResult.mermaidError = mermaidResult.error || null;
       frankenResult.diagnostics = buildDiagnostics(frankenResult);
       window.__fmDiagnosticLineMap = buildDiagnosticLineMap(frankenResult.diagnostics);
+      latestFrankenResult = frankenResult;
+      latestMermaidResult = mermaidResult;
 
       els.mermaidSvg.innerHTML = mermaidResult.html;
       setChip(els.mermaidChip, mermaidResult.chipText, mermaidResult.chipClass);
@@ -4088,6 +4258,7 @@
       els.parseSummary.textContent = `${frankenResult.parseSummary} · mermaid ${mermaidResult.timings.mermaid ?? 0}ms · total ${totalMs}ms · revision ${revision}`;
       renderDiagnosticsPanel(frankenResult.diagnostics, frankenResult);
       renderLayoutLab(frankenResult);
+      await renderArtifactLab();
       renderFallbackPreview(frankenResult);
       updateEditorChrome();
 
@@ -4140,6 +4311,14 @@
 
     els.renderButton.addEventListener("click", async () => {
       await renderAll({ reason: "manual", immediate: true });
+    });
+
+    els.artifactActions.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-artifact-export]");
+      if (!button) {
+        return;
+      }
+      exportArtifact(button.dataset.artifactExport);
     });
 
     function queueStudioApply(reason = "style-change") {

@@ -267,6 +267,7 @@ Playground section:
 - Diagnostics should be first-class in the playground: line-linked markers, remediation hints, and preserved safe fallback preview should keep bad inputs navigable instead of collapsing the page into opaque errors.
 - The playground should include a layout/cycle lab driven by real runtime metadata: algorithm dispatch, cycle strategy, crossings, and guard/budget facts should be inspectable per revision, while any analysis controls remain explicitly read-only unless the browser runtime later exposes writable layout knobs.
 - The playground should include a theme/style studio that is constrained to runtime-backed knobs only, persists its state in shareable links, and can always reset to a known baseline so before/after comparisons stay reviewable.
+- The playground should include an export/artifact lab that only offers browser-surface outputs the current page can really produce, and every export should carry enough metadata to trace it back to the revision, current state, and integrity checks shown in-page.
 - The section should function as the home for future telemetry, determinism, diagnostics, and export labs rather than scattering those surfaces across the page.
 
 Support Evidence section:
