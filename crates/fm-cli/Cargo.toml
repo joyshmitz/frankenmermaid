@@ -45,4 +45,9 @@ resvg = { version = "0.47", optional = true, default-features = false }
 usvg = { version = "0.47", optional = true, default-features = false }
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.25"
+
+[[bench]]
+name = "pipeline_bench"
+harness = false
