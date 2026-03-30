@@ -875,6 +875,20 @@
       grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
     }
 
+    .presenter-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.65fr);
+    }
+
+    .presenter-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
     .telemetry-card {
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 1.25rem;
@@ -1204,6 +1218,28 @@
           </div>
         </div>
       </header>
+
+      <section id="section-presenter" class="glass mb-8 rounded-[2rem] p-6 shadow-panel sm:p-8">
+        <div class="presenter-grid">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-[0.28em] text-flare">Presenter mode</p>
+            <h2 class="mt-2 text-2xl font-bold text-white">Guided live storytelling without manual state surgery</h2>
+            <div id="presenter-summary" class="mt-3 text-sm leading-6 text-slate-300">Presenter mode is idle. Start the guided tour to step through the strongest runtime, resilience, and evidence moments in sequence.</div>
+            <div id="presenter-note" class="mt-3 rounded-[1.25rem] border border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-300">Reset restores the pre-tour showcase state so ad hoc exploration and scripted presentation can share one page safely.</div>
+          </div>
+          <div class="rounded-[1.5rem] border border-white/10 bg-slate-950/40 p-5">
+            <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Current step</div>
+            <div id="presenter-step" class="mt-3 text-lg font-bold text-white">Idle</div>
+            <div class="presenter-controls mt-5">
+              <button type="button" id="presenter-start" class="shell-toggle">Start Tour</button>
+              <button type="button" id="presenter-prev" class="shell-toggle">Prev</button>
+              <button type="button" id="presenter-next" class="shell-toggle">Next</button>
+              <button type="button" id="presenter-skip" class="shell-toggle">Skip</button>
+              <button type="button" id="presenter-reset" class="shell-toggle">Reset</button>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <main id="main-content" class="space-y-8">
         <section id="section-runtime" class="scroll-mt-16 grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
@@ -2382,6 +2418,61 @@
       gitGraph: "Tests branch and merge storytelling that release engineering teams genuinely use."
     };
 
+    const presenterTours = {
+      "main-demo": [
+        {
+          id: "runtime-honesty",
+          title: "Runtime honesty first",
+          sectionId: "section-runtime",
+          sampleId: "flowchart-1-incident-response-escalation",
+          spotlightId: "flowchart-1-incident-response-escalation",
+          summary: "Open with runtime honesty. Show that the page either boots the real browser package or states exactly why it cannot.",
+          note: "If the runtime is unavailable, stay on this step and call out the explicit packaging gap instead of pretending the browser surface is published."
+        },
+        {
+          id: "spotlight-shared-engine",
+          title: "Shared-engine spotlight",
+          sectionId: "section-showcase",
+          sampleId: "flowchart-1-incident-response-escalation",
+          spotlightId: "flowchart-1-incident-response-escalation",
+          summary: "Move to the flagship flowchart to make the shared-engine story visual before opening any evidence panels.",
+          note: "The operator goal here is simple: let the audience see a serious render at a readable size before discussing tooling."
+        },
+        {
+          id: "resilience-walkthrough",
+          title: "Resilience and diagnostics",
+          sectionId: "section-playground",
+          sampleId: "flowchart-1-incident-response-escalation",
+          spotlightId: "flowchart-1-incident-response-escalation",
+          source: "flowchart LR\nA-->",
+          layoutLabFocus: "overview",
+          summary: "Switch to a malformed source override and let the diagnostics/fallback surfaces prove that the demo fails usefully rather than opaquely.",
+          note: "If the malformed source path looks too harsh for the room, skip forward and reset after the determinism step."
+        },
+        {
+          id: "determinism-proof",
+          title: "Determinism proof",
+          sectionId: "section-playground",
+          sampleId: "flowchart-1-incident-response-escalation",
+          spotlightId: "flowchart-1-incident-response-escalation",
+          source: gallerySamples.find((entry) => entry.id === "flowchart-1-incident-response-escalation")?.code || editorSamples[0].code,
+          layoutLabFocus: "cycles",
+          runDeterminism: 5,
+          summary: "Restore the healthy flagship source and run the determinism checker so the audience sees repeatable evidence instead of hand-waving.",
+          note: "This is the cleanest point to mention stable hashes, telemetry, and the static replay bundles."
+        },
+        {
+          id: "support-signoff",
+          title: "Support and signoff evidence",
+          sectionId: "section-support",
+          sampleId: "flowchart-1-incident-response-escalation",
+          spotlightId: "flowchart-1-incident-response-escalation",
+          summary: "End on the coverage/evidence rail so the story closes on what is proven, not just what is visually impressive.",
+          note: "Reset after this step if you want to hand the page back to an operator in a neutral browsing state."
+        }
+      ]
+    };
+
     const els = {
       sampleButtons: document.getElementById("sample-buttons"),
       input: document.getElementById("diagram-input"),
@@ -2473,6 +2564,15 @@
       coverageSummary: document.getElementById("coverage-summary"),
       coverageTable: document.getElementById("coverage-table"),
       copyStateLink: document.getElementById("copy-state-link")
+      ,
+      presenterSummary: document.getElementById("presenter-summary"),
+      presenterNote: document.getElementById("presenter-note"),
+      presenterStep: document.getElementById("presenter-step"),
+      presenterStart: document.getElementById("presenter-start"),
+      presenterPrev: document.getElementById("presenter-prev"),
+      presenterNext: document.getElementById("presenter-next"),
+      presenterSkip: document.getElementById("presenter-skip"),
+      presenterReset: document.getElementById("presenter-reset")
     };
 
     let frankenRuntime = null;
@@ -2502,6 +2602,9 @@
     let autoDeterminismRuns = 0;
     let lastDeterminismReport = null;
     let fallbackUniqueIdCounter = 0;
+    let presenterModeId = "";
+    let presenterStepIndex = -1;
+    let presenterBaseState = null;
     let suppressUrlSync = false;
     let lastStateUrl = "";
     let renderRevision = 0;
@@ -4047,7 +4150,9 @@
         layoutLabFocus,
         studio: { ...studioState },
         source: els.input.value,
-        shells: collectShellState()
+        shells: collectShellState(),
+        presenterTour: presenterModeId,
+        presenterStep: presenterStepIndex
       };
     }
 
@@ -4073,6 +4178,13 @@
         url.searchParams.set("source", state.source);
       } else {
         url.searchParams.delete("source");
+      }
+      if (state.presenterTour) {
+        url.searchParams.set("tour", state.presenterTour);
+        url.searchParams.set("tour_step", String(Math.max(state.presenterStep, 0)));
+      } else {
+        url.searchParams.delete("tour");
+        url.searchParams.delete("tour_step");
       }
       url.searchParams.set("shells", JSON.stringify(state.shells));
       return url;
@@ -4107,6 +4219,8 @@
       const query = url.searchParams.get("q") || "";
       const sourceOverride = url.searchParams.get("source");
       const shellJson = url.searchParams.get("shells");
+      const requestedPresenterTour = url.searchParams.get("tour") || "";
+      const requestedPresenterStep = Number(url.searchParams.get("tour_step") || "-1");
 
       suppressUrlSync = true;
       currentSample = sample;
@@ -4118,6 +4232,8 @@
       autoDeterminismRuns = [3, 5, 7].includes(requestedDeterminismRuns) ? requestedDeterminismRuns : 0;
       studioState = { ...defaultStudioState };
       galleryQuery = query;
+      presenterModeId = presenterTours[requestedPresenterTour] ? requestedPresenterTour : "";
+      presenterStepIndex = presenterModeId ? Math.max(0, Math.min(requestedPresenterStep, presenterTours[presenterModeId].length - 1)) : -1;
       els.input.value = sourceOverride || sample.code;
       els.gallerySearch.value = query;
 
@@ -4143,6 +4259,136 @@
       updateEditorChrome();
       renderStyleStudio();
       renderDeterminismPanel();
+      updatePresenterUi();
+    }
+
+    function activePresenterTour() {
+      return presenterModeId ? presenterTours[presenterModeId] || [] : [];
+    }
+
+    function presenterStepRecord() {
+      const tour = activePresenterTour();
+      if (!tour.length || presenterStepIndex < 0 || presenterStepIndex >= tour.length) {
+        return null;
+      }
+      return tour[presenterStepIndex];
+    }
+
+    function updatePresenterUi(statusMessage = null) {
+      const tour = activePresenterTour();
+      const step = presenterStepRecord();
+      els.presenterStart.disabled = !!step;
+      els.presenterPrev.disabled = !step || presenterStepIndex <= 0;
+      els.presenterNext.disabled = !step || presenterStepIndex >= tour.length - 1;
+      els.presenterSkip.disabled = !step;
+      els.presenterReset.disabled = !step;
+
+      if (!step) {
+        els.presenterStep.textContent = "Idle";
+        els.presenterSummary.textContent = statusMessage || "Presenter mode is idle. Start the guided tour to step through the strongest runtime, resilience, and evidence moments in sequence.";
+        els.presenterNote.textContent = "Reset restores the pre-tour showcase state so ad hoc exploration and scripted presentation can share one page safely.";
+        return;
+      }
+
+      const runtimeFallback = step.id === "runtime-honesty" && !frankenRuntime
+        ? "Runtime is unavailable, so present the explicit packaging diagnosis instead of a live WASM success path."
+        : step.note;
+      els.presenterStep.textContent = `Step ${presenterStepIndex + 1} of ${tour.length}: ${step.title}`;
+      els.presenterSummary.textContent = statusMessage || step.summary;
+      els.presenterNote.textContent = runtimeFallback;
+    }
+
+    async function applyShowcaseStateSnapshot(snapshot, reason) {
+      const sample = findSampleById(snapshot.sample, editorSamples[0]);
+      const spotlight = findSampleById(snapshot.spotlight || snapshot.sample, sample);
+
+      currentSample = sample;
+      spotlightSample = spotlight;
+      galleryFilter = galleryCategories.includes(snapshot.galleryFilter) ? snapshot.galleryFilter : "all";
+      galleryQuery = typeof snapshot.galleryQuery === "string" ? snapshot.galleryQuery : "";
+      compareSampleIds = Array.isArray(snapshot.compare) ? snapshot.compare.slice(0, 2) : [];
+      layoutLabFocus = ["overview", "cycles", "crossings", "budget", "legibility"].includes(snapshot.layoutLabFocus) ? snapshot.layoutLabFocus : "overview";
+      studioState = normalizeStudioState(snapshot.studio || defaultStudioState);
+      els.input.value = typeof snapshot.source === "string" ? snapshot.source : sample.code;
+      els.gallerySearch.value = galleryQuery;
+      applyShellStateSnapshot(snapshot.shells);
+
+      createSampleButtons();
+      renderFeatureStrip();
+      renderFilterControls();
+      renderStyleStudio();
+      setLayoutLabFocusButtons();
+      updateEditorChrome();
+      if (frankenRuntime) {
+        await frankenRuntime.init(buildRuntimeDiagramOptions());
+      }
+      await renderSpotlight();
+      await renderGallery();
+      await renderAll({ reason, immediate: true });
+    }
+
+    async function jumpToSection(sectionId) {
+      const section = document.getElementById(sectionId);
+      if (section) {
+        section.scrollIntoView({ behavior: motionBehavior(), block: "start" });
+      }
+    }
+
+    async function applyPresenterStep(action = "next") {
+      const step = presenterStepRecord();
+      if (!step) {
+        updatePresenterUi();
+        return;
+      }
+
+      await applyShowcaseStateSnapshot(
+        {
+          sample: step.sampleId,
+          spotlight: step.spotlightId || step.sampleId,
+          galleryFilter: "all",
+          galleryQuery: "",
+          compare: [],
+          layoutLabFocus: step.layoutLabFocus || "overview",
+          studio: defaultStudioState,
+          source: step.source || findSampleById(step.sampleId, editorSamples[0]).code,
+          shells: presenterBaseState?.shells || collectShellState()
+        },
+        `presenter-${step.id}`
+      );
+      if (step.runDeterminism) {
+        await runDeterminismCheck({ runCount: step.runDeterminism, reason: `presenter-${step.id}` });
+      }
+      await jumpToSection(step.sectionId);
+      updatePresenterUi(action === "skip" ? `Skipped ahead to ${step.title}. ${step.summary}` : null);
+    }
+
+    async function startPresenterMode() {
+      presenterBaseState = collectUrlState();
+      presenterModeId = "main-demo";
+      presenterStepIndex = 0;
+      syncUrlState("push");
+      await applyPresenterStep("start");
+    }
+
+    async function movePresenterStep(delta, action) {
+      const tour = activePresenterTour();
+      if (!tour.length) {
+        return;
+      }
+      presenterStepIndex = Math.max(0, Math.min(presenterStepIndex + delta, tour.length - 1));
+      syncUrlState("push");
+      await applyPresenterStep(action);
+    }
+
+    async function resetPresenterMode() {
+      presenterModeId = "";
+      presenterStepIndex = -1;
+      if (presenterBaseState) {
+        await applyShowcaseStateSnapshot(presenterBaseState, "presenter-reset");
+      }
+      presenterBaseState = null;
+      syncUrlState("replace");
+      updatePresenterUi("Presenter mode reset. The page has been restored to the pre-tour state.");
     }
 
     function createSampleButtons() {
@@ -5199,6 +5445,22 @@
       await renderSpotlight();
       await renderGallery();
       await renderAll({ reason: "boot", immediate: true });
+      if (presenterModeId) {
+        presenterBaseState = {
+          sample: currentSample?.id || editorSamples[0]?.id || "",
+          spotlight: spotlightSample?.id || currentSample?.id || "",
+          galleryFilter,
+          galleryQuery,
+          compare: [...compareSampleIds],
+          layoutLabFocus,
+          studio: { ...studioState },
+          source: els.input.value,
+          shells: collectShellState(),
+          presenterTour: "",
+          presenterStep: -1
+        };
+        await applyPresenterStep("boot");
+      }
       syncUrlState("replace");
       if (autoDeterminismRuns > 0) {
         await runDeterminismCheck({ runCount: autoDeterminismRuns, reason: "url-autostart" });
@@ -5212,6 +5474,26 @@
 
     els.renderButton.addEventListener("click", async () => {
       await renderAll({ reason: "manual", immediate: true });
+    });
+
+    els.presenterStart.addEventListener("click", async () => {
+      await startPresenterMode();
+    });
+
+    els.presenterPrev.addEventListener("click", async () => {
+      await movePresenterStep(-1, "prev");
+    });
+
+    els.presenterNext.addEventListener("click", async () => {
+      await movePresenterStep(1, "next");
+    });
+
+    els.presenterSkip.addEventListener("click", async () => {
+      await movePresenterStep(1, "skip");
+    });
+
+    els.presenterReset.addEventListener("click", async () => {
+      await resetPresenterMode();
     });
 
     els.artifactActions.addEventListener("click", (event) => {
@@ -5422,6 +5704,9 @@
       await renderSpotlight();
       await renderGallery();
       await renderAll({ reason: "popstate", immediate: true });
+      if (presenterModeId) {
+        await applyPresenterStep("popstate");
+      }
       if (autoDeterminismRuns > 0) {
         await runDeterminismCheck({ runCount: autoDeterminismRuns, reason: "popstate-url-autostart" });
       }
