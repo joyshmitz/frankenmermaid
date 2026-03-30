@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "bead_id": "bd-2u0.5.11.2",
+  "scenario_id": "showcase-harness-static-web",
+  "input_hash": "sha256:a2dc7d4b880eb0391991cc2b4b6e1b67d2bfccf2953b9ef5de8dfabc17a117ea",
+  "surface": "web",
+  "renderer": "franken-svg",
+  "theme": "corporate",
+  "config_hash": "sha256:13e60d58d3e308f397de0e0bbfd976f129f93d63b199eb580506a77b6ef82c59",
+  "parse_ms": 0,
+  "layout_ms": 0,
+  "render_ms": 0,
+  "diagnostic_count": 0,
+  "degradation_tier": "healthy",
+  "output_artifact_hash": "sha256:e29b8d905dcb5e49668261f6498bc83664e3b6ee4a9d7fb290f87474b56b9db9",
+  "pass_fail_reason": "Reusable showcase harness validated current static /web artifact log and bootstrap contract, and the harness unittest suite passed.",
+  "run_kind": "integration",
+  "trace_id": "bd-2u0.5.11.2-showcase-harness-2026-03-29T01-50-09Z",
+  "revision": "d643caf967cf18b4452075a705aec69f502b5a78",
+  "host_kind": "test-harness",
+  "fallback_active": false,
+  "runtime_mode": "mock-forbidden",
+  "artifacts": {
+    "harness_script": {
+      "path": "scripts/showcase_harness.py",
+      "sha256": "e29b8d905dcb5e49668261f6498bc83664e3b6ee4a9d7fb290f87474b56b9db9"
+    },
+    "harness_tests": {
+      "path": "tests/test_showcase_harness.py",
+      "sha256": "9cd14a3b579ac230c08d1f9ae5a5cfde20d0395426a4f2bf54116a359d2e86a3"
+    },
+    "schema_contract": {
+      "path": "evidence/contracts/showcase_test_taxonomy_and_logging_schema.md",
+      "sha256": "13e60d58d3e308f397de0e0bbfd976f129f93d63b199eb580506a77b6ef82c59"
+    },
+    "validated_static_web_log": {
+      "path": "evidence/runs/web/bd-2u0.5.8.2.2/static-web-entrypoint/2026-03-29T01-43-37Z__evidence__log.json",
+      "sha256": "a2dc7d4b880eb0391991cc2b4b6e1b67d2bfccf2953b9ef5de8dfabc17a117ea"
+    }
+  },
+  "checks": [
+    "python3 scripts/showcase_harness.py validate-static-web ... returned ok",
+    "python3 scripts/showcase_harness.py validate-log ... returned ok",
+    "python3 -m unittest tests/test_showcase_harness.py -v passed with 5 tests"
+  ]
+}

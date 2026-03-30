@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "bead_id": "bd-2u0.5.8.2.2",
+  "scenario_id": "static-web-entrypoint",
+  "input_hash": "sha256:6d69e7526dfa0b98fac3a26fb40637c2b37b9a80ed6296e31c0764199eca19e7",
+  "surface": "web",
+  "renderer": "franken-svg",
+  "theme": "corporate",
+  "config_hash": "sha256:91c558eb08bad5e4e4c965f1e85bf844a45d6fdfb83463ba5d86a5c71a340d98",
+  "parse_ms": 0,
+  "layout_ms": 0,
+  "render_ms": 0,
+  "diagnostic_count": 0,
+  "degradation_tier": "healthy",
+  "output_artifact_hash": "sha256:b7ee6a7dbe35b34176df60501f9697bf5833e4781b8c42203e75a610a8ae0daa",
+  "pass_fail_reason": "Static /web host container validated via HTML parse, extracted-module syntax check, and route/asset/header contract assertions.",
+  "run_kind": "evidence",
+  "trace_id": "bd-2u0.5.8.2.2-static-web-entrypoint-2026-03-29T01-43-37Z",
+  "revision": "d643caf967cf18b4452075a705aec69f502b5a78",
+  "host_kind": "static-web",
+  "fallback_active": false,
+  "runtime_mode": "mock-forbidden",
+  "artifacts": {
+    "host_html": {
+      "path": "web/index.html",
+      "sha256": "b7ee6a7dbe35b34176df60501f9697bf5833e4781b8c42203e75a610a8ae0daa"
+    },
+    "headers": {
+      "path": "web/_headers",
+      "sha256": "267996a3b438cc6ee893694ffcb7b1794ed9dcef9e668d50a1e5bb9bceef3339"
+    },
+    "entry_contract": {
+      "path": "evidence/contracts/showcase_static_entrypoint_contract.md",
+      "sha256": "91c558eb08bad5e4e4c965f1e85bf844a45d6fdfb83463ba5d86a5c71a340d98"
+    },
+    "strategy": {
+      "path": "evidence/demo_strategy.md",
+      "sha256": "23b85782a72868680d557500f865ceb620876c17ead988c7f6651dd93e0edd77"
+    }
+  },
+  "checks": [
+    "python3 HTMLParser accepted web/index.html",
+    "Extracted module script from web/index.html passed node --check",
+    "Focused Python assertions verified source fetch, host marker injection, root pkg/evidence cache rules, and contract alignment for /web-hosted relative asset semantics"
+  ]
+}

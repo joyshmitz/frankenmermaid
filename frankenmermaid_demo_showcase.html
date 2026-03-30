@@ -636,6 +636,33 @@
       box-shadow: 0 0 20px rgba(76, 201, 255, 0.08);
     }
 
+    .skip-link {
+      position: absolute;
+      left: 1rem;
+      top: 1rem;
+      z-index: 10001;
+      transform: translateY(-220%);
+      border-radius: 999px;
+      border: 1px solid rgba(76, 201, 255, 0.5);
+      background: #08101d;
+      color: #f8fafc;
+      padding: 0.75rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform 160ms ease;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+      outline: 2px solid #4cc9ff;
+      outline-offset: 3px;
+      box-shadow: 0 0 0 4px rgba(76, 201, 255, 0.12);
+    }
+
     .editor-toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -842,6 +869,56 @@
       padding: 1.25rem;
     }
 
+    .telemetry-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    }
+
+    .telemetry-card {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 1.25rem;
+      background: rgba(8, 16, 29, 0.7);
+      padding: 1rem;
+    }
+
+    .telemetry-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
+
+    .telemetry-table th,
+    .telemetry-table td {
+      padding: 0.7rem 0.75rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .telemetry-table th {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(148, 163, 184, 0.9);
+    }
+
+    .telemetry-code {
+      margin-top: 1rem;
+      max-height: 18rem;
+      overflow: auto;
+      border-radius: 1.25rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #08101d;
+      padding: 1rem;
+      white-space: pre-wrap;
+      font-size: 0.75rem;
+      line-height: 1.65;
+      color: #cbd5e1;
+    }
+
     .diagnostic-list {
       display: grid;
       gap: 0.75rem;
@@ -985,6 +1062,38 @@
       opacity: 1;
     }
 
+    @media (prefers-reduced-motion: reduce) {
+      html:focus-within {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    @media (prefers-contrast: more) {
+      .glass,
+      .diagnostic-card,
+      .telemetry-card,
+      .editor-note,
+      .stage,
+      .fallback-stage {
+        border-color: rgba(255, 255, 255, 0.28);
+      }
+
+      .text-slate-300,
+      .text-slate-400,
+      .text-slate-500 {
+        color: #e2e8f0 !important;
+      }
+    }
+
     /* --- Premium header hero treatment --- */
     header .glass {
       background: linear-gradient(180deg, rgba(18, 32, 56, 0.92) 0%, rgba(11, 22, 40, 0.96) 100%);
@@ -1017,9 +1126,21 @@
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
     }
+
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .glass,
+      footer,
+      #sticky-nav,
+      #back-to-top {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: rgba(9, 18, 33, 0.96) !important;
+      }
+    }
   </style>
 </head>
 <body class="text-slate-100">
+  <a href="#main-content" class="skip-link">Skip to main content</a>
   <div id="scroll-progress"></div>
 
   <nav id="sticky-nav" aria-label="Section navigation">
@@ -1084,7 +1205,7 @@
         </div>
       </header>
 
-      <main class="space-y-8">
+      <main id="main-content" class="space-y-8">
         <section id="section-runtime" class="scroll-mt-16 grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div class="glass rounded-[2rem] p-6 shadow-panel sm:p-8">
             <div class="flex flex-wrap items-center justify-between gap-4">
@@ -1102,7 +1223,7 @@
               </button>
             </div>
 
-            <div id="runtime-banner" class="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div id="runtime-banner" class="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5" role="status" aria-live="polite">
               <div class="flex items-center gap-3 text-sm text-slate-300">
                 <div class="h-4 w-4 animate-spin rounded-full border-2 border-cobalt/30 border-t-cobalt"></div>
                 Checking GitHub-backed frankenmermaid runtime endpoints...
@@ -1228,7 +1349,7 @@
                   </button>
                 </div>
 
-              <div id="spotlight-stage" class="spotlight-stage scrollbar-thin mt-5 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" style="cursor: zoom-in;"></div>
+              <div id="spotlight-stage" class="spotlight-stage scrollbar-thin mt-5 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" style="cursor: zoom-in;" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle zoom for the spotlight render preview"></div>
 
               <div class="mt-5 grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
                 <div class="rounded-[1.25rem] border border-white/10 bg-[#08101d] p-4">
@@ -1311,7 +1432,7 @@
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">compareMode()</div>
-                <div id="gallery-compare-summary" class="mt-1 text-sm leading-6 text-slate-300">Select up to two gallery scenarios to compare their render behavior, support posture, and narrative significance.</div>
+                <div id="gallery-compare-summary" class="mt-1 text-sm leading-6 text-slate-300" aria-live="polite">Select up to two gallery scenarios to compare their render behavior, support posture, and narrative significance.</div>
               </div>
               <div class="flex flex-wrap gap-2">
                 <button type="button" id="gallery-compare-clear" class="shell-toggle">Clear Compare</button>
@@ -1361,11 +1482,11 @@
                   </div>
                   <div class="flex flex-wrap items-center gap-2">
                     <div class="editor-nav">
-                      <button type="button" id="sample-prev" class="shell-toggle" title="Previous featured sample (Alt+ArrowLeft)">
+                      <button type="button" id="sample-prev" class="shell-toggle" title="Previous featured sample (Alt+ArrowLeft)" aria-keyshortcuts="Alt+ArrowLeft">
                         Prev
                         <span class="kbd shortcut-hint">Alt+←</span>
                       </button>
-                      <button type="button" id="sample-next" class="shell-toggle" title="Next featured sample (Alt+ArrowRight)">
+                      <button type="button" id="sample-next" class="shell-toggle" title="Next featured sample (Alt+ArrowRight)" aria-keyshortcuts="Alt+ArrowRight">
                         Next
                         <span class="kbd shortcut-hint">Alt+→</span>
                       </button>
@@ -1375,6 +1496,7 @@
                       class="flex items-center gap-2 rounded-full border border-cobalt/30 bg-cobalt/15 px-4 py-2 text-sm font-semibold text-cobalt transition hover:bg-cobalt/25"
                       type="button"
                       title="Render diagram (Ctrl+Enter)"
+                      aria-keyshortcuts="Control+Enter Meta+Enter"
                     >
                       Render
                       <span class="kbd shortcut-hint">Ctrl+Enter</span>
@@ -1477,9 +1599,23 @@
               <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">parse()</div>
-                  <div id="parse-summary" class="text-xs text-slate-500">Pending</div>
+                  <div id="parse-summary" class="text-xs text-slate-500" aria-live="polite">Pending</div>
                 </div>
                 <pre id="parse-output" class="scrollbar-thin mt-3 max-h-[26rem] overflow-auto whitespace-pre-wrap text-xs leading-6 text-slate-200"></pre>
+              </div>
+
+              <div class="diagnostic-card">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">stageTelemetryPanel()</div>
+                    <div class="mt-1 text-sm text-slate-300">Stage timings, counts, and degradation posture for the committed revision, with a raw JSON view for machine-readable inspection.</div>
+                  </div>
+                  <div id="telemetry-summary" class="text-xs text-slate-500" aria-live="polite">No telemetry committed yet</div>
+                </div>
+                <div id="telemetry-badges" class="mt-4 flex flex-wrap gap-2"></div>
+                <div id="telemetry-grid" class="telemetry-grid mt-4"></div>
+                <div id="telemetry-table" class="scrollbar-thin mt-4 max-h-72 overflow-auto rounded-[1.25rem] border border-white/10 bg-[#08101d] p-3"></div>
+                <pre id="telemetry-json" class="telemetry-code">Telemetry JSON will appear after the next committed render.</pre>
               </div>
 
               <div class="diagnostic-card">
@@ -1488,7 +1624,7 @@
                     <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">diagnostics()</div>
                     <div class="mt-1 text-sm text-slate-300">Inline recovery guidance, confidence context, and span-driven markers for the current source.</div>
                   </div>
-                  <div id="diagnostics-summary" class="text-xs text-slate-500">No diagnostics yet</div>
+                  <div id="diagnostics-summary" class="text-xs text-slate-500" aria-live="polite">No diagnostics yet</div>
                 </div>
                 <div id="diagnostics-badges" class="mt-4 flex flex-wrap gap-2"></div>
                 <div id="diagnostics-list" class="diagnostic-list"></div>
@@ -1507,7 +1643,7 @@
                       pending
                     </div>
                   </div>
-                  <div id="fm-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm"></div>
+                  <div id="fm-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" role="region" aria-label="FrankenMermaid SVG output"></div>
                 </div>
 
                 <div class="mermaid-card rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
@@ -1520,7 +1656,7 @@
                       ready
                     </div>
                   </div>
-                  <div id="mermaid-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm"></div>
+                  <div id="mermaid-svg" class="stage scrollbar-thin mt-4 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" role="region" aria-label="Mermaid baseline SVG output"></div>
                 </div>
               </div>
 
@@ -1551,7 +1687,7 @@
                   <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">exportArtifactLab()</div>
-                      <div id="artifact-summary" class="mt-1 text-sm text-slate-300">Waiting for a committed render before building export artifacts.</div>
+                      <div id="artifact-summary" class="mt-1 text-sm text-slate-300" aria-live="polite">Waiting for a committed render before building export artifacts.</div>
                     </div>
                     <div class="text-[11px] uppercase tracking-[0.18em] text-slate-500">state-traceable outputs</div>
                   </div>
@@ -1566,16 +1702,40 @@
                 </div>
 
                 <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">determinismCheck()</div>
+                      <div id="determinism-summary" class="mt-1 text-sm text-slate-300" aria-live="polite">Run the checker to repeat the current FrankenMermaid render path and compare normalized output hashes.</div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <label class="studio-field min-w-[8rem]">
+                        <span>Runs</span>
+                        <select id="determinism-runs">
+                          <option value="3">3 runs</option>
+                          <option value="5" selected>5 runs</option>
+                          <option value="7">7 runs</option>
+                        </select>
+                      </label>
+                      <button type="button" id="determinism-run" class="shell-toggle">Run Check</button>
+                    </div>
+                  </div>
+                  <div id="determinism-badges" class="mt-4 flex flex-wrap gap-2"></div>
+                  <div id="determinism-grid" class="telemetry-grid mt-4"></div>
+                  <div id="determinism-table" class="scrollbar-thin mt-4 max-h-72 overflow-auto rounded-[1.25rem] border border-white/10 bg-[#08101d] p-3"></div>
+                  <pre id="determinism-json" class="telemetry-code">Determinism evidence JSON will appear here after the checker runs.</pre>
+                </div>
+
+                <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <div class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">safeFallbackPreview()</div>
-                      <div id="fallback-summary" class="mt-1 text-sm text-slate-300">Waiting for the first healthy render snapshot.</div>
+                      <div id="fallback-summary" class="mt-1 text-sm text-slate-300" aria-live="polite">Waiting for the first healthy render snapshot.</div>
                     </div>
                     <div id="fallback-chip" class="rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]">
                       pending
                     </div>
                     </div>
-                    <div id="fallback-preview" class="fallback-stage scrollbar-thin mt-4 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm"></div>
+                    <div id="fallback-preview" class="fallback-stage scrollbar-thin mt-4 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" role="region" aria-label="Safe fallback preview"></div>
                 </div>
 
                 <div class="rounded-[1.75rem] border border-white/10 bg-slate-950/40 p-5">
@@ -2248,6 +2408,18 @@
       diagnosticsSummary: document.getElementById("diagnostics-summary"),
       diagnosticsBadges: document.getElementById("diagnostics-badges"),
       diagnosticsList: document.getElementById("diagnostics-list"),
+      telemetrySummary: document.getElementById("telemetry-summary"),
+      telemetryBadges: document.getElementById("telemetry-badges"),
+      telemetryGrid: document.getElementById("telemetry-grid"),
+      telemetryTable: document.getElementById("telemetry-table"),
+      telemetryJson: document.getElementById("telemetry-json"),
+      determinismSummary: document.getElementById("determinism-summary"),
+      determinismRuns: document.getElementById("determinism-runs"),
+      determinismRun: document.getElementById("determinism-run"),
+      determinismBadges: document.getElementById("determinism-badges"),
+      determinismGrid: document.getElementById("determinism-grid"),
+      determinismTable: document.getElementById("determinism-table"),
+      determinismJson: document.getElementById("determinism-json"),
       renderButton: document.getElementById("render-button"),
       retryRuntime: document.getElementById("retry-runtime"),
       runtimeBanner: document.getElementById("runtime-banner"),
@@ -2326,6 +2498,10 @@
     let studioDebounceTimer = 0;
     let latestFrankenResult = null;
     let latestMermaidResult = null;
+    let determinismRunCount = 5;
+    let autoDeterminismRuns = 0;
+    let lastDeterminismReport = null;
+    let fallbackUniqueIdCounter = 0;
     let suppressUrlSync = false;
     let lastStateUrl = "";
     let renderRevision = 0;
@@ -2364,6 +2540,57 @@
     function setChip(el, text, cls) {
       el.textContent = text;
       el.className = `rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${cls}`;
+    }
+
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    function prefersReducedMotion() {
+      return reducedMotionQuery.matches;
+    }
+
+    function motionBehavior() {
+      return prefersReducedMotion() ? "auto" : "smooth";
+    }
+
+    function focusWithoutScroll(element) {
+      if (element && typeof element.focus === "function") {
+        element.focus({ preventScroll: true });
+      }
+    }
+
+    function makeUniqueId(prefix) {
+      if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+        return `${prefix}-${globalThis.crypto.randomUUID()}`;
+      }
+      fallbackUniqueIdCounter += 1;
+      return `${prefix}-${Date.now().toString(36)}-${fallbackUniqueIdCounter.toString(36)}`;
+    }
+
+    async function writeClipboardText(value) {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(value);
+        return true;
+      }
+
+      const fallback = document.createElement("textarea");
+      fallback.value = value;
+      fallback.setAttribute("readonly", "");
+      fallback.style.position = "fixed";
+      fallback.style.top = "-9999px";
+      fallback.style.opacity = "0";
+      document.body.appendChild(fallback);
+      fallback.focus();
+      fallback.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } finally {
+        document.body.removeChild(fallback);
+      }
+      if (!copied) {
+        throw new Error("Clipboard API unavailable and execCommand copy failed.");
+      }
+      return true;
     }
 
     function setRenderButtonState(isBusy, label = "Render") {
@@ -2651,6 +2878,32 @@
       return Math.abs(numeric) >= 100 ? numeric.toFixed(0) : numeric.toFixed(1);
     }
 
+    function formatStageLabel(stage) {
+      switch (stage) {
+        case "svg":
+          return "franken svg";
+        case "canvas":
+          return "franken canvas";
+        case "matrix":
+          return "capability matrix";
+        default:
+          return stage;
+      }
+    }
+
+    function collectSpanCount(spansValue) {
+      if (Array.isArray(spansValue)) {
+        return spansValue.length;
+      }
+      if (Array.isArray(spansValue?.spans)) {
+        return spansValue.spans.length;
+      }
+      if (Array.isArray(spansValue?.records)) {
+        return spansValue.records.length;
+      }
+      return 0;
+    }
+
     function setLayoutLabFocusButtons() {
       for (const button of els.layoutLabControls.querySelectorAll("[data-layout-focus]")) {
         const active = button.dataset.layoutFocus === layoutLabFocus;
@@ -2743,6 +2996,275 @@
 
     async function sha256HexFromText(text) {
       return sha256HexFromBuffer(new TextEncoder().encode(text));
+    }
+
+    function stableJsonClone(value) {
+      if (Array.isArray(value)) {
+        return value.map((entry) => stableJsonClone(entry));
+      }
+      if (value && typeof value === "object") {
+        return Object.keys(value).sort().reduce((acc, key) => {
+          acc[key] = stableJsonClone(value[key]);
+          return acc;
+        }, {});
+      }
+      return value;
+    }
+
+    function stableJsonStringify(value) {
+      return JSON.stringify(stableJsonClone(value), null, 2);
+    }
+
+    function normalizeMarkup(markup) {
+      return String(markup || "")
+        .replace(/>\s+</g, "><")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function summarizeDiagnosticsForEvidence(diagnostics) {
+      return (Array.isArray(diagnostics) ? diagnostics : []).map((diagnostic) => ({
+        severity: diagnostic?.severity || "info",
+        category: diagnostic?.category || "diagnostic",
+        message: diagnostic?.message || "Unknown diagnostic",
+        hint: diagnostic?.hint || null,
+        line: diagnostic?.line || null
+      }));
+    }
+
+    function deriveResultDegradationTier(result) {
+      if (result.runtimeUnavailable) {
+        return "unavailable";
+      }
+      if (result.parseError || result.fmRenderError || result.canvasError || (result.diagnostics || []).some((diagnostic) => diagnostic.severity === "error")) {
+        return "fallback";
+      }
+      if (result.mermaidError || (result.diagnostics || []).some((diagnostic) => diagnostic.severity === "warning")) {
+        return "partial";
+      }
+      return "healthy";
+    }
+
+    function buildDeterminismSnapshot(result) {
+      return {
+        detect: result.detectedValue || null,
+        parse_ir: result.parsedValue?.ir || null,
+        warnings: result.parsedValue?.warnings || [],
+        spans: result.spansValue || null,
+        diagnostics: summarizeDiagnosticsForEvidence(result.diagnostics),
+        franken_svg: normalizeMarkup(result.fmHtml),
+        capability_matrix: result.capabilityMatrix || null,
+        layout: result.layoutValue || null,
+        canvas: result.canvasValue || null,
+        guard: result.guardValue || null,
+        degradation_tier: deriveResultDegradationTier(result),
+        runtime_unavailable: !!result.runtimeUnavailable,
+        errors: {
+          parse: result.parseError || null,
+          franken_svg: result.fmRenderError || null,
+          canvas: result.canvasError || null,
+          mermaid: result.mermaidError || null
+        }
+      };
+    }
+
+    function buildDiffExcerpt(baseline, candidate) {
+      const baselineLines = baseline.split("\n");
+      const candidateLines = candidate.split("\n");
+      const maxLines = Math.max(baselineLines.length, candidateLines.length);
+      const diffs = [];
+      for (let index = 0; index < maxLines; index += 1) {
+        if ((baselineLines[index] || "") === (candidateLines[index] || "")) {
+          continue;
+        }
+        diffs.push({
+          line: index + 1,
+          baseline: baselineLines[index] || "(missing)",
+          candidate: candidateLines[index] || "(missing)"
+        });
+        if (diffs.length >= 3) {
+          break;
+        }
+      }
+      return diffs;
+    }
+
+    function renderDeterminismPanel(report = null, statusMessage = null) {
+      const summary = statusMessage || report?.summary || "Run the checker to repeat the current FrankenMermaid render path and compare normalized output hashes.";
+      els.determinismSummary.textContent = summary;
+      els.determinismRuns.value = String(determinismRunCount);
+
+      if (!report) {
+        els.determinismBadges.innerHTML = "";
+        els.determinismGrid.innerHTML = `
+          <div class="telemetry-card md:col-span-2">
+            <div class="text-sm leading-6 text-slate-300">This checker re-runs the current FrankenMermaid input and style config, hashes a normalized evidence snapshot for each run, and surfaces the first diff when hashes diverge.</div>
+          </div>
+        `;
+        els.determinismTable.innerHTML = "";
+        els.determinismJson.textContent = "Determinism evidence JSON will appear here after the checker runs.";
+        return;
+      }
+
+      const badges = [
+        `status ${report.stable ? "stable" : "unstable"}`,
+        `runs ${report.runCount}`,
+        `unique hashes ${report.uniqueHashes.length}`,
+        `theme ${report.theme}`,
+        `input ${report.inputHash.slice(0, 16)}`,
+        `config ${report.configHash.slice(0, 16)}`
+      ];
+      const cards = [
+        {
+          title: "Determinism result",
+          value: report.stable ? "stable" : "unstable",
+          detail: report.stable
+            ? `All ${report.runCount} runs produced the same normalized hash.`
+            : `Hash divergence detected. First mismatch was run ${report.firstMismatch?.runIndex || "?"}.`
+        },
+        {
+          title: "Baseline hash",
+          value: report.runs[0]?.outputArtifactHash?.slice(0, 16) || "n/a",
+          detail: `${report.uniqueHashes.length} distinct hash${report.uniqueHashes.length === 1 ? "" : "es"} across the run set`
+        },
+        {
+          title: "Source and config",
+          value: `${report.renderer} / ${report.theme}`,
+          detail: `input ${report.inputHash.slice(0, 16)} · config ${report.configHash.slice(0, 16)}`
+        },
+        {
+          title: "Degradation posture",
+          value: report.degradationSummary,
+          detail: report.firstMismatch?.diffExcerpt?.length
+            ? `First diff at line ${report.firstMismatch.diffExcerpt[0].line}.`
+            : "No diff excerpt was needed because the hashes stayed stable."
+        }
+      ];
+
+      els.determinismBadges.innerHTML = badges
+        .map((badge) => `<span class="pill rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.14em] text-slate-200">${escapeHtml(badge)}</span>`)
+        .join("");
+      els.determinismGrid.innerHTML = cards
+        .map((card) => `
+          <div class="telemetry-card">
+            <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">${escapeHtml(card.title)}</div>
+            <div class="mt-3 text-2xl font-semibold text-white">${escapeHtml(card.value)}</div>
+            <div class="mt-2 text-sm leading-6 text-slate-300">${escapeHtml(card.detail)}</div>
+          </div>
+        `)
+        .join("");
+      els.determinismTable.innerHTML = `
+        <table class="telemetry-table">
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Hash</th>
+              <th>Parse</th>
+              <th>Layout</th>
+              <th>Render</th>
+              <th>Diagnostics</th>
+              <th>Degradation</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${report.runs.map((run) => `
+              <tr>
+                <td class="font-medium text-white">${escapeHtml(String(run.runIndex))}</td>
+                <td class="text-slate-200"><code>${escapeHtml(run.outputArtifactHash.slice(0, 16))}</code></td>
+                <td class="text-slate-300">${escapeHtml(`${run.parseMs}ms`)}</td>
+                <td class="text-slate-300">${escapeHtml(`${run.layoutMs}ms`)}</td>
+                <td class="text-slate-300">${escapeHtml(`${run.renderMs}ms`)}</td>
+                <td class="text-slate-300">${escapeHtml(String(run.diagnosticCount))}</td>
+                <td class="text-slate-400">${escapeHtml(run.degradationTier)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+      els.determinismJson.textContent = pretty(report);
+    }
+
+    async function runDeterminismCheck(options = {}) {
+      const requestedRuns = Number(options.runCount ?? determinismRunCount ?? 5);
+      determinismRunCount = [3, 5, 7].includes(requestedRuns) ? requestedRuns : 5;
+      els.determinismRuns.value = String(determinismRunCount);
+      els.determinismRun.disabled = true;
+      els.determinismRun.textContent = "Checking...";
+      renderDeterminismPanel(null, `Running determinism check for revision ${latestCommittedRevision || 0} across ${determinismRunCount} repeated render${determinismRunCount === 1 ? "" : "s"}...`);
+
+      try {
+        const source = els.input.value;
+        const inputHash = `sha256:${await sha256HexFromText(source)}`;
+        const configHash = `sha256:${await sha256HexFromText(stableJsonStringify({
+          sample: currentSample?.id || null,
+          studio: { ...studioState },
+          runtime_source: frankenRuntime?.source || "artifact-missing"
+        }))}`;
+        const runs = [];
+
+        for (let runIndex = 1; runIndex <= determinismRunCount; runIndex += 1) {
+          const result = await renderWithFranken(source);
+          result.revision = latestCommittedRevision || 0;
+          result.diagnostics = buildDiagnostics(result);
+          const snapshot = buildDeterminismSnapshot(result);
+          const normalized = stableJsonStringify(snapshot);
+          runs.push({
+            runIndex,
+            outputArtifactHash: `sha256:${await sha256HexFromText(normalized)}`,
+            parseMs: result.timings?.parse ?? 0,
+            layoutMs: result.timings?.canvas ?? 0,
+            renderMs: result.timings?.svg ?? 0,
+            diagnosticCount: result.diagnostics.length,
+            degradationTier: deriveResultDegradationTier(result),
+            normalized
+          });
+        }
+
+        const baselineHash = runs[0]?.outputArtifactHash || null;
+        const stable = runs.every((run) => run.outputArtifactHash === baselineHash);
+        const uniqueHashes = [...new Set(runs.map((run) => run.outputArtifactHash))];
+        const firstMismatch = stable
+          ? null
+          : (() => {
+              const mismatch = runs.find((run) => run.outputArtifactHash !== baselineHash);
+              return mismatch ? {
+                runIndex: mismatch.runIndex,
+                outputArtifactHash: mismatch.outputArtifactHash,
+                diffExcerpt: buildDiffExcerpt(runs[0].normalized, mismatch.normalized)
+              } : null;
+            })();
+        const degradationSummary = [...new Set(runs.map((run) => run.degradationTier))].join(" · ");
+        const report = {
+          revision: latestCommittedRevision || 0,
+          runCount: determinismRunCount,
+          stable,
+          summary: stable
+            ? `Determinism check passed: ${determinismRunCount} repeated runs produced the same normalized FrankenMermaid hash for revision ${latestCommittedRevision || 0}.`
+            : `Determinism check failed: repeated runs diverged for revision ${latestCommittedRevision || 0}. See the diff excerpt below.`,
+          renderer: "franken-svg",
+          theme: studioState.preset,
+          inputHash,
+          configHash,
+          degradationSummary,
+          uniqueHashes,
+          firstMismatch,
+          runs: runs.map((run) => ({
+            runIndex: run.runIndex,
+            outputArtifactHash: run.outputArtifactHash,
+            parseMs: run.parseMs,
+            layoutMs: run.layoutMs,
+            renderMs: run.renderMs,
+            diagnosticCount: run.diagnosticCount,
+            degradationTier: run.degradationTier
+          }))
+        };
+        lastDeterminismReport = report;
+        renderDeterminismPanel(report);
+        return report;
+      } finally {
+        els.determinismRun.disabled = false;
+        els.determinismRun.textContent = "Run Check";
+      }
     }
 
     async function buildArtifactCatalog() {
@@ -3092,6 +3614,186 @@
       els.layoutLabNote.textContent = focusNotes[focus] || focusNotes.overview;
     }
 
+    function buildTelemetryModel(frankenResult, mermaidResult) {
+      if (!frankenResult) {
+        return null;
+      }
+
+      const timings = {
+        detect: frankenResult.timings?.detect ?? 0,
+        parse: frankenResult.timings?.parse ?? 0,
+        spans: frankenResult.timings?.spans ?? 0,
+        matrix: frankenResult.timings?.matrix ?? 0,
+        svg: frankenResult.timings?.svg ?? 0,
+        canvas: frankenResult.timings?.canvas ?? 0,
+        mermaid: mermaidResult?.timings?.mermaid ?? 0,
+        total: frankenResult.totalMs ?? 0
+      };
+      const diagnostics = Array.isArray(frankenResult.diagnostics) ? frankenResult.diagnostics : [];
+      const diagnosticCounts = diagnostics.reduce((acc, diagnostic) => {
+        const severity = diagnostic?.severity || "info";
+        acc[severity] = (acc[severity] || 0) + 1;
+        return acc;
+      }, {});
+      const warningCount = Array.isArray(frankenResult.parsedValue?.warnings) ? frankenResult.parsedValue.warnings.length : 0;
+      const spanCount = collectSpanCount(frankenResult.spansValue);
+      const stages = ["detect", "parse", "spans", "matrix", "svg", "canvas", "mermaid", "total"].map((stage) => ({
+        key: stage,
+        label: formatStageLabel(stage),
+        ms: timings[stage] ?? 0
+      }));
+      const topStage = stages.reduce((current, stage) => stage.ms > current.ms ? stage : current, stages[0]);
+      const degradationReasons = [];
+      if (frankenResult.runtimeUnavailable) {
+        degradationReasons.push("runtime artifact missing");
+      }
+      if (frankenResult.fmRenderError) {
+        degradationReasons.push("franken svg render failed");
+      }
+      if (frankenResult.canvasError) {
+        degradationReasons.push("canvas preview degraded");
+      }
+      if (frankenResult.mermaidError) {
+        degradationReasons.push("mermaid baseline degraded");
+      }
+      if (frankenResult.parseError) {
+        degradationReasons.push("parse stage failed");
+      }
+      if ((diagnosticCounts.error || 0) > 0) {
+        degradationReasons.push("error diagnostics active");
+      }
+
+      let health = "healthy";
+      if (frankenResult.runtimeUnavailable) {
+        health = "artifact-missing";
+      } else if (degradationReasons.length > 0) {
+        health = "degraded";
+      }
+
+      return {
+        revision: frankenResult.revision ?? 0,
+        health,
+        topStage,
+        timings,
+        stages,
+        counts: {
+          nodes: frankenResult.parsedValue?.ir?.nodes?.length ?? 0,
+          edges: frankenResult.parsedValue?.ir?.edges?.length ?? 0,
+          warnings: warningCount,
+          spans: spanCount,
+          diagnostics: diagnostics.length
+        },
+        diagnostics: diagnosticCounts,
+        degradationReasons,
+        raw: {
+          revision: frankenResult.revision ?? 0,
+          health,
+          timings,
+          counts: {
+            nodes: frankenResult.parsedValue?.ir?.nodes?.length ?? 0,
+            edges: frankenResult.parsedValue?.ir?.edges?.length ?? 0,
+            warnings: warningCount,
+            spans: spanCount,
+            diagnostics: diagnostics.length
+          },
+          diagnostics: diagnosticCounts,
+          degradationReasons,
+          runtimeUnavailable: !!frankenResult.runtimeUnavailable,
+          renderErrors: {
+            frankenSvg: frankenResult.fmRenderError || null,
+            canvas: frankenResult.canvasError || null,
+            mermaid: frankenResult.mermaidError || null,
+            parse: frankenResult.parseError || null
+          }
+        }
+      };
+    }
+
+    function renderTelemetryPanel(frankenResult, mermaidResult) {
+      const model = buildTelemetryModel(frankenResult, mermaidResult);
+      if (!model) {
+        els.telemetrySummary.textContent = "No telemetry committed yet";
+        els.telemetryBadges.innerHTML = "";
+        els.telemetryGrid.innerHTML = `
+          <div class="telemetry-card md:col-span-2">
+            <div class="text-sm leading-6 text-slate-300">Commit a render to populate stage timings, counts, degradation posture, and the raw telemetry snapshot.</div>
+          </div>
+        `;
+        els.telemetryTable.innerHTML = "";
+        els.telemetryJson.textContent = "Telemetry JSON will appear after the next committed render.";
+        return;
+      }
+
+      const summary = model.health === "healthy"
+        ? `Healthy revision ${model.revision}. Slowest stage was ${model.topStage.label} at ${model.topStage.ms}ms.`
+        : `${model.health === "artifact-missing" ? "Runtime artifact missing" : "Degraded"} revision ${model.revision}. ${model.degradationReasons.join(" · ")}.`;
+      const badges = [
+        `health ${model.health}`,
+        `revision ${model.revision}`,
+        `slowest ${model.topStage.label} ${model.topStage.ms}ms`,
+        `warnings ${model.counts.warnings}`,
+        `diagnostics ${model.counts.diagnostics}`,
+        model.degradationReasons.length ? `degradation ${model.degradationReasons.length}` : "no degradation flags"
+      ];
+      const cards = [
+        {
+          title: "Pipeline posture",
+          value: model.health,
+          detail: model.degradationReasons.length ? model.degradationReasons.join(" · ") : "All tracked stages completed without degradation flags."
+        },
+        {
+          title: "Source graph",
+          value: `${formatMetricNumber(model.counts.nodes)} nodes / ${formatMetricNumber(model.counts.edges)} edges`,
+          detail: `${formatMetricNumber(model.counts.spans)} source spans · ${formatMetricNumber(model.counts.warnings)} parser warnings`
+        },
+        {
+          title: "Diagnostics",
+          value: formatMetricNumber(model.counts.diagnostics),
+          detail: `error ${formatMetricNumber(model.diagnostics.error || 0)} · warning ${formatMetricNumber(model.diagnostics.warning || 0)} · info ${formatMetricNumber(model.diagnostics.info || 0)} · hint ${formatMetricNumber(model.diagnostics.hint || 0)}`
+        },
+        {
+          title: "Slowest stage",
+          value: `${model.topStage.label} ${formatMetricNumber(model.topStage.ms)}ms`,
+          detail: `Total committed pipeline ${formatMetricNumber(model.timings.total)}ms including Mermaid baseline comparison`
+        }
+      ];
+
+      els.telemetrySummary.textContent = summary;
+      els.telemetryBadges.innerHTML = badges
+        .map((badge) => `<span class="pill rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.14em] text-slate-200">${escapeHtml(badge)}</span>`)
+        .join("");
+      els.telemetryGrid.innerHTML = cards
+        .map((card) => `
+          <div class="telemetry-card">
+            <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">${escapeHtml(card.title)}</div>
+            <div class="mt-3 text-2xl font-semibold text-white">${escapeHtml(card.value)}</div>
+            <div class="mt-2 text-sm leading-6 text-slate-300">${escapeHtml(card.detail)}</div>
+          </div>
+        `)
+        .join("");
+      els.telemetryTable.innerHTML = `
+        <table class="telemetry-table">
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>Timing</th>
+              <th>Interpretation</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${model.stages.map((stage) => `
+              <tr>
+                <td class="font-medium text-white">${escapeHtml(stage.label)}</td>
+                <td class="text-slate-200">${escapeHtml(`${formatMetricNumber(stage.ms)}ms`)}</td>
+                <td class="text-slate-400">${escapeHtml(stage.key === "total" ? "Committed end-to-end time for the latest render revision." : stage.ms > 0 ? "Measured during the latest committed render." : "Stage did not contribute timing for this revision.")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+      els.telemetryJson.textContent = pretty(model.raw);
+    }
+
     function diagnosticEmoji(severity) {
       switch (severity) {
         case "error":
@@ -3400,6 +4102,7 @@
       const requestedFilter = url.searchParams.get("filter");
       const requestedCompare = (url.searchParams.get("compare") || "").split(",").filter(Boolean);
       const requestedLabFocus = url.searchParams.get("lab");
+      const requestedDeterminismRuns = Number(url.searchParams.get("det") || "");
       const studioJson = url.searchParams.get("studio");
       const query = url.searchParams.get("q") || "";
       const sourceOverride = url.searchParams.get("source");
@@ -3411,6 +4114,8 @@
       galleryFilter = galleryCategories.includes(requestedFilter) ? requestedFilter : "all";
       compareSampleIds = requestedCompare.filter((id, index, list) => list.indexOf(id) === index).slice(0, 2);
       layoutLabFocus = ["overview", "cycles", "crossings", "budget", "legibility"].includes(requestedLabFocus) ? requestedLabFocus : "overview";
+      determinismRunCount = [3, 5, 7].includes(requestedDeterminismRuns) ? requestedDeterminismRuns : 5;
+      autoDeterminismRuns = [3, 5, 7].includes(requestedDeterminismRuns) ? requestedDeterminismRuns : 0;
       studioState = { ...defaultStudioState };
       galleryQuery = query;
       els.input.value = sourceOverride || sample.code;
@@ -3437,6 +4142,7 @@
       history.replaceState(null, "", buildStateUrl());
       updateEditorChrome();
       renderStyleStudio();
+      renderDeterminismPanel();
     }
 
     function createSampleButtons() {
@@ -3557,11 +4263,13 @@
         try {
           const svg = await frankenRuntime.renderSvg(sample.code, buildRuntimeSvgOptions());
           els.spotlightStage.innerHTML = svg;
-          animate(
-            "#spotlight-stage > *",
-            { opacity: [0.55, 1], y: [12, 0] },
-            { duration: 0.38, easing: "ease-out" }
-          );
+          if (!prefersReducedMotion()) {
+            animate(
+              "#spotlight-stage > *",
+              { opacity: [0.55, 1], y: [12, 0] },
+              { duration: 0.38, easing: "ease-out" }
+            );
+          }
           return;
         } catch (_fmError) {
           // Fall through to mermaid
@@ -3570,7 +4278,7 @@
 
       // Use mermaid.js (either as primary for non-flowchart, or as fallback)
       try {
-        const mId = `mspot-${crypto.randomUUID()}`;
+        const mId = makeUniqueId("mspot");
         const { svg } = await mermaid.render(mId, sample.code);
         els.spotlightStage.innerHTML = svg;
       } catch (_err) {
@@ -3626,7 +4334,7 @@
       }
 
       try {
-        const mId = `mstage-${crypto.randomUUID()}`;
+        const mId = makeUniqueId("mstage");
         const { svg } = await mermaid.render(mId, sample.code);
         target.innerHTML = svg;
       } catch (_err) {
@@ -3694,7 +4402,7 @@
               <button type="button" class="shell-toggle" data-gallery-sample="${sample.id}">Editor</button>
             </div>
           </div>
-          <div class="gallery-stage scrollbar-thin mt-4 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" data-compare-render="${sample.id}"></div>
+          <div class="gallery-stage scrollbar-thin mt-4 overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" data-compare-render="${sample.id}" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle zoom for comparison render ${escapeAttribute(sample.label)}"></div>
           <div class="mt-4 text-sm leading-6 text-slate-300">${escapeHtml((sample.narrative?.proves || [spotlightReasons[sample.category] || sample.description]).join(" · "))}</div>
         </article>
       `).join("");
@@ -3774,7 +4482,7 @@
               </div>
             </div>
             ${sample.narrative?.proves?.length ? `<div class="flex flex-wrap gap-2">${sample.narrative.proves.map((point) => `<span class="pill rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.14em] text-slate-200">${escapeHtml(point)}</span>`).join("")}</div>` : ""}
-            <div class="gallery-stage scrollbar-thin overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" data-gallery-render="${sample.id}">
+            <div class="gallery-stage scrollbar-thin overflow-auto rounded-2xl border border-slate-200/40 bg-gradient-to-b from-white to-slate-50 p-6 text-slate-900 shadow-sm" data-gallery-render="${sample.id}" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle zoom for gallery render ${escapeAttribute(sample.label)}">
               <div class="space-y-3 p-2"><div class="shimmer-light h-6 w-3/4"></div><div class="shimmer-light h-40"></div><div class="shimmer-light h-4 w-1/2"></div></div>
             </div>
             <details class="rounded-[1.25rem] border border-white/10 bg-[#08101d]">
@@ -3798,7 +4506,8 @@
           setCurrentSample(sample, { pushHistory: true, render: true, syncInput: true });
           renderFeatureStrip();
           renderSpotlight();
-          document.getElementById("section-playground").scrollIntoView({ behavior: "smooth", block: "start" });
+          document.getElementById("section-playground").scrollIntoView({ behavior: motionBehavior(), block: "start" });
+          focusWithoutScroll(els.input);
         });
       }
 
@@ -3828,40 +4537,52 @@
           renderFeatureStrip();
           syncUrlState("push");
           renderSpotlight();
-          document.getElementById("section-showcase").scrollIntoView({ behavior: "smooth", block: "start" });
+          document.getElementById("section-showcase").scrollIntoView({ behavior: motionBehavior(), block: "start" });
+          focusWithoutScroll(els.spotlightStage);
         });
       }
 
-      galleryObserver = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) {
-              continue;
+      if (typeof IntersectionObserver === "function") {
+        galleryObserver = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) {
+                continue;
+              }
+              const target = entry.target;
+              const sample = gallerySamples.find((item) => item.id === target.dataset.galleryRender);
+              if (sample) {
+                renderSampleStage(sample, target);
+              }
+              galleryObserver.unobserve(target);
             }
-            const target = entry.target;
-            const sample = gallerySamples.find((item) => item.id === target.dataset.galleryRender);
-            if (sample) {
-              renderSampleStage(sample, target);
-            }
-            galleryObserver.unobserve(target);
-          }
-        },
-        { rootMargin: "600px 0px" }
-      );
+          },
+          { rootMargin: "600px 0px" }
+        );
 
-      for (const sample of visibleSamples) {
-        const target = els.galleryGrid.querySelector(`[data-gallery-render="${sample.id}"]`);
-        if (target) {
-          galleryObserver.observe(target);
+        for (const sample of visibleSamples) {
+          const target = els.galleryGrid.querySelector(`[data-gallery-render="${sample.id}"]`);
+          if (target) {
+            galleryObserver.observe(target);
+          }
+        }
+      } else {
+        for (const sample of visibleSamples.slice(0, 12)) {
+          const target = els.galleryGrid.querySelector(`[data-gallery-render="${sample.id}"]`);
+          if (target) {
+            renderSampleStage(sample, target);
+          }
         }
       }
 
       const cardSelector = visibleSamples.length <= 12 ? "#gallery-grid article" : "#gallery-grid article:nth-child(-n+12)";
-      animate(
-        cardSelector,
-        { opacity: [0.6, 1], y: [18, 0] },
-        { duration: 0.35, delay: stagger(0.035), easing: "ease-out" }
-      );
+      if (!prefersReducedMotion()) {
+        animate(
+          cardSelector,
+          { opacity: [0.6, 1], y: [18, 0] },
+          { duration: 0.35, delay: stagger(0.035), easing: "ease-out" }
+        );
+      }
     }
 
     els.galleryGrid.addEventListener('click', (e) => {
@@ -3869,6 +4590,17 @@
         const stage = e.target.closest('.gallery-stage');
         if (!stage) return;
         toggleZoom(stage);
+    });
+
+    els.galleryGrid.addEventListener("keydown", (event) => {
+      const stage = event.target.closest(".gallery-stage");
+      if (!stage) {
+        return;
+      }
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleZoom(stage);
+      }
     });
 
     els.galleryCompareGrid.addEventListener("click", (event) => {
@@ -3880,7 +4612,8 @@
           setCurrentSample(sample, { pushHistory: true, render: true, syncInput: true });
           renderFeatureStrip();
           renderSpotlight();
-          document.getElementById("section-playground").scrollIntoView({ behavior: "smooth", block: "start" });
+          document.getElementById("section-playground").scrollIntoView({ behavior: motionBehavior(), block: "start" });
+          focusWithoutScroll(els.input);
         }
         return;
       }
@@ -3892,13 +4625,25 @@
           renderFeatureStrip();
           syncUrlState("push");
           renderSpotlight();
-          document.getElementById("section-showcase").scrollIntoView({ behavior: "smooth", block: "start" });
+          document.getElementById("section-showcase").scrollIntoView({ behavior: motionBehavior(), block: "start" });
+          focusWithoutScroll(els.spotlightStage);
         }
         return;
       }
       if (event.target.closest('a, button, summary, details, pre')) return;
       const stage = event.target.closest('.gallery-stage');
       if (stage) {
+        toggleZoom(stage);
+      }
+    });
+
+    els.galleryCompareGrid.addEventListener("keydown", (event) => {
+      const stage = event.target.closest(".gallery-stage");
+      if (!stage) {
+        return;
+      }
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
         toggleZoom(stage);
       }
     });
@@ -4172,7 +4917,7 @@
       const timings = {};
       try {
         const rendered = await measureStage("mermaid", timings, async () => {
-          const id = `mermaid-${crypto.randomUUID()}`;
+          const id = makeUniqueId("mermaid");
           return mermaid.render(id, source);
         });
         return {
@@ -4378,6 +5123,7 @@
       }
 
       latestCommittedRevision = revision;
+      lastDeterminismReport = null;
       const totalMs = Math.round(performance.now() - startedAt);
       frankenResult.revision = revision;
       frankenResult.totalMs = totalMs;
@@ -4405,8 +5151,10 @@
       els.canvasChip.title = `${frankenResult.canvasChipTitle} · revision ${revision}`;
       els.parseSummary.textContent = `${frankenResult.parseSummary} · mermaid ${mermaidResult.timings.mermaid ?? 0}ms · total ${totalMs}ms · revision ${revision}`;
       renderDiagnosticsPanel(frankenResult.diagnostics, frankenResult);
+      renderTelemetryPanel(frankenResult, mermaidResult);
       renderLayoutLab(frankenResult);
       await renderArtifactLab();
+      renderDeterminismPanel(null, `Revision ${revision} has not been determinism-checked yet. Re-run the checker to compare normalized hashes for the current source and style config.`);
       renderFallbackPreview(frankenResult);
       updateEditorChrome();
 
@@ -4452,9 +5200,14 @@
       await renderGallery();
       await renderAll({ reason: "boot", immediate: true });
       syncUrlState("replace");
+      if (autoDeterminismRuns > 0) {
+        await runDeterminismCheck({ runCount: autoDeterminismRuns, reason: "url-autostart" });
+      }
 
-      animate("header .glass", { opacity: [0, 1], y: [24, 0] }, { duration: 0.7, easing: [0.22, 1, 0.36, 1] });
-      animate("main > section", { opacity: [0, 1], y: [28, 0] }, { delay: stagger(0.08), duration: 0.7, easing: [0.22, 1, 0.36, 1] });
+      if (!prefersReducedMotion()) {
+        animate("header .glass", { opacity: [0, 1], y: [24, 0] }, { duration: 0.7, easing: [0.22, 1, 0.36, 1] });
+        animate("main > section", { opacity: [0, 1], y: [28, 0] }, { delay: stagger(0.08), duration: 0.7, easing: [0.22, 1, 0.36, 1] });
+      }
     }
 
     els.renderButton.addEventListener("click", async () => {
@@ -4467,6 +5220,15 @@
         return;
       }
       exportArtifact(button.dataset.artifactExport);
+    });
+
+    els.determinismRuns.addEventListener("change", () => {
+      determinismRunCount = Number(els.determinismRuns.value) || 5;
+      renderDeterminismPanel(lastDeterminismReport, lastDeterminismReport ? null : `Revision ${latestCommittedRevision || 0} has not been determinism-checked yet. Choose a run count and execute the checker when you want fresh evidence.`);
+    });
+
+    els.determinismRun.addEventListener("click", async () => {
+      await runDeterminismCheck({ runCount: determinismRunCount, reason: "manual" });
     });
 
     els.galleryCompareClear.addEventListener("click", async () => {
@@ -4545,13 +5307,14 @@
 
     els.spotlightOpenEditor.addEventListener("click", () => {
       setCurrentSample(spotlightSample, { pushHistory: true, render: true, syncInput: true });
-      document.getElementById("section-playground").scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("section-playground").scrollIntoView({ behavior: motionBehavior(), block: "start" });
+      focusWithoutScroll(els.input);
     });
 
     els.spotlightCopySource.addEventListener("click", async () => {
       const label = document.getElementById("spotlight-copy-label");
       try {
-        await navigator.clipboard.writeText(spotlightSample.code);
+        await writeClipboardText(spotlightSample.code);
         label.textContent = "Copied!";
         els.spotlightCopySource.style.borderColor = "rgba(122, 245, 199, 0.3)";
         els.spotlightCopySource.style.color = "#7af5c7";
@@ -4574,6 +5337,7 @@
 
       if (el.dataset.zoomed === 'true') {
         el.dataset.zoomed = '';
+        el.setAttribute("aria-pressed", "false");
         el.style.cssText = '';
         const svg = el.querySelector('svg');
         if (svg) svg.style.cssText = '';
@@ -4583,11 +5347,13 @@
       const prev = document.querySelector('[data-zoomed="true"]');
       if (prev && prev !== el) {
         prev.dataset.zoomed = '';
+        prev.setAttribute("aria-pressed", "false");
         prev.style.cssText = '';
         const prevSvg = prev.querySelector('svg');
         if (prevSvg) prevSvg.style.cssText = '';
       }
       el.dataset.zoomed = 'true';
+      el.setAttribute("aria-pressed", "true");
       el.style.cssText = 'position:fixed;inset:1rem;z-index:9999;border-radius:1rem;cursor:zoom-out;max-height:none;background:linear-gradient(to bottom,#fff,#f8fafc);padding:2rem;overflow:auto;display:flex;align-items:center;justify-content:center;box-shadow:0 25px 80px rgba(0,0,0,0.3);';
       const svg = el.querySelector('svg');
       if (svg) {
@@ -4599,6 +5365,13 @@
       // Only respond to clicks directly on the stage or its SVG, not on nested interactive elements
       if (e.target.closest('a, button')) return;
       toggleZoom(els.spotlightStage);
+    });
+
+    els.spotlightStage.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleZoom(els.spotlightStage);
+      }
     });
 
     let galleryDebounced;
@@ -4631,7 +5404,7 @@
       const url = buildStateUrl().toString();
       const original = els.copyStateLink.textContent;
       try {
-        await navigator.clipboard.writeText(url);
+        await writeClipboardText(url);
         els.copyStateLink.textContent = "Copied";
       } catch (_error) {
         els.copyStateLink.textContent = "Copy Failed";
@@ -4649,6 +5422,9 @@
       await renderSpotlight();
       await renderGallery();
       await renderAll({ reason: "popstate", immediate: true });
+      if (autoDeterminismRuns > 0) {
+        await runDeterminismCheck({ runCount: autoDeterminismRuns, reason: "popstate-url-autostart" });
+      }
     });
 
     boot();
@@ -4700,7 +5476,7 @@
     }, { passive: true });
 
     backToTop.addEventListener("click", () => {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: motionBehavior() });
     });
 
     /* --- Keyboard shortcuts --- */

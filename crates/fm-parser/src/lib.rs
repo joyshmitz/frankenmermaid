@@ -850,7 +850,7 @@ mod tests {
         ) {
             let mut input = String::from("flowchart LR\n");
             for i in 0..node_count {
-                write!(input, "  N{i}[Node {i}]\n").unwrap();
+                writeln!(input, "  N{i}[Node {i}]").unwrap();
             }
             let mut val = edge_seed;
             for _ in 0..node_count {
@@ -882,7 +882,7 @@ mod tests {
         ) {
             let mut input = String::from("flowchart TB\n");
             for i in 0..node_count {
-                write!(input, "  N{i} --> N{}\n", (i + 1) % node_count).unwrap();
+                writeln!(input, "  N{i} --> N{}", (i + 1) % node_count).unwrap();
             }
             let result = parse(&input);
             // All edge endpoints should reference existing nodes.
@@ -925,7 +925,7 @@ mod tests {
         ) {
             let mut input = String::from("flowchart TD\n");
             for i in 0..node_count {
-                write!(input, "  N{i}[Node {i}]\n").unwrap();
+                writeln!(input, "  N{i}[Node {i}]").unwrap();
             }
             let mut val = edge_seed;
             for _ in 0..node_count.min(8) {
@@ -970,7 +970,7 @@ mod tests {
                 .collect();
             let mut input = String::from("sequenceDiagram\n");
             for name in &names {
-                write!(input, "  participant {name}\n").unwrap();
+                writeln!(input, "  participant {name}").unwrap();
             }
             for i in 0..participant_count.saturating_sub(1) {
                 writeln!(input, "  {}->>{}:msg{i}", names[i], names[i + 1]).unwrap();
@@ -990,7 +990,7 @@ mod tests {
         fn prop_class_diagram_roundtrip(class_count in 2usize..6) {
             let mut input = String::from("classDiagram\n");
             for i in 0..class_count {
-                write!(input, "  class C{i}\n").unwrap();
+                writeln!(input, "  class C{i}").unwrap();
             }
             for i in 1..class_count {
                 writeln!(input, "  C0 <|-- C{i}").unwrap();
@@ -1010,9 +1010,9 @@ mod tests {
             let mut input = String::from("stateDiagram-v2\n");
             input.push_str("  [*] --> S0\n");
             for i in 1..state_count {
-                write!(input, "  S{} --> S{i}\n", i - 1).unwrap();
+                writeln!(input, "  S{} --> S{i}", i - 1).unwrap();
             }
-            write!(input, "  S{} --> [*]\n", state_count - 1).unwrap();
+            writeln!(input, "  S{} --> [*]", state_count - 1).unwrap();
 
             let result = parse(&input);
             prop_assert_eq!(result.ir.diagram_type, DiagramType::State);
@@ -1075,7 +1075,7 @@ mod tests {
             writeln!(input, "{}subgraph sg{i}", "  ".repeat(i + 1)).unwrap();
         }
         for i in (0..depth).rev() {
-            write!(input, "{}end\n", "  ".repeat(i + 1)).unwrap();
+            writeln!(input, "{}end", "  ".repeat(i + 1)).unwrap();
         }
         let result = parse(&input);
         assert_eq!(result.ir.diagram_type, DiagramType::Flowchart);

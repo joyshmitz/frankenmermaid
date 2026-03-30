@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
@@ -2326,28 +2327,20 @@ pub fn layout_diagram_tree_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         .collect();
 
     let mut span_memo = vec![None; node_count];
-    for root in &tree.roots {
-        let _ = tree_subtree_span(*root, &tree.children, &span_sizes, spacing, &mut span_memo);
-    }
+    compute_tree_subtree_spans(&tree.roots, &tree.children, &span_sizes, spacing, &mut span_memo);
     let subtree_spans: Vec<f32> = span_memo
         .into_iter()
         .map(|span| span.unwrap_or(0.0))
         .collect();
 
     let mut span_centers = vec![0.0_f32; node_count];
-    let mut root_cursor = 0.0_f32;
-    for root in &tree.roots {
-        let root_span = subtree_spans[*root];
-        assign_tree_span_centers(
-            *root,
-            root_cursor,
-            &tree.children,
-            &subtree_spans,
-            spacing,
-            &mut span_centers,
-        );
-        root_cursor += root_span + (spacing.node_spacing * 1.5);
-    }
+    compute_all_tree_span_centers(
+        &tree.roots,
+        &tree.children,
+        &subtree_spans,
+        spacing,
+        &mut span_centers,
+    );
 
     let depth_level_sizes = tree_depth_level_sizes(&tree, &node_sizes);
     let depth_centers = depth_level_centers(&depth_level_sizes, spacing.rank_spacing);
@@ -5018,66 +5011,86 @@ fn build_tree_layout_structure(ir: &MermaidDiagramIr) -> TreeLayoutStructure {
     }
 }
 
-fn tree_subtree_span(
-    node_index: usize,
+fn compute_tree_subtree_spans(
+    roots: &[usize],
     children: &[Vec<usize>],
     node_span_sizes: &[f32],
     spacing: LayoutSpacing,
     memo: &mut [Option<f32>],
-) -> f32 {
-    if let Some(cached) = memo[node_index] {
-        return cached;
+) {
+    let node_count = children.len();
+    let mut post_order = Vec::with_capacity(node_count);
+    let mut stack: Vec<usize> = roots.to_vec();
+    let mut visited = vec![false; node_count];
+
+    while let Some(node) = stack.pop() {
+        if visited[node] {
+            continue;
+        }
+        visited[node] = true;
+        post_order.push(node);
+        for &child in &children[node] {
+            stack.push(child);
+        }
     }
 
-    let own_span = node_span_sizes[node_index].max(1.0);
-    let child_span_total = if children[node_index].is_empty() {
-        0.0
-    } else {
-        let subtree_span_sum: f32 = children[node_index]
-            .iter()
-            .map(|child| tree_subtree_span(*child, children, node_span_sizes, spacing, memo))
-            .sum();
-        let gaps = spacing.node_spacing * (children[node_index].len().saturating_sub(1) as f32);
-        subtree_span_sum + gaps
-    };
+    for &node in post_order.iter().rev() {
+        if memo[node].is_some() {
+            continue;
+        }
 
-    let span = own_span.max(child_span_total);
-    memo[node_index] = Some(span);
-    span
+        let own_span = node_span_sizes[node].max(1.0);
+        let child_span_total = if children[node].is_empty() {
+            0.0
+        } else {
+            let subtree_span_sum: f32 = children[node]
+                .iter()
+                .map(|child| memo[*child].unwrap_or(0.0))
+                .sum();
+            let gaps = spacing.node_spacing * (children[node].len().saturating_sub(1) as f32);
+            subtree_span_sum + gaps
+        };
+
+        let span = own_span.max(child_span_total);
+        memo[node] = Some(span);
+    }
 }
 
-fn assign_tree_span_centers(
-    node_index: usize,
-    span_start: f32,
+fn compute_all_tree_span_centers(
+    roots: &[usize],
     children: &[Vec<usize>],
     subtree_spans: &[f32],
     spacing: LayoutSpacing,
     out_centers: &mut [f32],
 ) {
-    let subtree_span = subtree_spans[node_index];
-    out_centers[node_index] = span_start + (subtree_span / 2.0);
-
-    if children[node_index].is_empty() {
-        return;
+    let mut queue = Vec::new();
+    let mut root_cursor = 0.0_f32;
+    for &root in roots {
+        queue.push((root, root_cursor));
+        root_cursor += subtree_spans[root] + (spacing.node_spacing * 1.5);
     }
 
-    let child_total: f32 = children[node_index]
-        .iter()
-        .map(|child| subtree_spans[*child])
-        .sum::<f32>()
-        + spacing.node_spacing * (children[node_index].len().saturating_sub(1) as f32);
-    let mut child_cursor = span_start + ((subtree_span - child_total) / 2.0);
+    let mut queue_idx = 0;
+    while let Some(&(node, span_start)) = queue.get(queue_idx) {
+        queue_idx += 1;
+        let subtree_span = subtree_spans[node];
+        out_centers[node] = span_start + (subtree_span / 2.0);
 
-    for child in &children[node_index] {
-        assign_tree_span_centers(
-            *child,
-            child_cursor,
-            children,
-            subtree_spans,
-            spacing,
-            out_centers,
-        );
-        child_cursor += subtree_spans[*child] + spacing.node_spacing;
+        if children[node].is_empty() {
+            continue;
+        }
+
+        let child_total: f32 = children[node]
+            .iter()
+            .map(|child| subtree_spans[*child])
+            .sum::<f32>()
+            + spacing.node_spacing * (children[node].len().saturating_sub(1) as f32);
+        let mut child_cursor = span_start + ((subtree_span - child_total) / 2.0);
+
+        for &child in &children[node] {
+            queue.push((child, child_cursor));
+            child_cursor += subtree_spans[child] + spacing.node_spacing;
+        }
     }
 }
 

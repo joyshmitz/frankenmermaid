@@ -1442,43 +1442,41 @@ impl MermaidGraphIr {
     /// Returns descendant subgraphs in deterministic pre-order traversal.
     #[must_use]
     pub fn subgraph_descendants(&self, subgraph_id: IrSubgraphId) -> Vec<&IrSubgraph> {
-        fn visit<'a>(
-            graph: &'a MermaidGraphIr,
-            subgraph_id: IrSubgraphId,
-            descendants: &mut Vec<&'a IrSubgraph>,
-        ) {
-            let Some(subgraph) = graph.subgraph(subgraph_id) else {
-                return;
+        let mut descendants = Vec::new();
+        let Some(start_subgraph) = self.subgraph(subgraph_id) else {
+            return descendants;
+        };
+
+        // Use a stack to hold the children. To maintain deterministic pre-order
+        // traversal (left-to-right), we push children in reverse order.
+        let mut stack: Vec<IrSubgraphId> = start_subgraph.children.iter().copied().rev().collect();
+
+        while let Some(current_id) = stack.pop() {
+            let Some(child) = self.subgraph(current_id) else {
+                continue;
             };
-            for &child_id in &subgraph.children {
-                let Some(child) = graph.subgraph(child_id) else {
-                    continue;
-                };
-                descendants.push(child);
-                visit(graph, child_id, descendants);
-            }
+            descendants.push(child);
+            stack.extend(child.children.iter().copied().rev());
         }
 
-        let mut descendants = Vec::new();
-        visit(self, subgraph_id, &mut descendants);
         descendants
     }
 
     /// Returns unique member nodes from this subgraph and all descendant subgraphs.
     #[must_use]
     pub fn subgraph_members_recursive(&self, subgraph_id: IrSubgraphId) -> Vec<IrNodeId> {
-        fn collect(graph: &MermaidGraphIr, subgraph_id: IrSubgraphId, members: &mut Vec<IrNodeId>) {
-            let Some(subgraph) = graph.subgraph(subgraph_id) else {
-                return;
+        let mut members = Vec::new();
+        let mut stack = vec![subgraph_id];
+
+        while let Some(current_id) = stack.pop() {
+            let Some(subgraph) = self.subgraph(current_id) else {
+                continue;
             };
             members.extend(subgraph.members.iter().copied());
-            for &child_id in &subgraph.children {
-                collect(graph, child_id, members);
-            }
+            // Order does not matter since we sort and dedup at the end.
+            stack.extend(subgraph.children.iter().copied());
         }
 
-        let mut members = Vec::new();
-        collect(self, subgraph_id, &mut members);
         members.sort_unstable();
         members.dedup();
         members

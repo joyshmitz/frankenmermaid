@@ -1,0 +1,46 @@
+{
+  "ok": true,
+  "result": {
+    "surface": "standalone",
+    "entry": "frankenmermaid_demo_showcase.html",
+    "entry_hash": "sha256:f9387be2aa5a5821ac823a29991eaeb7658827a6023ab69bca4aa4725d062a16",
+    "log_path": null,
+    "checks": [
+      {
+        "name": "skip link",
+        "ok": true,
+        "detail": "showcase exposes a skip link that jumps to the main landmark"
+      },
+      {
+        "name": "main landmark",
+        "ok": true,
+        "detail": "showcase exposes a stable main landmark target for keyboard navigation"
+      },
+      {
+        "name": "reduced motion css",
+        "ok": true,
+        "detail": "showcase defines a reduced-motion CSS branch"
+      },
+      {
+        "name": "contrast css",
+        "ok": true,
+        "detail": "showcase defines a high-contrast CSS branch"
+      },
+      {
+        "name": "focus visible",
+        "ok": true,
+        "detail": "showcase defines a shared focus-visible treatment"
+      },
+      {
+        "name": "spotlight keyboard zoom",
+        "ok": true,
+        "detail": "spotlight render surface is keyboard focusable and labeled for zoom behavior"
+      },
+      {
+        "name": "live summaries",
+        "ok": true,
+        "detail": "showcase announces summary updates via polite live regions"
+      }
+    ]
+  }
+}

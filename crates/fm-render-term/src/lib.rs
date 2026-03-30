@@ -1,3 +1,5 @@
+#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+
 //! Terminal renderer for FrankenMermaid diagrams.
 //!
 //! This crate provides terminal-based rendering of `MermaidDiagramIr` diagrams with:

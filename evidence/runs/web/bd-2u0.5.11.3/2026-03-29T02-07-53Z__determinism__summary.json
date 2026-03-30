@@ -1,0 +1,458 @@
+{
+  "ok": true,
+  "base_url": "http://127.0.0.1:59083",
+  "repeat": 5,
+  "profiles": [
+    "desktop-default",
+    "desktop-reduced-motion",
+    "mobile-narrow"
+  ],
+  "results": [
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-default",
+      "run_index": 1,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-10Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-10Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:9f49f560a735165fa50aa114d74e1925f9f690c551985288ec48d9ee609d2bf5"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-default",
+      "run_index": 2,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-12Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-12Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:1c3019cb1cdefeee56599971ef516d2b25f6c18c3af9e882180dca2b9dd6a696"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-default",
+      "run_index": 3,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-14Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-14Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:e90fb506063143527d33b1cd77b0f73a93b564ede9a8a9bb9400270c2ea94ca0"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-default",
+      "run_index": 4,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-16Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-16Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:a1ccb7088dd0e7e96b9e73c96da9b275bdd88e61e2443df33e317579ee3dee20"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-default",
+      "run_index": 5,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-17Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-default/2026-03-29T02-07-17Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:d5f851ee8e5084aa2639d60e517378d27a7c7273d12726c43c47f46aa0ff8924"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-reduced-motion",
+      "run_index": 1,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-19Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-19Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:5e9455cc6f9ffa8dfe053ffd66158278793da8d66c18a5ef393ae351375b8cda"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-reduced-motion",
+      "run_index": 2,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-21Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-21Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:13366696b9bff2fc24309cf771bf1dd55655382de105172dde8bb8f8a34d2755"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-reduced-motion",
+      "run_index": 3,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-22Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-22Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:b7a1ac9e04c548f49a7d8a0efb8355ce568aab4056b59d9cef09458f2b0e0529"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-reduced-motion",
+      "run_index": 4,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-24Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-24Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:7281ccd46dbb09ac95598f29b48dd0559ae4a1b6880bd5cb6647e07a2babc6dc"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-reduced-motion",
+      "run_index": 5,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-26Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/desktop-reduced-motion/2026-03-29T02-07-26Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:148bb143fb1d9c8df7c5d20c10c92ecd57b4e46f91b728b08e49ad440976087d"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "mobile-narrow",
+      "run_index": 1,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-27Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-27Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:0b8f335195beb8efe7410f2dfaa5a39f38bc12cf19eedf9efe1c3d8616f4aed7"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "mobile-narrow",
+      "run_index": 2,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-29Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-29Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:0808a63c8653c151f39e6f753c51c4cf589686a838c18f61e2c524a2836d4f42"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "mobile-narrow",
+      "run_index": 3,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-31Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-31Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:81f3c403ddb90c99e98147808b3dd737ee30614c4315397cc1cafffc9170a751"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "mobile-narrow",
+      "run_index": 4,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-33Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-33Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:e4d963b039e097c09e47cbad619f6182ebb8cc01a43c94a3af81f8f37d7a7bb2"
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "mobile-narrow",
+      "run_index": 5,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&spotlight=flowchart-1-incident-response-escalation&compare=flowchart-3-change-approval-pipeline%2Csequence-1-checkout-risk-review&lab=cycles",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-34Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-compare-export/mobile-narrow/2026-03-29T02-07-34Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:33d0001937c9afab8830e6f4d7d6c7df5547371e3dc66ea06006941bc7ef0617"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-default",
+      "run_index": 1,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-35Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-35Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:cc7c6c010e32e6f253d110458e32852f5d9047c872b5c3e57eb525af0aad6a0a"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-default",
+      "run_index": 2,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-37Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-37Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:bb63061a0ca09946f8891cbfb24b116615d6c69de19ba706ca43f877ac8aaecd"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-default",
+      "run_index": 3,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-38Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-38Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:d3afa64ae9ea31697028bb0b3c3ad99e6ee00ce4c1e1e13b7663ac864d4d721a"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-default",
+      "run_index": 4,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-39Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-39Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:b344555add327e7dcca98265c0f9d7b34d58793586a3e5208632aa19298ff519"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-default",
+      "run_index": 5,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-41Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-default/2026-03-29T02-07-41Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:7a08f1f3dbab576c6134a92de08c8d6e9655b0b8ba6fafb4a59b0fdd72516ca5"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-reduced-motion",
+      "run_index": 1,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-42Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-42Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:29886303bb025912cdac29730d3cc73a29d47fb169227a2e84d8eba04686e13a"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-reduced-motion",
+      "run_index": 2,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-43Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-43Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:2bda761e40050a459feab77ce8f8c7f786710ff57ef4319ba2935bbca69e2405"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-reduced-motion",
+      "run_index": 3,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-44Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-44Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:aa2be2a34fd4af0a2cc3d059bf3ded5959304ad64d0c134ece2013efb1eb12b2"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-reduced-motion",
+      "run_index": 4,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-45Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-45Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:a63ab69864b1a49da00d65cf61061d21d1ad64e766279d0a5d1c271341d0ae3a"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-reduced-motion",
+      "run_index": 5,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-47Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/desktop-reduced-motion/2026-03-29T02-07-47Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:f45731e048b519929294ba00b34ffa295c82dd6ab40403eb9b2f56c70445785f"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "mobile-narrow",
+      "run_index": 1,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-48Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-48Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:f290c86d0d95b503c742eb2002a3596fed2f114e5071a075019a97fed5caeac2"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "mobile-narrow",
+      "run_index": 2,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-49Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-49Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:e1100ebad6a8c2b590789bb04057c26359f891a51a57f64602150df771fb7bd9"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "mobile-narrow",
+      "run_index": 3,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-50Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-50Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:dbbf214b2b61bb766d8b43be7d9f42f338d0ca27686553c32d2d2f9e7f66b814"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "mobile-narrow",
+      "run_index": 4,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-51Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-51Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:8a2e758a0c90f99aeb9faca550c6e875950adb368f9230bf36707bd374750205"
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "mobile-narrow",
+      "run_index": 5,
+      "url": "http://127.0.0.1:59083/web?sample=flowchart-1-incident-response-escalation&source=flowchart+LR%0AA--%3E&lab=overview",
+      "html_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-53Z__e2e__html.html",
+      "log_path": "evidence/runs/web/bd-2u0.5.11.3/static-web-diagnostics-recovery/mobile-narrow/2026-03-29T02-07-53Z__e2e__log.json",
+      "diagnostic_count": 2,
+      "degradation_tier": "fallback",
+      "runtime_mode": "live",
+      "output_artifact_hash": "sha256:ce75221e58a645cafe9e531a5376e53d0f6971105b7195da1f64d6e564f8fee4"
+    }
+  ],
+  "determinism": [
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-default",
+      "runs": 5,
+      "stable_output_hash": false,
+      "stable_normalized_log": true,
+      "output_hashes": [
+        "sha256:9f49f560a735165fa50aa114d74e1925f9f690c551985288ec48d9ee609d2bf5",
+        "sha256:1c3019cb1cdefeee56599971ef516d2b25f6c18c3af9e882180dca2b9dd6a696",
+        "sha256:e90fb506063143527d33b1cd77b0f73a93b564ede9a8a9bb9400270c2ea94ca0",
+        "sha256:a1ccb7088dd0e7e96b9e73c96da9b275bdd88e61e2443df33e317579ee3dee20",
+        "sha256:d5f851ee8e5084aa2639d60e517378d27a7c7273d12726c43c47f46aa0ff8924"
+      ]
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "desktop-reduced-motion",
+      "runs": 5,
+      "stable_output_hash": false,
+      "stable_normalized_log": true,
+      "output_hashes": [
+        "sha256:5e9455cc6f9ffa8dfe053ffd66158278793da8d66c18a5ef393ae351375b8cda",
+        "sha256:13366696b9bff2fc24309cf771bf1dd55655382de105172dde8bb8f8a34d2755",
+        "sha256:b7a1ac9e04c548f49a7d8a0efb8355ce568aab4056b59d9cef09458f2b0e0529",
+        "sha256:7281ccd46dbb09ac95598f29b48dd0559ae4a1b6880bd5cb6647e07a2babc6dc",
+        "sha256:148bb143fb1d9c8df7c5d20c10c92ecd57b4e46f91b728b08e49ad440976087d"
+      ]
+    },
+    {
+      "scenario_id": "static-web-compare-export",
+      "profile": "mobile-narrow",
+      "runs": 5,
+      "stable_output_hash": false,
+      "stable_normalized_log": true,
+      "output_hashes": [
+        "sha256:0b8f335195beb8efe7410f2dfaa5a39f38bc12cf19eedf9efe1c3d8616f4aed7",
+        "sha256:0808a63c8653c151f39e6f753c51c4cf589686a838c18f61e2c524a2836d4f42",
+        "sha256:81f3c403ddb90c99e98147808b3dd737ee30614c4315397cc1cafffc9170a751",
+        "sha256:e4d963b039e097c09e47cbad619f6182ebb8cc01a43c94a3af81f8f37d7a7bb2",
+        "sha256:33d0001937c9afab8830e6f4d7d6c7df5547371e3dc66ea06006941bc7ef0617"
+      ]
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-default",
+      "runs": 5,
+      "stable_output_hash": false,
+      "stable_normalized_log": true,
+      "output_hashes": [
+        "sha256:cc7c6c010e32e6f253d110458e32852f5d9047c872b5c3e57eb525af0aad6a0a",
+        "sha256:bb63061a0ca09946f8891cbfb24b116615d6c69de19ba706ca43f877ac8aaecd",
+        "sha256:d3afa64ae9ea31697028bb0b3c3ad99e6ee00ce4c1e1e13b7663ac864d4d721a",
+        "sha256:b344555add327e7dcca98265c0f9d7b34d58793586a3e5208632aa19298ff519",
+        "sha256:7a08f1f3dbab576c6134a92de08c8d6e9655b0b8ba6fafb4a59b0fdd72516ca5"
+      ]
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "desktop-reduced-motion",
+      "runs": 5,
+      "stable_output_hash": false,
+      "stable_normalized_log": true,
+      "output_hashes": [
+        "sha256:29886303bb025912cdac29730d3cc73a29d47fb169227a2e84d8eba04686e13a",
+        "sha256:2bda761e40050a459feab77ce8f8c7f786710ff57ef4319ba2935bbca69e2405",
+        "sha256:aa2be2a34fd4af0a2cc3d059bf3ded5959304ad64d0c134ece2013efb1eb12b2",
+        "sha256:a63ab69864b1a49da00d65cf61061d21d1ad64e766279d0a5d1c271341d0ae3a",
+        "sha256:f45731e048b519929294ba00b34ffa295c82dd6ab40403eb9b2f56c70445785f"
+      ]
+    },
+    {
+      "scenario_id": "static-web-diagnostics-recovery",
+      "profile": "mobile-narrow",
+      "runs": 5,
+      "stable_output_hash": false,
+      "stable_normalized_log": true,
+      "output_hashes": [
+        "sha256:f290c86d0d95b503c742eb2002a3596fed2f114e5071a075019a97fed5caeac2",
+        "sha256:e1100ebad6a8c2b590789bb04057c26359f891a51a57f64602150df771fb7bd9",
+        "sha256:dbbf214b2b61bb766d8b43be7d9f42f338d0ca27686553c32d2d2f9e7f66b814",
+        "sha256:8a2e758a0c90f99aeb9faca550c6e875950adb368f9230bf36707bd374750205",
+        "sha256:ce75221e58a645cafe9e531a5376e53d0f6971105b7195da1f64d6e564f8fee4"
+      ]
+    }
+  ]
+}

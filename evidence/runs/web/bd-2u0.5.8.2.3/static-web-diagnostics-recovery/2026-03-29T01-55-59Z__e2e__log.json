@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "bead_id": "bd-2u0.5.8.2.3",
+  "scenario_id": "static-web-diagnostics-recovery",
+  "input_hash": "sha256:c14c24f2d09b68c1d063ed16e4383f3186ca9d0dbd0012fd3d263a75b400bd5a",
+  "surface": "web",
+  "renderer": "franken-svg",
+  "theme": "corporate",
+  "config_hash": "sha256:63793d6f3d682dca68bec4c353330994a2c79ad05b5caf929e3489ae5bc664d6",
+  "parse_ms": 0,
+  "layout_ms": 0,
+  "render_ms": 0,
+  "diagnostic_count": 2,
+  "degradation_tier": "fallback",
+  "output_artifact_hash": "sha256:c10622fee689c79b661d48ee1fdc9766f844c584513a9910f8d1fa72b6d0551d",
+  "pass_fail_reason": "Static /web host surfaced diagnostics and degraded fallback messaging for a malformed source override.",
+  "run_kind": "e2e",
+  "trace_id": "bd-2u0.5.8.2.3-static-web-diagnostics-recovery",
+  "revision": "d643caf967cf18b4452075a705aec69f502b5a78",
+  "host_kind": "static-web",
+  "fallback_active": true,
+  "runtime_mode": "live"
+}

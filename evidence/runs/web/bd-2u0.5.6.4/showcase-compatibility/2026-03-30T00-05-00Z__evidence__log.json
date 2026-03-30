@@ -1,0 +1,36 @@
+{
+  "ok": true,
+  "result": {
+    "surface": "standalone",
+    "entry": "frankenmermaid_demo_showcase.html",
+    "entry_hash": "sha256:6bd01d48ea0448085bbe06793de31d49213dd0f7cd22729381dfe87a9c16d728",
+    "log_path": null,
+    "checks": [
+      {
+        "name": "uuid fallback",
+        "ok": true,
+        "detail": "showcase falls back when randomUUID is unavailable"
+      },
+      {
+        "name": "clipboard fallback",
+        "ok": true,
+        "detail": "showcase falls back when navigator.clipboard is unavailable"
+      },
+      {
+        "name": "intersection observer fallback",
+        "ok": true,
+        "detail": "showcase degrades gracefully when IntersectionObserver is unavailable"
+      },
+      {
+        "name": "backdrop support fallback",
+        "ok": true,
+        "detail": "showcase defines a CSS fallback when backdrop-filter is unsupported"
+      },
+      {
+        "name": "reduced motion runtime gate",
+        "ok": true,
+        "detail": "showcase gates scripted motion and smooth scrolling on reduced-motion preference"
+      }
+    ]
+  }
+}

@@ -308,7 +308,7 @@ fn js_error_with_value(prefix: &str, value: JsValue) -> JsValue {
     js_error(format!("{prefix}: {detail}"))
 }
 
-fn parse_js_value_or_default<T>(value: Option<JsValue>) -> T
+fn parse_js_value_or_default<T>(value: Option<JsValue>) -> Result<T, JsValue>
 where
     T: for<'de> Deserialize<'de> + Default,
 {

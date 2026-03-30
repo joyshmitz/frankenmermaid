@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "bead_id": "bd-2u0.5.8.2.3",
+  "scenario_id": "static-web-compare-export",
+  "input_hash": "sha256:decd213811e2dae649daeae9dec5c974d88faabc88576f589d17d0f670457b13",
+  "surface": "web",
+  "renderer": "franken-svg",
+  "theme": "corporate",
+  "config_hash": "sha256:63793d6f3d682dca68bec4c353330994a2c79ad05b5caf929e3489ae5bc664d6",
+  "parse_ms": 0,
+  "layout_ms": 0,
+  "render_ms": 0,
+  "diagnostic_count": 2,
+  "degradation_tier": "fallback",
+  "output_artifact_hash": "sha256:ad9054f4cf780f5fad8e2c1d658dc505d8161b06c2db745b30c80848f2114ea4",
+  "pass_fail_reason": "Static /web host restored compare state, rendered the artifact lab, and populated the layout lab.",
+  "run_kind": "e2e",
+  "trace_id": "bd-2u0.5.8.2.3-static-web-compare-export",
+  "revision": "d643caf967cf18b4452075a705aec69f502b5a78",
+  "host_kind": "static-web",
+  "fallback_active": true,
+  "runtime_mode": "live"
+}

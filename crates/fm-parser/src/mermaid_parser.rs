@@ -10920,7 +10920,7 @@ Rel_Back(db, app, "Responds")"#,
     fn deeply_nested_subgraphs_do_not_panic() {
         let mut input = String::from("flowchart TB\n");
         for i in 0..20 {
-            write!(input, "{}subgraph sg{i}\n", "  ".repeat(i)).unwrap();
+            writeln!(input, "{}subgraph sg{i}", "  ".repeat(i)).unwrap();
         }
         for i in (0..20).rev() {
             writeln!(input, "{}end", "  ".repeat(i)).unwrap();
