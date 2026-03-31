@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
-#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
@@ -2327,7 +2331,13 @@ pub fn layout_diagram_tree_traced(ir: &MermaidDiagramIr) -> TracedLayout {
         .collect();
 
     let mut span_memo = vec![None; node_count];
-    compute_tree_subtree_spans(&tree.roots, &tree.children, &span_sizes, spacing, &mut span_memo);
+    compute_tree_subtree_spans(
+        &tree.roots,
+        &tree.children,
+        &span_sizes,
+        spacing,
+        &mut span_memo,
+    );
     let subtree_spans: Vec<f32> = span_memo
         .into_iter()
         .map(|span| span.unwrap_or(0.0))

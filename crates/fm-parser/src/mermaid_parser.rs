@@ -7390,20 +7390,25 @@ fn extract_style_directives(input: &str, builder: &mut IrBuilder) {
                 }
             }
         } else if let Some(rest) = line.strip_prefix("style ") {
-            // style nodeId fill:#fff,...
+            // style nodeA,nodeB,nodeC fill:#fff,...
+            // Supports comma-separated node IDs before the first space-separated
+            // property declaration.
             let rest = rest.trim();
-            if let Some((target, style)) = rest.split_once(' ') {
-                let target = target.trim();
+            if let Some((targets, style)) = rest.split_once(' ') {
                 let style = style.trim();
-                if !target.is_empty()
-                    && !style.is_empty()
-                    && let Some(&node_id) = builder.node_id_by_key(target)
-                {
-                    builder.push_style_ref(
-                        fm_core::IrStyleTarget::Node(node_id),
-                        style.to_string(),
-                        span,
-                    );
+                if !style.is_empty() {
+                    for target in targets.split(',') {
+                        let target = target.trim();
+                        if !target.is_empty()
+                            && let Some(&node_id) = builder.node_id_by_key(target)
+                        {
+                            builder.push_style_ref(
+                                fm_core::IrStyleTarget::Node(node_id),
+                                style.to_string(),
+                                span,
+                            );
+                        }
+                    }
                 }
             }
         } else if let Some(rest) = line.strip_prefix("linkStyle ") {
@@ -11278,5 +11283,138 @@ Rel_Back(db, app, "Responds")"#,
             edge.er_notation.is_some(),
             "er_notation should be set on ER edges"
         );
+    }
+
+    // ── classDef parsing and structured style tests ───────────────────
+
+    #[test]
+    fn classdef_populates_style_defs() {
+        let parsed = parse_mermaid(
+            "flowchart LR\n  A[Node]\n  classDef important fill:#f9f,stroke:#333,stroke-width:4px",
+        );
+        assert!(
+            !parsed.ir.style_defs.is_empty(),
+            "style_defs should be populated"
+        );
+        let def = parsed
+            .ir
+            .style_defs
+            .iter()
+            .find(|d| d.name == "important")
+            .expect("should find 'important' style def");
+        assert_eq!(def.properties.get("fill").unwrap(), "#f9f");
+        assert_eq!(def.properties.get("stroke").unwrap(), "#333");
+        assert_eq!(def.properties.get("stroke-width").unwrap(), "4px");
+    }
+
+    #[test]
+    fn classdef_applies_to_node_via_class_directive() {
+        let parsed =
+            parse_mermaid("flowchart LR\n  A[Node]\n  classDef cls fill:#abc\n  class A cls");
+        let node = parsed.ir.nodes.iter().find(|n| n.id == "A").unwrap();
+        let style = node
+            .inline_style
+            .as_ref()
+            .expect("node should have inline_style");
+        assert_eq!(style.properties.get("fill").unwrap(), "#abc");
+    }
+
+    #[test]
+    fn style_directive_applies_inline_style_to_node() {
+        let parsed =
+            parse_mermaid("flowchart LR\n  A[Node] --> B[Other]\n  style A fill:#f00,stroke:#0f0");
+        let node = parsed.ir.nodes.iter().find(|n| n.id == "A").unwrap();
+        let style = node
+            .inline_style
+            .as_ref()
+            .expect("node A should have inline_style");
+        assert_eq!(style.properties.get("fill").unwrap(), "#f00");
+        assert_eq!(style.properties.get("stroke").unwrap(), "#0f0");
+    }
+
+    #[test]
+    fn style_directive_supports_comma_separated_node_ids() {
+        let parsed = parse_mermaid("flowchart LR\n  A[One] --> B[Two]\n  style A,B fill:#abc");
+        let node_a = parsed.ir.nodes.iter().find(|n| n.id == "A").unwrap();
+        let node_b = parsed.ir.nodes.iter().find(|n| n.id == "B").unwrap();
+        assert!(
+            node_a.inline_style.is_some(),
+            "node A should have inline_style"
+        );
+        assert!(
+            node_b.inline_style.is_some(),
+            "node B should have inline_style"
+        );
+        assert_eq!(
+            node_a
+                .inline_style
+                .as_ref()
+                .unwrap()
+                .properties
+                .get("fill")
+                .unwrap(),
+            "#abc"
+        );
+        assert_eq!(
+            node_b
+                .inline_style
+                .as_ref()
+                .unwrap()
+                .properties
+                .get("fill")
+                .unwrap(),
+            "#abc"
+        );
+    }
+
+    #[test]
+    fn linkstyle_populates_edge_inline_style() {
+        let parsed =
+            parse_mermaid("flowchart LR\n  A --> B\n  linkStyle 0 stroke:#f00,stroke-width:3px");
+        let edge = &parsed.ir.edges[0];
+        let style = edge
+            .inline_style
+            .as_ref()
+            .expect("edge should have inline_style");
+        assert_eq!(style.properties.get("stroke").unwrap(), "#f00");
+        assert_eq!(style.properties.get("stroke-width").unwrap(), "3px");
+    }
+
+    #[test]
+    fn linkstyle_default_populates_all_edges() {
+        let parsed =
+            parse_mermaid("flowchart LR\n  A --> B\n  B --> C\n  linkStyle default stroke:#aaa");
+        for edge in &parsed.ir.edges {
+            let style = edge
+                .inline_style
+                .as_ref()
+                .expect("all edges should have inline_style from default");
+            assert_eq!(style.properties.get("stroke").unwrap(), "#aaa");
+        }
+    }
+
+    #[test]
+    fn classdef_and_style_cascade_correctly() {
+        let parsed = parse_mermaid(
+            "flowchart LR\n  A[Node]\n  classDef cls fill:#fff,stroke:#000\n  class A cls\n  style A fill:#f00",
+        );
+        let node = parsed.ir.nodes.iter().find(|n| n.id == "A").unwrap();
+        let style = node
+            .inline_style
+            .as_ref()
+            .expect("node should have inline_style");
+        // style directive overrides classDef for fill
+        assert_eq!(style.properties.get("fill").unwrap(), "#f00");
+        // classDef stroke preserved since style didn't override it
+        assert_eq!(style.properties.get("stroke").unwrap(), "#000");
+    }
+
+    #[test]
+    fn classdef_with_no_nodes_still_populates_style_defs() {
+        let parsed = parse_mermaid("flowchart LR\n  A --> B\n  classDef unused fill:#999");
+        assert_eq!(parsed.ir.style_defs.len(), 1);
+        assert_eq!(parsed.ir.style_defs[0].name, "unused");
+        // No nodes have this class, so no inline_style applied
+        assert!(parsed.ir.nodes[0].inline_style.is_none());
     }
 }

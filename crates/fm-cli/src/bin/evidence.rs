@@ -259,6 +259,17 @@ const SEEDS: &[SeedSpec] = &[
         predicted_improvement: "<10ms local updates on large diagrams with correctness parity against full relayout.",
         predicted_risk: "Invalidation boundaries and correctness proofs may be hard to keep deterministic.",
     },
+    SeedSpec {
+        concept_id: "fnx-deterministic-decision-contract",
+        concept_name: "FNX Deterministic Decision Contract",
+        graveyard_section: "FNX Phase 1",
+        graveyard_score: 3.0,
+        tier: Tier::A,
+        contract_path: "evidence/contracts/fnx-deterministic-decision-contract.md",
+        hypothesis: "A contract-first FNX decision policy can preserve deterministic behavior while allowing advisory graph analysis to improve diagnostics.",
+        predicted_improvement: "Stable, inspectable FNX usage with explicit advisory-vs-authoritative boundaries and deterministic fallback behavior.",
+        predicted_risk: "Ambiguous precedence or under-specified fallbacks could make diagnostics misleading and future FNX adoption nondeterministic.",
+    },
 ];
 
 fn main() -> Result<()> {

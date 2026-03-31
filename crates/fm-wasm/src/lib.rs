@@ -563,7 +563,13 @@ pub fn render(input: &str) -> WasmRenderOutput {
     let mut budget_broker = MermaidBudgetLedger::new(&pressure);
     let parse_start = Instant::now();
     let parsed = parse(input);
-    budget_broker.record_parse(parse_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+    budget_broker.record_parse(
+        parse_start
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    );
     let layout_guardrails = LayoutGuardrails {
         max_layout_time_ms: budget_broker.layout_time_budget_ms(),
         max_layout_iterations: budget_broker
@@ -581,8 +587,13 @@ pub fn render(input: &str) -> WasmRenderOutput {
         layout_config.clone(),
         layout_guardrails,
     );
-    budget_broker
-        .record_layout(layout_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+    budget_broker.record_layout(
+        layout_start
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    );
     let mut guard = build_layout_guard_report_with_pressure(&parsed.ir, &traced_layout, pressure);
     let (_cx, observability) = mermaid_layout_guard_observability(
         "wasm.render",
@@ -599,8 +610,13 @@ pub fn render(input: &str) -> WasmRenderOutput {
     apply_degradation_to_svg(&mut svg_config, &guard.degradation);
     let render_start = Instant::now();
     let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config);
-    budget_broker
-        .record_render(render_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+    budget_broker.record_render(
+        render_start
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    );
     guard.budget_broker = budget_broker;
 
     WasmRenderOutput {
@@ -626,7 +642,10 @@ pub fn init(config: Option<JsValue>) -> Result<(), JsValue> {
     let current = read_runtime_config();
     let requested_theme = requested_theme_preset(&overrides)?;
     let svg = merge_svg_config(&current.svg, &overrides.svg, overrides.theme.as_deref())?;
-    let canvas_base = requested_theme.map_or_else(|| current.canvas.clone(), |preset| apply_canvas_theme_preset(current.canvas.clone(), preset));
+    let canvas_base = requested_theme.map_or_else(
+        || current.canvas.clone(),
+        |preset| apply_canvas_theme_preset(current.canvas.clone(), preset),
+    );
 
     let next = RuntimeConfig {
         canvas: align_canvas_typography_with_svg(
@@ -651,7 +670,13 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
     let mut budget_broker = MermaidBudgetLedger::new(&pressure);
     let parse_start = Instant::now();
     let parsed = parse(input);
-    budget_broker.record_parse(parse_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+    budget_broker.record_parse(
+        parse_start
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    );
     let layout_guardrails = LayoutGuardrails {
         max_layout_time_ms: budget_broker.layout_time_budget_ms(),
         max_layout_iterations: budget_broker
@@ -669,8 +694,13 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
         layout_config,
         layout_guardrails,
     );
-    budget_broker
-        .record_layout(layout_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+    budget_broker.record_layout(
+        layout_start
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    );
     let mut guard = build_layout_guard_report_with_pressure(&parsed.ir, &traced_layout, pressure);
     let (_cx, observability) = mermaid_layout_guard_observability(
         "wasm.renderSvg",
@@ -684,8 +714,13 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
     apply_degradation_to_svg(&mut svg_config, &guard.degradation);
     let render_start = Instant::now();
     let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &svg_config);
-    budget_broker
-        .record_render(render_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+    budget_broker.record_render(
+        render_start
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    );
     guard.budget_broker = budget_broker;
     Ok(svg)
 }
@@ -994,16 +1029,23 @@ impl Diagram {
         let next_pressure = merge_pressure_config(&self.pressure_config, &overrides.pressure);
         let pressure_report = next_pressure.into_report();
         let mut budget_broker = MermaidBudgetLedger::new(&pressure_report);
-        let canvas_base = requested_theme
-            .map_or_else(|| self.canvas_config.clone(), |preset| apply_canvas_theme_preset(self.canvas_config.clone(), preset));
+        let canvas_base = requested_theme.map_or_else(
+            || self.canvas_config.clone(),
+            |preset| apply_canvas_theme_preset(self.canvas_config.clone(), preset),
+        );
         let next_canvas = align_canvas_typography_with_svg(
             merge_canvas_config(&canvas_base, &overrides.canvas),
             &next_svg,
         );
         let parse_start = Instant::now();
         let parsed = parse(input);
-        budget_broker
-            .record_parse(parse_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+        budget_broker.record_parse(
+            parse_start
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
         let layout_guardrails = LayoutGuardrails {
             max_layout_time_ms: budget_broker.layout_time_budget_ms(),
             max_layout_iterations: budget_broker
@@ -1021,8 +1063,13 @@ impl Diagram {
             layout_config,
             layout_guardrails,
         );
-        budget_broker
-            .record_layout(layout_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+        budget_broker.record_layout(
+            layout_start
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
         let mut guard =
             build_layout_guard_report_with_pressure(&parsed.ir, &traced_layout, pressure_report);
         let (_cx, observability) = mermaid_layout_guard_observability(
@@ -1046,8 +1093,13 @@ impl Diagram {
             &mut web_canvas,
             &next_canvas,
         );
-        budget_broker
-            .record_render(render_start.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
+        budget_broker.record_render(
+            render_start
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
         guard.budget_broker = budget_broker;
 
         self.svg_config = next_svg;

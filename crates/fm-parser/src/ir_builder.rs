@@ -659,6 +659,9 @@ impl IrBuilder {
         // Apply semantic recovery
         self.apply_semantic_recovery();
 
+        // Populate structured style types from raw style_refs.
+        self.ir.populate_structured_styles();
+
         ParseResult {
             ir: self.ir,
             warnings: self.warnings,
@@ -806,6 +809,7 @@ impl IrBuilder {
             class_meta: None,
             requirement_meta: None,
             c4_meta: None,
+            inline_style: None,
         };
 
         self.ir.nodes.push(node);
@@ -1171,6 +1175,7 @@ impl IrBuilder {
             label: label_id,
             span,
             er_notation: None,
+            inline_style: None,
         });
         self.ir.graph.edges.push(IrGraphEdge {
             edge_id: self.ir.edges.len() - 1,

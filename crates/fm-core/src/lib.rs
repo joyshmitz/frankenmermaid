@@ -1214,6 +1214,9 @@ pub struct IrNode {
     /// C4-diagram-specific metadata (element type, technology, description)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub c4_meta: Option<IrC4NodeMeta>,
+    /// Parsed inline style from `style nodeId ...` directives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_style: Option<IrInlineStyle>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
@@ -1268,6 +1271,9 @@ pub struct IrEdge {
     /// Raw ER cardinality operator (e.g., `"||--o{"`), stored only for ER diagrams.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub er_notation: Option<String>,
+    /// Parsed inline style from `linkStyle N ...` directives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_style: Option<IrInlineStyle>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
@@ -1527,6 +1533,190 @@ pub struct IrStyleRef {
     /// Raw CSS property string, e.g. `"fill:#fff,stroke:#000,stroke-width:2px"`.
     pub style: String,
     pub span: Span,
+}
+
+// ── Structured style types ──────────────────────────────────────────
+
+/// A parsed `classDef` definition — a named, reusable set of CSS-like style
+/// properties.
+///
+/// Example: `classDef important fill:#f9f,stroke:#333,stroke-width:4px`
+/// becomes `IrStyleDef { name: "important", properties: {"fill": "#f9f", ...} }`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrStyleDef {
+    /// Class name (e.g. `"important"`).
+    pub name: String,
+    /// Parsed CSS-like properties: key → sanitized value.
+    pub properties: BTreeMap<String, String>,
+    pub span: Span,
+}
+
+/// Parsed inline style as a key-value map of CSS-like properties.
+///
+/// Stored on individual nodes (from `style nodeId ...`) and edges
+/// (from `linkStyle N ...`).  All values are sanitized to prevent SVG
+/// injection — see [`sanitize_style_value`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct IrInlineStyle {
+    pub properties: BTreeMap<String, String>,
+}
+
+impl IrInlineStyle {
+    /// Create from an iterator of (key, value) pairs, sanitizing each value.
+    pub fn from_pairs(pairs: impl IntoIterator<Item = (String, String)>) -> Self {
+        Self {
+            properties: pairs
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    let sanitized = sanitize_style_value(&v)?;
+                    Some((k, sanitized))
+                })
+                .collect(),
+        }
+    }
+
+    /// True when the map has no properties.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.properties.is_empty()
+    }
+
+    /// Render as a CSS-style string for the `style` attribute.
+    #[must_use]
+    pub fn to_css_string(&self) -> String {
+        self.properties
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+}
+
+/// The set of CSS-like properties that are safe to pass through to SVG
+/// attributes.  Anything not in this list is silently dropped by
+/// [`sanitize_style_value`].
+const ALLOWED_STYLE_PROPERTIES: &[&str] = &[
+    "fill",
+    "stroke",
+    "stroke-width",
+    "stroke-dasharray",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-opacity",
+    "fill-opacity",
+    "opacity",
+    "color",
+    "font-size",
+    "font-weight",
+    "font-family",
+    "font-style",
+    "text-decoration",
+    "background",
+    "border-radius",
+    "padding",
+    "rx",
+    "ry",
+];
+
+/// Returns `true` if `property` is in the allowed-list.
+#[must_use]
+pub fn is_allowed_style_property(property: &str) -> bool {
+    ALLOWED_STYLE_PROPERTIES.contains(&property)
+}
+
+/// Sanitize a CSS-like value for safe inclusion in SVG.
+///
+/// Rejects values containing `url(`, `javascript:`, event-handler patterns
+/// (e.g. `onclick`), and XML injection characters (`<`, `>`).
+/// Returns `None` for rejected values.
+#[must_use]
+pub fn sanitize_style_value(value: &str) -> Option<String> {
+    let lower = value.to_ascii_lowercase();
+    let trimmed = lower.trim();
+
+    // Reject url() values — can load external resources.
+    if trimmed.contains("url(") {
+        return None;
+    }
+    // Reject javascript: protocol.
+    if trimmed.contains("javascript:") {
+        return None;
+    }
+    // Reject event-handler attributes smuggled as values.
+    if trimmed.contains("onclick")
+        || trimmed.contains("onerror")
+        || trimmed.contains("onload")
+        || trimmed.contains("onmouseover")
+    {
+        return None;
+    }
+    // Reject XML/SVG injection characters.
+    if value.contains('<') || value.contains('>') {
+        return None;
+    }
+    // Reject expression() (IE legacy XSS vector).
+    if trimmed.contains("expression(") {
+        return None;
+    }
+
+    Some(value.trim().to_owned())
+}
+
+/// Parse a raw CSS-like property string (`"fill:#fff,stroke:#000,stroke-width:2px"`)
+/// into an [`IrInlineStyle`].
+///
+/// Handles both comma-separated and semicolon-separated declarations, and
+/// respects parenthesised values like `rgb(1,2,3)`.
+#[must_use]
+pub fn parse_style_string(raw: &str) -> IrInlineStyle {
+    let mut properties = BTreeMap::new();
+    let mut start = 0_usize;
+    let mut paren_depth = 0_usize;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+
+    let push_declaration = |s: &str, props: &mut BTreeMap<String, String>| {
+        let s = s.trim();
+        if s.is_empty() {
+            return;
+        }
+        if let Some(colon_pos) = s.find(':') {
+            let key = s[..colon_pos].trim().to_ascii_lowercase();
+            let val = s[colon_pos + 1..].trim();
+            if !key.is_empty()
+                && let Some(sanitized) = sanitize_style_value(val)
+            {
+                props.insert(key, sanitized);
+            }
+        }
+    };
+
+    for (index, ch) in raw.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if quote.is_some() => escaped = true,
+            '"' | '\'' => {
+                if quote == Some(ch) {
+                    quote = None;
+                } else if quote.is_none() {
+                    quote = Some(ch);
+                }
+            }
+            '(' if quote.is_none() => paren_depth += 1,
+            ')' if quote.is_none() => paren_depth = paren_depth.saturating_sub(1),
+            ',' | ';' if quote.is_none() && paren_depth == 0 => {
+                push_declaration(&raw[start..index], &mut properties);
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    push_declaration(&raw[start..], &mut properties);
+
+    IrInlineStyle { properties }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -3648,6 +3838,9 @@ pub struct MermaidDiagramIr {
     /// Style references from `classDef`, `style`, and `linkStyle` directives.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub style_refs: Vec<IrStyleRef>,
+    /// Parsed `classDef` definitions (structured key-value properties).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub style_defs: Vec<IrStyleDef>,
     pub meta: MermaidDiagramMeta,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sequence_meta: Option<IrSequenceMeta>,
@@ -3677,6 +3870,7 @@ impl MermaidDiagramIr {
             label_markup: BTreeMap::new(),
             constraints: Vec::new(),
             style_refs: Vec::new(),
+            style_defs: Vec::new(),
             meta: MermaidDiagramMeta {
                 diagram_type,
                 direction: GraphDirection::TB,
@@ -3836,6 +4030,85 @@ impl MermaidDiagramIr {
         }
 
         neighbors
+    }
+
+    /// Populate [`style_defs`](Self::style_defs) and per-node/edge
+    /// [`inline_style`](IrNode::inline_style) fields from the raw
+    /// [`style_refs`](Self::style_refs).
+    ///
+    /// Call this after parsing is complete.  It is idempotent — calling it
+    /// twice produces the same result.
+    pub fn populate_structured_styles(&mut self) {
+        // 1. Build classDef definitions.
+        let mut defs: BTreeMap<String, IrStyleDef> = BTreeMap::new();
+        for sr in &self.style_refs {
+            if let IrStyleTarget::Class(ref name) = sr.target {
+                let parsed = parse_style_string(&sr.style);
+                defs.entry(name.clone())
+                    .and_modify(|existing| {
+                        existing.properties.extend(parsed.properties.clone());
+                    })
+                    .or_insert_with(|| IrStyleDef {
+                        name: name.clone(),
+                        properties: parsed.properties,
+                        span: sr.span,
+                    });
+            }
+        }
+        self.style_defs = defs.into_values().collect();
+
+        // 2. Apply per-node styles (cascade: classDef → style directive).
+        for (node_idx, node) in self.nodes.iter_mut().enumerate() {
+            let node_id = IrNodeId(node_idx);
+            let mut merged = BTreeMap::new();
+
+            // Layer 1: classDef properties via node.classes.
+            for class_name in &node.classes {
+                if let Some(def) = self.style_defs.iter().find(|d| d.name == *class_name) {
+                    merged.extend(def.properties.clone());
+                }
+            }
+
+            // Layer 2: direct `style nodeId` overrides.
+            for sr in &self.style_refs {
+                if let IrStyleTarget::Node(target_id) = sr.target
+                    && target_id == node_id
+                {
+                    let parsed = parse_style_string(&sr.style);
+                    merged.extend(parsed.properties);
+                }
+            }
+
+            if !merged.is_empty() {
+                node.inline_style = Some(IrInlineStyle { properties: merged });
+            }
+        }
+
+        // 3. Apply per-edge styles (cascade: linkStyle default → linkStyle N).
+        let mut default_link_style = BTreeMap::new();
+        for sr in &self.style_refs {
+            if sr.target == IrStyleTarget::LinkDefault {
+                let parsed = parse_style_string(&sr.style);
+                default_link_style.extend(parsed.properties);
+            }
+        }
+
+        for (edge_idx, edge) in self.edges.iter_mut().enumerate() {
+            let mut merged = default_link_style.clone();
+
+            for sr in &self.style_refs {
+                if let IrStyleTarget::Link(link_idx) = sr.target
+                    && link_idx == edge_idx
+                {
+                    let parsed = parse_style_string(&sr.style);
+                    merged.extend(parsed.properties);
+                }
+            }
+
+            if !merged.is_empty() {
+                edge.inline_style = Some(IrInlineStyle { properties: merged });
+            }
+        }
     }
 
     #[must_use]
@@ -4003,26 +4276,29 @@ mod schema_version_semver {
 mod tests {
     use serde_json::json;
 
+    use std::collections::BTreeMap;
+
     use super::{
         ArrowType, DegradationContext, DegradationOperator, Diagnostic, DiagnosticCategory,
         DiagnosticSeverity, DiagramPalettePreset, DiagramType, FragmentAlternative, FragmentKind,
         GanttDate, GanttExclude, GanttTaskType, GanttTickInterval, GraphDirection, IrActivation,
         IrAttributeKey, IrCluster, IrClusterId, IrEdge, IrEdgeKind, IrEndpoint, IrEntityAttribute,
         IrGanttMeta, IrGanttSection, IrGanttTask, IrGraphCluster, IrGraphEdge, IrGraphNode,
-        IrLabel, IrLabelId, IrLifecycleEvent, IrNode, IrNodeId, IrNodeKind, IrParticipantGroup,
-        IrPort, IrPortId, IrPortSideHint, IrSequenceFragment, IrSequenceMeta, IrSequenceNote,
-        IrSubgraph, IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries, IrXySeriesKind,
-        LifecycleEventKind, MERMAID_SCHEMA_VERSION, MermaidBudgetLedger, MermaidConfig,
-        MermaidDegradationPlan, MermaidDiagramIr, MermaidError, MermaidErrorCode,
-        MermaidFallbackAction, MermaidFallbackPolicy, MermaidFidelity, MermaidGlyphMode,
-        MermaidGuardReport, MermaidLayoutDecisionAlternative, MermaidLayoutDecisionLedger,
-        MermaidLayoutDecisionRecord, MermaidNativePressureSignals, MermaidPressureReport,
-        MermaidPressureTier, MermaidQualityMode, MermaidSanitizeMode, MermaidSupportLevel,
-        MermaidWarningCode, MermaidWasmPressureSignals, NodeShape, NotePosition, Position, Span,
-        StructuredDiagnostic, capability_matrix, capability_matrix_json_pretty,
-        capability_readme_supported_diagram_types_markdown, capability_readme_surface_markdown,
-        documented_diagram_types, mermaid_layout_guard_observability,
-        parse_mermaid_js_config_value, scale_budget, to_init_parse,
+        IrInlineStyle, IrLabel, IrLabelId, IrLifecycleEvent, IrNode, IrNodeId, IrNodeKind,
+        IrParticipantGroup, IrPort, IrPortId, IrPortSideHint, IrSequenceFragment, IrSequenceMeta,
+        IrSequenceNote, IrStyleDef, IrStyleRef, IrStyleTarget, IrSubgraph, IrSubgraphId, IrXyAxis,
+        IrXyChartMeta, IrXySeries, IrXySeriesKind, LifecycleEventKind, MERMAID_SCHEMA_VERSION,
+        MermaidBudgetLedger, MermaidConfig, MermaidDegradationPlan, MermaidDiagramIr, MermaidError,
+        MermaidErrorCode, MermaidFallbackAction, MermaidFallbackPolicy, MermaidFidelity,
+        MermaidGlyphMode, MermaidGuardReport, MermaidLayoutDecisionAlternative,
+        MermaidLayoutDecisionLedger, MermaidLayoutDecisionRecord, MermaidNativePressureSignals,
+        MermaidPressureReport, MermaidPressureTier, MermaidQualityMode, MermaidSanitizeMode,
+        MermaidSupportLevel, MermaidWarningCode, MermaidWasmPressureSignals, NodeShape,
+        NotePosition, Position, Span, StructuredDiagnostic, capability_matrix,
+        capability_matrix_json_pretty, capability_readme_supported_diagram_types_markdown,
+        capability_readme_surface_markdown, documented_diagram_types, is_allowed_style_property,
+        mermaid_layout_guard_observability, parse_mermaid_js_config_value, parse_style_string,
+        sanitize_style_value, scale_budget, to_init_parse,
     };
 
     fn sample_span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -5379,6 +5655,7 @@ mod tests {
             label: Some(IrLabelId(0)),
             span: sample_span(2, 1, 6),
             er_notation: None,
+            inline_style: None,
         });
 
         let encoded = serde_json::to_string(&ir).expect("serialize ir");
@@ -5438,6 +5715,7 @@ mod tests {
             label: Some(IrLabelId(3)),
             span: sample_span(6, 1, 9),
             er_notation: None,
+            inline_style: None,
         };
 
         assert_eq!(edge.from, edge.to);
@@ -6696,5 +6974,276 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ── Styling type tests ──────────────────────────────────────────
+
+    #[test]
+    fn parse_style_string_basic() {
+        let style = parse_style_string("fill:#f9f,stroke:#333,stroke-width:4px");
+        assert_eq!(style.properties.get("fill").unwrap(), "#f9f");
+        assert_eq!(style.properties.get("stroke").unwrap(), "#333");
+        assert_eq!(style.properties.get("stroke-width").unwrap(), "4px");
+    }
+
+    #[test]
+    fn parse_style_string_semicolons() {
+        let style = parse_style_string("fill: #fff; stroke: #000; opacity: 0.5");
+        assert_eq!(style.properties.get("fill").unwrap(), "#fff");
+        assert_eq!(style.properties.get("stroke").unwrap(), "#000");
+        assert_eq!(style.properties.get("opacity").unwrap(), "0.5");
+    }
+
+    #[test]
+    fn parse_style_string_preserves_parens() {
+        let style = parse_style_string("fill:rgb(255,128,0),stroke:rgba(0,0,0,0.5)");
+        assert_eq!(style.properties.get("fill").unwrap(), "rgb(255,128,0)");
+        assert_eq!(style.properties.get("stroke").unwrap(), "rgba(0,0,0,0.5)");
+    }
+
+    #[test]
+    fn parse_style_string_empty_input() {
+        let style = parse_style_string("");
+        assert!(style.is_empty());
+    }
+
+    #[test]
+    fn parse_style_string_whitespace_only() {
+        let style = parse_style_string("   ,  ;  ");
+        assert!(style.is_empty());
+    }
+
+    #[test]
+    fn sanitize_rejects_url() {
+        assert!(sanitize_style_value("url(http://evil.com)").is_none());
+    }
+
+    #[test]
+    fn sanitize_rejects_javascript() {
+        assert!(sanitize_style_value("javascript:alert(1)").is_none());
+    }
+
+    #[test]
+    fn sanitize_rejects_event_handlers() {
+        assert!(sanitize_style_value("onclick=alert(1)").is_none());
+        assert!(sanitize_style_value("onerror=fetch()").is_none());
+    }
+
+    #[test]
+    fn sanitize_rejects_xml_injection() {
+        assert!(sanitize_style_value("<script>").is_none());
+        assert!(sanitize_style_value("val>ue").is_none());
+    }
+
+    #[test]
+    fn sanitize_rejects_expression() {
+        assert!(sanitize_style_value("expression(alert(1))").is_none());
+    }
+
+    #[test]
+    fn sanitize_accepts_normal_values() {
+        assert_eq!(sanitize_style_value("#f9f").unwrap(), "#f9f");
+        assert_eq!(sanitize_style_value("4px").unwrap(), "4px");
+        assert_eq!(
+            sanitize_style_value("rgb(255,128,0)").unwrap(),
+            "rgb(255,128,0)"
+        );
+        assert_eq!(sanitize_style_value("bold").unwrap(), "bold");
+    }
+
+    #[test]
+    fn sanitize_trims_whitespace() {
+        assert_eq!(sanitize_style_value("  #fff  ").unwrap(), "#fff");
+    }
+
+    #[test]
+    fn ir_inline_style_to_css_string() {
+        let style = IrInlineStyle::from_pairs(vec![
+            ("fill".to_string(), "#f9f".to_string()),
+            ("stroke".to_string(), "#333".to_string()),
+        ]);
+        let css = style.to_css_string();
+        assert!(css.contains("fill: #f9f"));
+        assert!(css.contains("stroke: #333"));
+    }
+
+    #[test]
+    fn ir_inline_style_from_pairs_sanitizes() {
+        let style = IrInlineStyle::from_pairs(vec![
+            ("fill".to_string(), "#fff".to_string()),
+            ("bad".to_string(), "javascript:alert(1)".to_string()),
+        ]);
+        assert_eq!(style.properties.len(), 1);
+        assert!(style.properties.contains_key("fill"));
+    }
+
+    #[test]
+    fn ir_style_def_serde_roundtrip() {
+        let def = IrStyleDef {
+            name: "important".to_string(),
+            properties: BTreeMap::from([
+                ("fill".to_string(), "#f9f".to_string()),
+                ("stroke".to_string(), "#333".to_string()),
+            ]),
+            span: Span::default(),
+        };
+        let json = serde_json::to_string(&def).unwrap();
+        let deser: IrStyleDef = serde_json::from_str(&json).unwrap();
+        assert_eq!(deser, def);
+    }
+
+    #[test]
+    fn ir_inline_style_serde_roundtrip() {
+        let style = IrInlineStyle {
+            properties: BTreeMap::from([("fill".to_string(), "#fff".to_string())]),
+        };
+        let json = serde_json::to_string(&style).unwrap();
+        let deser: IrInlineStyle = serde_json::from_str(&json).unwrap();
+        assert_eq!(deser, style);
+    }
+
+    #[test]
+    fn populate_structured_styles_classdef() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            classes: vec!["important".to_string()],
+            ..Default::default()
+        });
+        ir.style_refs.push(IrStyleRef {
+            target: IrStyleTarget::Class("important".to_string()),
+            style: "fill:#f9f,stroke:#333".to_string(),
+            span: Span::default(),
+        });
+
+        ir.populate_structured_styles();
+
+        assert_eq!(ir.style_defs.len(), 1);
+        assert_eq!(ir.style_defs[0].name, "important");
+        assert_eq!(ir.style_defs[0].properties.get("fill").unwrap(), "#f9f");
+
+        let node_style = ir.nodes[0].inline_style.as_ref().unwrap();
+        assert_eq!(node_style.properties.get("fill").unwrap(), "#f9f");
+        assert_eq!(node_style.properties.get("stroke").unwrap(), "#333");
+    }
+
+    #[test]
+    fn populate_structured_styles_node_override() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            classes: vec!["cls".to_string()],
+            ..Default::default()
+        });
+        ir.style_refs.push(IrStyleRef {
+            target: IrStyleTarget::Class("cls".to_string()),
+            style: "fill:#fff".to_string(),
+            span: Span::default(),
+        });
+        ir.style_refs.push(IrStyleRef {
+            target: IrStyleTarget::Node(IrNodeId(0)),
+            style: "fill:#000".to_string(),
+            span: Span::default(),
+        });
+
+        ir.populate_structured_styles();
+
+        // Node-level style overrides classDef.
+        let node_style = ir.nodes[0].inline_style.as_ref().unwrap();
+        assert_eq!(node_style.properties.get("fill").unwrap(), "#000");
+    }
+
+    #[test]
+    fn populate_structured_styles_link_default_and_specific() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            ..Default::default()
+        });
+        ir.nodes.push(IrNode {
+            id: "B".to_string(),
+            ..Default::default()
+        });
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(0)),
+            to: IrEndpoint::Node(IrNodeId(1)),
+            arrow: ArrowType::Arrow,
+            ..IrEdge::default()
+        });
+        ir.style_refs.push(IrStyleRef {
+            target: IrStyleTarget::LinkDefault,
+            style: "stroke:#aaa".to_string(),
+            span: Span::default(),
+        });
+        ir.style_refs.push(IrStyleRef {
+            target: IrStyleTarget::Link(0),
+            style: "stroke:#f00".to_string(),
+            span: Span::default(),
+        });
+
+        ir.populate_structured_styles();
+
+        let edge_style = ir.edges[0].inline_style.as_ref().unwrap();
+        // Specific linkStyle overrides default.
+        assert_eq!(edge_style.properties.get("stroke").unwrap(), "#f00");
+    }
+
+    #[test]
+    fn populate_structured_styles_idempotent() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            classes: vec!["cls".to_string()],
+            ..Default::default()
+        });
+        ir.style_refs.push(IrStyleRef {
+            target: IrStyleTarget::Class("cls".to_string()),
+            style: "fill:#fff".to_string(),
+            span: Span::default(),
+        });
+
+        ir.populate_structured_styles();
+        let first = ir.nodes[0].inline_style.clone();
+        let first_defs = ir.style_defs.clone();
+
+        ir.populate_structured_styles();
+        assert_eq!(ir.nodes[0].inline_style, first);
+        assert_eq!(ir.style_defs, first_defs);
+    }
+
+    #[test]
+    fn is_allowed_style_property_checks() {
+        assert!(is_allowed_style_property("fill"));
+        assert!(is_allowed_style_property("stroke-width"));
+        assert!(is_allowed_style_property("font-size"));
+        assert!(!is_allowed_style_property("display"));
+        assert!(!is_allowed_style_property("position"));
+    }
+
+    #[test]
+    fn parse_style_string_rejects_unsafe_values() {
+        let style =
+            parse_style_string("fill:url(http://evil.com),stroke:#333,color:javascript:alert(1)");
+        // fill and color should be rejected, stroke should remain.
+        assert!(!style.properties.contains_key("fill"));
+        assert!(!style.properties.contains_key("color"));
+        assert_eq!(style.properties.get("stroke").unwrap(), "#333");
+    }
+
+    #[test]
+    fn node_inline_style_serializes_in_ir() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            inline_style: Some(IrInlineStyle {
+                properties: BTreeMap::from([("fill".to_string(), "#abc".to_string())]),
+            }),
+            ..Default::default()
+        });
+
+        let json = serde_json::to_string(&ir).unwrap();
+        let deser: MermaidDiagramIr = serde_json::from_str(&json).unwrap();
+        let node_style = deser.nodes[0].inline_style.as_ref().unwrap();
+        assert_eq!(node_style.properties.get("fill").unwrap(), "#abc");
     }
 }

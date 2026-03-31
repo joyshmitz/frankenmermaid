@@ -1,0 +1,25 @@
+concept_id = "fnx-deterministic-decision-contract"
+concept_name = "FNX Deterministic Decision Contract"
+graveyard_section = "FNX Phase 1"
+graveyard_score = 3.0
+tier = "a"
+contract_path = "evidence/contracts/fnx-deterministic-decision-contract.md"
+hypothesis = "A contract-first FNX decision policy can preserve deterministic behavior while allowing advisory graph analysis to improve diagnostics."
+predicted_improvement = "Stable, inspectable FNX usage with explicit advisory-vs-authoritative boundaries and deterministic fallback behavior."
+predicted_risk = "Ambiguous precedence or under-specified fallbacks could make diagnostics misleading and future FNX adoption nondeterministic."
+notes = ["Seeded from the corresponding decision contract.", "Tracks bd-ml2r.1.2 contract-first FNX integration work."]
+
+[baseline]
+
+[baseline.metrics]
+
+[implementation]
+beads = ["bd-ml2r.1.2"]
+
+[post_measurement]
+
+[post_measurement.metrics]
+
+[decision]
+status = "pending"
+rationale = "Contract established before FNX runtime adoption."

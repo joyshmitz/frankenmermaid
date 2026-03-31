@@ -1980,6 +1980,32 @@ fn evidence_add_creates_seeded_entry() {
 }
 
 #[test]
+fn evidence_add_creates_fnx_decision_contract_seed() {
+    let temp = write_evidence_root_fixture();
+    let root = temp.path().to_str().expect("root path utf-8");
+
+    let output = run_evidence(&["--root", root, "add", "fnx-deterministic-decision-contract"]);
+    assert!(
+        output.status.success(),
+        "evidence add failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let entry = std::fs::read_to_string(
+        temp.path()
+            .join("evidence/ledger/fnx-deterministic-decision-contract.toml"),
+    )
+    .expect("seeded fnx ledger entry");
+    assert!(entry.contains("concept_name = \"FNX Deterministic Decision Contract\""));
+    assert!(
+        entry.contains(
+            "contract_path = \"evidence/contracts/fnx-deterministic-decision-contract.md\""
+        )
+    );
+    assert!(entry.contains("graveyard_section = \"FNX Phase 1\""));
+}
+
+#[test]
 fn evidence_update_writes_metrics_and_beads() {
     let temp = write_evidence_root_fixture();
     let root = temp.path().to_str().expect("root path utf-8");
@@ -2077,6 +2103,15 @@ fn evidence_report_flags_uncovered_closed_alien_cs_beads() {
     let report = std::fs::read_to_string(temp.path().join("evidence/ledger/README.md"))
         .expect("report should still be written");
     assert!(report.contains("bd-missing"));
+}
+
+#[test]
+fn evidence_report_includes_checked_in_fnx_contract_entry() {
+    let report_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evidence/ledger/README.md");
+    let report = std::fs::read_to_string(report_path).expect("checked-in report");
+    assert!(report.contains("FNX Deterministic Decision Contract"));
+    assert!(report.contains("evidence/contracts/fnx-deterministic-decision-contract.md"));
 }
 
 // ── Adversarial Security Test Corpus ───────────────────────────────
