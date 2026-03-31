@@ -23,7 +23,8 @@ use fm_render_canvas::{
     render_to_canvas,
 };
 use fm_render_svg::{
-    SvgRenderConfig, ThemeColors, ThemePreset, describe_diagram_with_layout, render_svg_with_layout,
+    CustomSvgIcon, NodeIconPosition, SvgRenderConfig, ThemeColors, ThemePreset,
+    describe_diagram_with_layout, render_svg_with_layout,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
@@ -98,7 +99,33 @@ struct SvgConfigOverrides {
     shadows: Option<bool>,
     rounded_corners: Option<f32>,
     embed_theme_css: Option<bool>,
+    node_icon_position: Option<String>,
+    custom_icons: Option<std::collections::BTreeMap<String, SvgCustomIconOverride>>,
     theme: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct SvgCustomIconOverride {
+    path_data: String,
+    view_box_width: Option<f32>,
+    view_box_height: Option<f32>,
+    fill: Option<String>,
+    stroke: Option<String>,
+    stroke_width: Option<f32>,
+}
+
+impl Default for SvgCustomIconOverride {
+    fn default() -> Self {
+        Self {
+            path_data: String::new(),
+            view_box_width: None,
+            view_box_height: None,
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -399,6 +426,31 @@ fn merge_svg_config(
     if let Some(value) = overrides.embed_theme_css {
         merged.embed_theme_css = value;
     }
+    if let Some(value) = overrides.node_icon_position.as_deref() {
+        merged.node_icon_position = parse_node_icon_position(value)?;
+    }
+    if let Some(custom_icons) = overrides.custom_icons.as_ref() {
+        merged.custom_icons = custom_icons
+            .iter()
+            .filter_map(|(name, icon)| {
+                let normalized = name.trim().to_ascii_lowercase();
+                if normalized.is_empty() || icon.path_data.trim().is_empty() {
+                    return None;
+                }
+                Some((
+                    normalized,
+                    CustomSvgIcon {
+                        path_data: icon.path_data.clone(),
+                        view_box_width: icon.view_box_width.unwrap_or(24.0),
+                        view_box_height: icon.view_box_height.unwrap_or(24.0),
+                        fill: icon.fill.clone(),
+                        stroke: icon.stroke.clone(),
+                        stroke_width: icon.stroke_width.unwrap_or(1.4),
+                    },
+                ))
+            })
+            .collect();
+    }
 
     let theme_name = overrides.theme.as_deref().or(theme_override);
     if let Some(name) = theme_name {
@@ -410,6 +462,16 @@ fn merge_svg_config(
     }
 
     Ok(merged)
+}
+
+fn parse_node_icon_position(value: &str) -> Result<NodeIconPosition, JsValue> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "above" | "top" => Ok(NodeIconPosition::Above),
+        "left" | "start" => Ok(NodeIconPosition::Left),
+        other => Err(js_error(format!(
+            "invalid nodeIconPosition '{other}': expected 'above' or 'left'"
+        ))),
+    }
 }
 
 fn merge_canvas_config(
@@ -1269,6 +1331,52 @@ mod tests {
         assert_eq!(merged.line_height, base.line_height);
         assert_eq!(merged.padding, base.padding);
         assert_eq!(merged.rounded_corners, base.rounded_corners);
+    }
+
+    #[test]
+    fn merge_svg_config_accepts_icon_position_and_custom_icons() {
+        let base = SvgRenderConfig::default();
+        let overrides = SvgConfigOverrides {
+            node_icon_position: Some("left".to_string()),
+            custom_icons: Some(std::collections::BTreeMap::from([(
+                "chip-core".to_string(),
+                super::SvgCustomIconOverride {
+                    path_data: "M4 4 L20 4 L20 20 L4 20 Z".to_string(),
+                    view_box_width: Some(24.0),
+                    view_box_height: Some(24.0),
+                    fill: None,
+                    stroke: Some("#111111".to_string()),
+                    stroke_width: Some(1.1),
+                },
+            )])),
+            ..SvgConfigOverrides::default()
+        };
+
+        let merged = merge_svg_config(&base, &overrides, None).expect("merge should succeed");
+
+        assert_eq!(
+            merged.node_icon_position,
+            fm_render_svg::NodeIconPosition::Left
+        );
+        assert!(merged.custom_icons.contains_key("chip-core"));
+        assert_eq!(
+            merged.custom_icons["chip-core"].stroke.as_deref(),
+            Some("#111111")
+        );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn merge_svg_config_rejects_invalid_icon_position() {
+        let base = SvgRenderConfig::default();
+        let overrides = SvgConfigOverrides {
+            node_icon_position: Some("diagonal".to_string()),
+            ..SvgConfigOverrides::default()
+        };
+
+        let err = merge_svg_config(&base, &overrides, None).expect_err("merge should fail");
+        let message = err.as_string().expect("string error");
+        assert!(message.contains("nodeIconPosition"));
     }
 
     #[test]

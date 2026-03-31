@@ -5863,7 +5863,10 @@ pub fn compute_node_sizes(
                     };
                     let (label_width, label_height) = metrics.estimate_dimensions(text);
                     let (icon_width, icon_height) = icon_dimensions(node, metrics);
-                    let width = label_width.max(icon_width) + 72.0;
+                    let width = label_width
+                        .max(icon_width)
+                        .max(label_width + (icon_width * 0.85))
+                        + 72.0;
                     let height = label_height + icon_height + 44.0;
                     (width.max(100.0), height.max(52.0))
                 }

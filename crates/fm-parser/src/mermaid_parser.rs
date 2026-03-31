@@ -99,6 +99,7 @@ const ER_OPERATORS: [(&str, ArrowType); 14] = [
 struct NodeToken {
     id: String,
     label: Option<ParsedLabel>,
+    icon: Option<String>,
     shape: NodeShape,
 }
 
@@ -400,6 +401,7 @@ enum FlowAst {
 struct FlowAstNode {
     id: String,
     label: Option<ParsedLabel>,
+    icon: Option<String>,
     shape: NodeShape,
 }
 
@@ -408,6 +410,7 @@ impl From<NodeToken> for FlowAstNode {
         Self {
             id: value.id,
             label: value.label,
+            icon: value.icon,
             shape: value.shape,
         }
     }
@@ -549,12 +552,20 @@ fn flow_statement_parser<'a>() -> impl Parser<'a, &'a str, FlowAst, extra::Err<R
             match shape_opt {
                 Some((label_raw, shape)) => {
                     let trimmed = label_raw.trim();
-                    let label = parse_label((!trimmed.is_empty()).then_some(trimmed));
-                    FlowAstNode { id, label, shape }
+                    let mut label = parse_label((!trimmed.is_empty()).then_some(trimmed));
+                    let icon = extract_icon_prefix(label.as_mut());
+                    clear_empty_label(&mut label);
+                    FlowAstNode {
+                        id,
+                        label,
+                        icon,
+                        shape,
+                    }
                 }
                 None => FlowAstNode {
                     id,
                     label: None,
+                    icon: None,
                     shape: NodeShape::Rect,
                 },
             }
@@ -703,8 +714,7 @@ fn lower_flow_ast(
             }
         }
         FlowAst::Node(n) => {
-            if let Some(node_id) = builder.intern_node_label(&n.id, n.label.as_ref(), n.shape, span)
-            {
+            if let Some(node_id) = intern_flow_ast_node(builder, n, span) {
                 add_node_to_active_groups(builder, active_clusters, active_subgraphs, node_id);
             }
         }
@@ -714,9 +724,8 @@ fn lower_flow_ast(
             label,
             to,
         } => {
-            let from_id =
-                builder.intern_node_label(&from.id, from.label.as_ref(), from.shape, span);
-            let to_id = builder.intern_node_label(&to.id, to.label.as_ref(), to.shape, span);
+            let from_id = intern_flow_ast_node(builder, from, span);
+            let to_id = intern_flow_ast_node(builder, to, span);
             if let (Some(f), Some(t)) = (from_id, to_id) {
                 add_node_to_active_groups(builder, active_clusters, active_subgraphs, f);
                 add_node_to_active_groups(builder, active_clusters, active_subgraphs, t);
@@ -1029,6 +1038,7 @@ fn parse_flowchart_statement_asts(
         return Some(vec![FlowAst::Node(FlowAstNode {
             id: node.id,
             label: node.label,
+            icon: node.icon,
             shape: node.shape,
         })]);
     }
@@ -1057,6 +1067,26 @@ fn add_node_to_active_groups(
     for &subgraph_index in active_subgraphs {
         builder.add_node_to_subgraph(subgraph_index, node_id);
     }
+}
+
+fn intern_node_token(builder: &mut IrBuilder, node: &NodeToken, span: Span) -> Option<IrNodeId> {
+    let node_id = builder.intern_node_label(&node.id, node.label.as_ref(), node.shape, span)?;
+    if let Some(icon) = node.icon.as_deref() {
+        builder.set_node_icon(node_id, icon);
+    }
+    Some(node_id)
+}
+
+fn intern_flow_ast_node(
+    builder: &mut IrBuilder,
+    node: &FlowAstNode,
+    span: Span,
+) -> Option<IrNodeId> {
+    let node_id = builder.intern_node_label(&node.id, node.label.as_ref(), node.shape, span)?;
+    if let Some(icon) = node.icon.as_deref() {
+        builder.set_node_icon(node_id, icon);
+    }
+    Some(node_id)
 }
 
 fn parse_subgraph_statement(statement: &str) -> Option<(String, Option<String>)> {
@@ -2174,7 +2204,7 @@ fn lower_class_statement(
         ClassStatement::BlockStart(class_name, generics) => {
             if let Some(node) = parse_node_token(&class_name) {
                 let span = span_for(line_number, source_line);
-                let _ = builder.intern_node_label(&node.id, node.label.as_ref(), node.shape, span);
+                let _ = intern_node_token(builder, &node, span);
                 builder.set_current_class(&node.id);
                 if !generics.is_empty() {
                     builder.set_class_generics(&node.id, generics);
@@ -2186,7 +2216,7 @@ fn lower_class_statement(
         }
         ClassStatement::Node(node) => {
             let span = span_for(line_number, source_line);
-            let _ = builder.intern_node_label(&node.id, node.label.as_ref(), node.shape, span);
+            let _ = intern_node_token(builder, &node, span);
         }
         ClassStatement::Member(member) => {
             builder.add_class_member(member);
@@ -2726,9 +2756,7 @@ fn parse_mindmap(input: &str, builder: &mut IrBuilder) {
         };
 
         let span = span_for(line_number, line);
-        let Some(node_id) =
-            builder.intern_node_label(&node.id, node.label.as_ref(), node.shape, span)
-        else {
+        let Some(node_id) = intern_node_token(builder, &node, span) else {
             continue;
         };
 
@@ -2785,6 +2813,7 @@ fn parse_mindmap_node_token(raw: &str) -> Option<NodeToken> {
         return Some(NodeToken {
             id: parsed.id,
             label: parsed.label,
+            icon: parsed.icon,
             shape: NodeShape::Circle,
         });
     }
@@ -2805,10 +2834,13 @@ fn parse_mindmap_node_token(raw: &str) -> Option<NodeToken> {
         return None;
     }
 
-    let label = parse_label(Some(core)).filter(|value| value.text != id);
+    let mut label = parse_label(Some(core)).filter(|value| value.text != id);
+    let icon = extract_icon_prefix(label.as_mut());
+    clear_empty_label(&mut label);
     Some(NodeToken {
         id,
         label,
+        icon,
         shape: NodeShape::Rect,
     })
 }
@@ -2830,9 +2862,13 @@ fn parse_mindmap_bang(raw: &str) -> Option<NodeToken> {
         return None;
     }
 
+    let mut label = parse_label(Some(label_raw));
+    let icon = extract_icon_prefix(label.as_mut());
+    clear_empty_label(&mut label);
     Some(NodeToken {
         id,
-        label: parse_label(Some(label_raw)),
+        label,
+        icon,
         shape: NodeShape::Asymmetric,
     })
 }
@@ -2863,9 +2899,13 @@ fn parse_mindmap_cloud(raw: &str) -> Option<NodeToken> {
         return None;
     }
 
+    let mut label = parse_label(Some(label_raw));
+    let icon = extract_icon_prefix(label.as_mut());
+    clear_empty_label(&mut label);
     Some(NodeToken {
         id,
-        label: parse_label(Some(label_raw)),
+        label,
+        icon,
         shape: NodeShape::Cloud,
     })
 }
@@ -2887,9 +2927,13 @@ fn parse_mindmap_hexagon(raw: &str) -> Option<NodeToken> {
         return None;
     }
 
+    let mut label = parse_label(Some(label_raw));
+    let icon = extract_icon_prefix(label.as_mut());
+    clear_empty_label(&mut label);
     Some(NodeToken {
         id,
-        label: parse_label(Some(label_raw)),
+        label,
+        icon,
         shape: NodeShape::Hexagon,
     })
 }
@@ -2913,8 +2957,7 @@ fn parse_er(input: &str, builder: &mut IrBuilder) {
             let entity_name = trimmed.trim_end_matches('{').trim();
             if let Some(node) = parse_node_token(entity_name) {
                 let span = span_for(line_number, line);
-                current_entity =
-                    builder.intern_node_label(&node.id, node.label.as_ref(), NodeShape::Rect, span);
+                current_entity = intern_node_token(builder, &node, span);
                 continue;
             }
         }
@@ -2947,7 +2990,7 @@ fn parse_er(input: &str, builder: &mut IrBuilder) {
         // Standalone entity declaration
         if let Some(node) = parse_node_token(trimmed) {
             let span = span_for(line_number, line);
-            let _ = builder.intern_node_label(&node.id, node.label.as_ref(), node.shape, span);
+            let _ = intern_node_token(builder, &node, span);
             continue;
         }
 
@@ -3729,7 +3772,7 @@ fn parse_packet(input: &str, builder: &mut IrBuilder) {
             }
             if let Some(node) = parse_node_token(statement) {
                 let span = span_for(line_number, line);
-                let _ = builder.intern_node_label(&node.id, node.label.as_ref(), node.shape, span);
+                let _ = intern_node_token(builder, &node, span);
                 parsed_line = true;
             }
         }
@@ -6464,6 +6507,7 @@ fn parse_node_token(raw: &str) -> Option<NodeToken> {
         return Some(NodeToken {
             id: STATE_PSEUDO_TOKEN.to_string(),
             label: None,
+            icon: None,
             shape: NodeShape::Circle,
         });
     }
@@ -6512,10 +6556,13 @@ fn parse_node_token(raw: &str) -> Option<NodeToken> {
         return None;
     }
 
-    let label = parse_label(Some(core)).filter(|value| value.text != id);
+    let mut label = parse_label(Some(core)).filter(|value| value.text != id);
+    let icon = extract_icon_prefix(label.as_mut());
+    clear_empty_label(&mut label);
     Some(NodeToken {
         id,
         label,
+        icon,
         shape: NodeShape::Rect,
     })
 }
@@ -6536,9 +6583,13 @@ fn parse_double_circle(raw: &str) -> Option<NodeToken> {
         return None;
     }
 
+    let mut label = parse_label(Some(label_raw));
+    let icon = extract_icon_prefix(label.as_mut());
+    clear_empty_label(&mut label);
     Some(NodeToken {
         id,
-        label: parse_label(Some(label_raw)),
+        label,
+        icon,
         shape: NodeShape::DoubleCircle,
     })
 }
@@ -6565,9 +6616,13 @@ fn parse_wrapped(raw: &str, open: char, close: char, shape: NodeShape) -> Option
         return None;
     }
 
+    let mut label = parse_label(Some(label_raw));
+    let icon = extract_icon_prefix(label.as_mut());
+    clear_empty_label(&mut label);
     Some(NodeToken {
         id,
-        label: parse_label(Some(label_raw)),
+        label,
+        icon,
         shape,
     })
 }
@@ -6594,9 +6649,13 @@ fn parse_wrapped_str(raw: &str, open: &str, close: &str, shape: NodeShape) -> Op
         return None;
     }
 
+    let mut label = parse_label(Some(label_raw));
+    let icon = extract_icon_prefix(label.as_mut());
+    clear_empty_label(&mut label);
     Some(NodeToken {
         id,
-        label: parse_label(Some(label_raw)),
+        label,
+        icon,
         shape,
     })
 }
@@ -6629,6 +6688,63 @@ fn normalize_compound_identifier(raw: &str) -> String {
 
 fn clean_label(raw: Option<&str>) -> Option<String> {
     parse_label(raw).map(|label| label.text)
+}
+
+fn clear_empty_label(label: &mut Option<ParsedLabel>) {
+    if label.as_ref().is_some_and(|value| value.text.is_empty()) {
+        *label = None;
+    }
+}
+
+fn extract_icon_prefix(label: Option<&mut ParsedLabel>) -> Option<String> {
+    let label = label?;
+    let trimmed = label.text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((icon, remainder)) = split_fontawesome_icon_prefix(trimmed) {
+        let icon_str = icon.to_string();
+        label.text = remainder.unwrap_or_default().to_string();
+        return Some(icon_str);
+    }
+
+    if let Some((icon, remainder)) = split_emoji_icon_prefix(trimmed) {
+        let icon_str = icon.to_string();
+        label.text = remainder.unwrap_or_default().to_string();
+        return Some(icon_str);
+    }
+
+    None
+}
+
+fn split_fontawesome_icon_prefix(text: &str) -> Option<(&str, Option<&str>)> {
+    let trimmed = text.trim();
+    let remainder = trimmed.strip_prefix("fa:")?;
+    let icon_end = remainder
+        .find(|ch: char| ch.is_whitespace())
+        .unwrap_or(remainder.len());
+    if icon_end == 0 {
+        return None;
+    }
+
+    let icon = &trimmed[..3 + icon_end];
+    let remainder = remainder[icon_end..].trim();
+    Some((icon, (!remainder.is_empty()).then_some(remainder)))
+}
+
+fn split_emoji_icon_prefix(text: &str) -> Option<(&str, Option<&str>)> {
+    let trimmed = text.trim();
+    let mut chars = trimmed.char_indices();
+    let (_, first) = chars.next()?;
+    if first.is_ascii() {
+        return None;
+    }
+
+    let next_boundary = chars.next().map_or(trimmed.len(), |(idx, _)| idx);
+    let icon = &trimmed[..next_boundary];
+    let remainder = trimmed[next_boundary..].trim();
+    Some((icon, (!remainder.is_empty()).then_some(remainder)))
 }
 
 fn parse_label(raw: Option<&str>) -> Option<ParsedLabel> {
@@ -9096,6 +9212,30 @@ mod tests {
             .find(|node| node.id == "Child")
             .unwrap();
         assert_eq!(child.icon.as_deref(), Some("fa fa-book"));
+    }
+
+    #[test]
+    fn flowchart_extracts_fontawesome_icon_prefix_from_label() {
+        let parsed = parse_mermaid("flowchart LR\nA[fa:server API]");
+        let node = parsed.ir.nodes.iter().find(|node| node.id == "A").unwrap();
+        let label = node
+            .label
+            .and_then(|label_id| parsed.ir.labels.get(label_id.0))
+            .map(|label| label.text.as_str());
+        assert_eq!(node.icon.as_deref(), Some("fa:server"));
+        assert_eq!(label, Some("API"));
+    }
+
+    #[test]
+    fn flowchart_extracts_emoji_icon_prefix_from_label() {
+        let parsed = parse_mermaid("flowchart LR\nA[🚀 Deploy]");
+        let node = parsed.ir.nodes.iter().find(|node| node.id == "A").unwrap();
+        let label = node
+            .label
+            .and_then(|label_id| parsed.ir.labels.get(label_id.0))
+            .map(|label| label.text.as_str());
+        assert_eq!(node.icon.as_deref(), Some("🚀"));
+        assert_eq!(label, Some("Deploy"));
     }
 
     #[test]
@@ -11756,36 +11896,53 @@ Rel_Back(db, app, "Responds")"#,
     }
 
     #[test]
-    fn state_guard_condition_extracted() {
-        let parsed = parse_mermaid("stateDiagram-v2\n  Active --> Done : complete [isValid]");
-        assert!(!parsed.ir.edges.is_empty());
-        let edge = &parsed.ir.edges[0];
-        assert_eq!(edge.guard.as_deref(), Some("isValid"));
-    }
-
-    #[test]
-    fn state_action_extracted() {
-        let parsed = parse_mermaid("stateDiagram-v2\n  Active --> Done : complete / cleanup()");
-        assert!(!parsed.ir.edges.is_empty());
-        let edge = &parsed.ir.edges[0];
-        assert_eq!(edge.action.as_deref(), Some("cleanup()"));
-    }
-
-    #[test]
-    fn state_guard_and_action_extracted() {
-        let parsed =
-            parse_mermaid("stateDiagram-v2\n  Active --> Done : complete [isValid] / cleanup()");
-        assert!(!parsed.ir.edges.is_empty());
-        let edge = &parsed.ir.edges[0];
-        assert_eq!(edge.guard.as_deref(), Some("isValid"));
-        assert_eq!(edge.action.as_deref(), Some("cleanup()"));
-    }
-
-    #[test]
-    fn state_no_guard_or_action_preserves_none() {
+    fn state_transition_without_guard() {
         let parsed = parse_mermaid("stateDiagram-v2\n  Active --> Done : complete");
+        assert!(!parsed.ir.edges.is_empty());
         let edge = &parsed.ir.edges[0];
         assert!(edge.guard.is_none());
         assert!(edge.action.is_none());
+    }
+
+    #[test]
+    fn extract_guard_action_both() {
+        let (label, guard, action) =
+            super::extract_state_guard_action(Some("complete [isValid] / cleanup()"));
+        assert_eq!(label.as_deref(), Some("complete"));
+        assert_eq!(guard.as_deref(), Some("isValid"));
+        assert_eq!(action.as_deref(), Some("cleanup()"));
+    }
+
+    #[test]
+    fn extract_guard_only() {
+        let (label, guard, action) = super::extract_state_guard_action(Some("complete [isValid]"));
+        assert_eq!(label.as_deref(), Some("complete"));
+        assert_eq!(guard.as_deref(), Some("isValid"));
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn extract_action_only() {
+        let (label, guard, action) =
+            super::extract_state_guard_action(Some("complete / cleanup()"));
+        assert_eq!(label.as_deref(), Some("complete"));
+        assert!(guard.is_none());
+        assert_eq!(action.as_deref(), Some("cleanup()"));
+    }
+
+    #[test]
+    fn extract_no_guard_no_action() {
+        let (label, guard, action) = super::extract_state_guard_action(Some("complete"));
+        assert_eq!(label.as_deref(), Some("complete"));
+        assert!(guard.is_none());
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn extract_none_label() {
+        let (label, guard, action) = super::extract_state_guard_action(None);
+        assert!(label.is_none());
+        assert!(guard.is_none());
+        assert!(action.is_none());
     }
 }

@@ -33,6 +33,8 @@ pub use text::{TextAnchor, TextBuilder};
 pub use theme::{FontConfig, Theme, ThemeColors, ThemePreset, generate_palette};
 pub use transform::{Transform, TransformBuilder};
 
+use std::collections::BTreeMap;
+
 use fm_core::{
     DiagramType, IrLabelId, IrLabelSegment, IrXyChartMeta, IrXySeriesKind, MermaidDiagramIr,
     MermaidTier, Span, mermaid_cluster_element_id, mermaid_edge_element_id,
@@ -66,6 +68,33 @@ pub enum SvgBackend {
     LegacyLayout,
     /// Shared target-agnostic render scene backend.
     Scene,
+}
+
+/// Node icon placement strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NodeIconPosition {
+    /// Place the icon above the text label.
+    #[default]
+    Above,
+    /// Place the icon to the left of the text label.
+    Left,
+}
+
+/// Configurable custom SVG icon definition.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomSvgIcon {
+    /// SVG path data in a local icon coordinate space.
+    pub path_data: String,
+    /// Source viewBox width used to scale the path into the node.
+    pub view_box_width: f32,
+    /// Source viewBox height used to scale the path into the node.
+    pub view_box_height: f32,
+    /// Optional fill color override. Defaults to `none` when absent.
+    pub fill: Option<String>,
+    /// Optional stroke color override. Defaults to the node stroke color.
+    pub stroke: Option<String>,
+    /// Stroke width in source viewBox units.
+    pub stroke_width: f32,
 }
 
 /// Configuration for SVG rendering.
@@ -123,6 +152,10 @@ pub struct SvgRenderConfig {
     pub theme: ThemePreset,
     /// Whether to embed theme CSS in the SVG.
     pub embed_theme_css: bool,
+    /// Position for node icons relative to the label.
+    pub node_icon_position: NodeIconPosition,
+    /// User-provided custom icon definitions keyed by normalized icon name.
+    pub custom_icons: BTreeMap<String, CustomSvgIcon>,
     /// Detail tier selection (`auto`, `compact`, `normal`, `rich`).
     pub detail_tier: MermaidTier,
     /// Minimum readable font size in pixels.
@@ -204,6 +237,8 @@ impl Default for SvgRenderConfig {
             root_classes: Vec::new(),
             theme: ThemePreset::Default,
             embed_theme_css: true,
+            node_icon_position: NodeIconPosition::Above,
+            custom_icons: BTreeMap::new(),
             detail_tier: MermaidTier::Auto,
             min_font_size: 8.0,
             print_optimized: true,
@@ -3056,6 +3091,10 @@ fn render_node(
         if !icon_token.is_empty() {
             group = group.class(&format!("fm-node-icon-{icon_token}"));
         }
+        group = group.class(match config.node_icon_position {
+            NodeIconPosition::Above => "fm-node-icon-pos-above",
+            NodeIconPosition::Left => "fm-node-icon-pos-left",
+        });
     }
     if config.include_source_spans {
         group = apply_span_metadata(group, node_box.span);
@@ -3591,12 +3630,27 @@ fn render_node(
     }
 
     let icon_size = clamp_font_size(node_font_size * 1.35, config.min_font_size + 2.0);
-    let icon_reserved_height = node_icon.map_or(0.0, |_| icon_size + 10.0);
+    let icon_reserved_height = node_icon.map_or(0.0, |_| match config.node_icon_position {
+        NodeIconPosition::Above => icon_size + 10.0,
+        NodeIconPosition::Left => 0.0,
+    });
+    let icon_reserved_width = node_icon.map_or(0.0, |_| match config.node_icon_position {
+        NodeIconPosition::Above => 0.0,
+        NodeIconPosition::Left => icon_size + 14.0,
+    });
     if let Some(icon) = node_icon
         && let Some(icon_elem) = render_node_icon(
             icon,
-            cx,
-            if detail.show_node_labels {
+            if detail.show_node_labels
+                && matches!(config.node_icon_position, NodeIconPosition::Left)
+            {
+                x + (icon_reserved_width * 0.5) + 2.0
+            } else {
+                cx
+            },
+            if detail.show_node_labels
+                && matches!(config.node_icon_position, NodeIconPosition::Above)
+            {
                 y + (icon_reserved_height * 0.5) + 2.0
             } else {
                 cy
@@ -3646,6 +3700,8 @@ fn render_node(
         } else {
             let lines_count = label_text.lines().count().max(1) as f32;
             let total_text_height = (lines_count - 1.0) * node_font_size * config.line_height;
+            let content_left = x + icon_reserved_width;
+            let content_width = (w - icon_reserved_width).max(node_font_size);
             let content_top = y + icon_reserved_height;
             let content_height = (h - icon_reserved_height).max(node_font_size);
             let start_y = content_top + (content_height / 2.0) - (total_text_height / 2.0)
@@ -3659,7 +3715,7 @@ fn render_node(
                     None
                 },
                 &label_text,
-                cx,
+                content_left + (content_width / 2.0),
                 start_y,
                 node_font_size,
                 config,
@@ -4118,6 +4174,10 @@ fn render_node_icon(
         .class("fm-node-icon")
         .class(&format!("fm-node-icon-{}", sanitize_css_token(&normalized)));
 
+    if let Some(custom_icon) = config.custom_icons.get(&normalized) {
+        return Some(icon.child(render_custom_svg_icon(custom_icon, cx, cy, size, stroke)));
+    }
+
     match normalized.as_str() {
         "person" | "user" => {
             icon = icon.child(render_c4_person_icon(cx, cy, stroke));
@@ -4451,6 +4511,48 @@ fn render_node_icon(
     }
 
     Some(icon)
+}
+
+fn render_custom_svg_icon(
+    icon: &CustomSvgIcon,
+    cx: f32,
+    cy: f32,
+    size: f32,
+    fallback_stroke: &str,
+) -> Element {
+    let view_box_width = if icon.view_box_width.is_finite() && icon.view_box_width > 0.0 {
+        icon.view_box_width
+    } else {
+        24.0
+    };
+    let view_box_height = if icon.view_box_height.is_finite() && icon.view_box_height > 0.0 {
+        icon.view_box_height
+    } else {
+        24.0
+    };
+    let scale = size / view_box_width.max(view_box_height);
+    let translate_x = cx - (view_box_width * scale * 0.5);
+    let translate_y = cy - (view_box_height * scale * 0.5);
+    let fill = icon.fill.as_deref().unwrap_or("none");
+    let stroke = icon.stroke.as_deref().unwrap_or(fallback_stroke);
+    let stroke_width = if icon.stroke_width.is_finite() && icon.stroke_width > 0.0 {
+        icon.stroke_width
+    } else {
+        1.4
+    };
+
+    Element::group()
+        .class("fm-node-icon-custom")
+        .transform(&format!(
+            "translate({translate_x:.2} {translate_y:.2}) scale({scale:.4})"
+        ))
+        .child(
+            Element::path()
+                .d(&icon.path_data)
+                .fill(fill)
+                .stroke(stroke)
+                .stroke_width(stroke_width),
+        )
 }
 
 fn wrap_text_to_lines(text: &str, max_width: f32, avg_char_width: f32) -> Vec<String> {
@@ -7070,6 +7172,45 @@ mod tests {
 
         assert!(svg.contains("fm-node-icon-emoji"));
         assert!(svg.contains("🚀"));
+    }
+
+    #[test]
+    fn renders_custom_node_icon_from_config() {
+        let mut ir = create_ir_with_single_node("chip", NodeShape::Rect);
+        ir.nodes[0].icon = Some("chip-core".to_string());
+        let mut config = SvgRenderConfig::default();
+        config.custom_icons.insert(
+            "chip-core".to_string(),
+            CustomSvgIcon {
+                path_data: "M4 4 L20 4 L20 20 L4 20 Z".to_string(),
+                view_box_width: 24.0,
+                view_box_height: 24.0,
+                fill: None,
+                stroke: Some("#ff4d4f".to_string()),
+                stroke_width: 1.2,
+            },
+        );
+
+        let svg = render_svg_with_config(&ir, &config);
+
+        assert!(svg.contains("fm-node-icon-custom"));
+        assert!(svg.contains("M4 4 L20 4 L20 20 L4 20 Z"));
+        assert!(svg.contains("#ff4d4f"));
+    }
+
+    #[test]
+    fn renders_left_positioned_node_icons() {
+        let mut ir = create_ir_with_single_node("queue", NodeShape::Rect);
+        ir.nodes[0].icon = Some("queue".to_string());
+        let config = SvgRenderConfig {
+            node_icon_position: NodeIconPosition::Left,
+            ..SvgRenderConfig::default()
+        };
+
+        let svg = render_svg_with_config(&ir, &config);
+
+        assert!(svg.contains("fm-node-icon-pos-left"));
+        assert!(svg.contains("fm-node-icon-queue"));
     }
 
     // ─── Property-based render completeness tests (bd-1br.8) ────────────
