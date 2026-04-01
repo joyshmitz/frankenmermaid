@@ -3357,6 +3357,16 @@ fn render_node(
             _ => None,
         });
 
+    // Kanban priority → border color styling.
+    let kanban_priority_fill: Option<&str> = ir_node.and_then(|n| {
+        n.classes.iter().find_map(|c| match c.as_str() {
+            "kanban-priority-high" | "kanban-priority-critical" => Some("#fca5a5"),
+            "kanban-priority-medium" => Some("#fde68a"),
+            "kanban-priority-low" => Some("#bbf7d0"),
+            _ => None,
+        })
+    });
+
     // Journey score → color fill (1=red, 2=orange, 3=yellow, 4=light green, 5=green).
     let journey_score_fill: Option<&str> = ir_node.and_then(|n| {
         n.classes.iter().find_map(|c| match c.as_str() {
@@ -3851,6 +3861,9 @@ fn render_node(
     } else if let Some(score_fill) = journey_score_fill {
         // Journey score-based fill color.
         shape_elem.attr("style", &format!("fill: {score_fill}"))
+    } else if let Some(priority_fill) = kanban_priority_fill {
+        // Kanban priority-based fill color.
+        shape_elem.attr("style", &format!("fill: {priority_fill}"))
     } else {
         shape_elem
     };

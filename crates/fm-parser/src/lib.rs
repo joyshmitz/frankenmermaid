@@ -690,7 +690,7 @@ mod tests {
     fn detection_exact_keyword_high_confidence() {
         let result = detect_type_with_confidence("flowchart LR\nA-->B");
         assert_eq!(result.diagram_type, DiagramType::Flowchart);
-        assert_eq!(result.confidence, 1.0);
+        assert!((result.confidence - 1.0).abs() < f32::EPSILON);
         assert_eq!(result.method, DetectionMethod::ExactKeyword);
         assert!(result.warnings.is_empty());
     }
@@ -745,7 +745,7 @@ mod tests {
         let result = detect_type_with_confidence("");
         assert_eq!(result.diagram_type, DiagramType::Unknown);
         assert_eq!(result.method, DetectionMethod::Fallback);
-        assert_eq!(result.confidence, 0.0);
+        assert!(result.confidence.abs() < f32::EPSILON);
     }
 
     #[test]
@@ -798,7 +798,7 @@ mod tests {
     fn parse_result_includes_confidence() {
         let result = parse("flowchart LR\nA-->B");
         assert_eq!(result.ir.diagram_type, DiagramType::Flowchart);
-        assert_eq!(result.confidence, 1.0);
+        assert!((result.confidence - 1.0).abs() < f32::EPSILON);
         assert_eq!(result.detection_method, DetectionMethod::ExactKeyword);
     }
 
@@ -840,7 +840,8 @@ mod tests {
 
             prop_assert_eq!(first.diagram_type, second.diagram_type);
             prop_assert_eq!(first.method, second.method);
-            prop_assert_eq!(first.confidence, second.confidence);
+
+            prop_assert!((first.confidence - second.confidence).abs() < f32::EPSILON);
             prop_assert_eq!(first.warnings, second.warnings);
         }
 
@@ -855,8 +856,10 @@ mod tests {
             }
             let mut val = edge_seed;
             for _ in 0..node_count {
+                #[allow(clippy::unreadable_literal)]
                 val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let from = usize::try_from(val).unwrap_or(0) % node_count;
+                #[allow(clippy::unreadable_literal)]
                 val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let to = usize::try_from(val).unwrap_or(0) % node_count;
                 if from != to {
@@ -874,7 +877,7 @@ mod tests {
             let r1 = parse(&input);
             let r2 = parse(&input);
             prop_assert_eq!(r1.ir, r2.ir);
-            prop_assert_eq!(r1.confidence, r2.confidence);
+            prop_assert!((r1.confidence - r2.confidence).abs() < f32::EPSILON);
         }
 
         #[test]
@@ -930,8 +933,10 @@ mod tests {
             }
             let mut val = edge_seed;
             for _ in 0..node_count.min(8) {
+                #[allow(clippy::unreadable_literal)]
                 val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let from = usize::try_from(val).unwrap_or(0) % node_count;
+                #[allow(clippy::unreadable_literal)]
                 val = val.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let to = usize::try_from(val).unwrap_or(0) % node_count;
                 if from != to {

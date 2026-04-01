@@ -1402,11 +1402,10 @@ fn decode_mermaid_entities(text: &str) -> String {
 
         if let Some(ch) = decode_mermaid_entity_token(token) {
             decoded.push(ch);
-            cursor = end + 1;
         } else {
             decoded.push_str(&text[start..=end]);
-            cursor = end + 1;
         }
+        cursor = end + 1;
     }
 
     decoded.push_str(&text[cursor..]);
@@ -3504,8 +3503,9 @@ fn parse_kanban(input: &str, builder: &mut IrBuilder) {
         // Determine indentation level using standard mindmap/indent utility
         let indent_width = leading_indent_width(line);
 
-        // Parse optional bracket syntax: id[Label] or just plain text.
-        let (item_id, item_label) = parse_kanban_item(trimmed);
+        // Strip @{} metadata and parse item.
+        let (clean_text, metadata) = strip_kanban_metadata(trimmed);
+        let (item_id, item_label) = parse_kanban_item(clean_text);
 
         // It is a column header if there is no current column, or if the indent
         // is less than or equal to the current column's indent.
@@ -3553,6 +3553,11 @@ fn parse_kanban(input: &str, builder: &mut IrBuilder) {
             };
             current_column = Some(cluster_index);
             current_column_subgraph = Some(subgraph_index);
+
+            // Apply WIP limit from @{wip: N} metadata.
+            if let Some(wip) = metadata.wip {
+                builder.set_cluster_grid_span(cluster_index, wip);
+            }
         } else {
             // This is a card within the current column.
             let card_key = if item_id == item_label {
@@ -3573,6 +3578,34 @@ fn parse_kanban(input: &str, builder: &mut IrBuilder) {
                 builder.intern_node(&card_key, Some(&item_label), NodeShape::Rounded, span);
             if let Some(nid) = node_id {
                 builder.add_class_to_node(&card_key, "kanban-card", span);
+
+                // Apply priority CSS class.
+                if let Some(ref priority) = metadata.priority {
+                    builder.add_class_to_node(
+                        &card_key,
+                        &format!("kanban-priority-{}", priority.to_ascii_lowercase()),
+                        span,
+                    );
+                }
+                // Apply assigned CSS class.
+                if let Some(ref assigned) = metadata.assigned {
+                    let sanitized = assigned
+                        .replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+                        .to_ascii_lowercase();
+                    builder.add_class_to_node(
+                        &card_key,
+                        &format!("kanban-assigned-{sanitized}"),
+                        span,
+                    );
+                }
+                // Apply tag classes.
+                for tag in &metadata.tags {
+                    let sanitized = tag
+                        .replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+                        .to_ascii_lowercase();
+                    builder.add_class_to_node(&card_key, &format!("kanban-tag-{sanitized}"), span);
+                }
+
                 if let Some(cluster_idx) = current_column {
                     builder.add_node_to_cluster(cluster_idx, nid);
                 }
@@ -3590,6 +3623,52 @@ fn parse_kanban(input: &str, builder: &mut IrBuilder) {
 }
 
 /// Parse a kanban item that may have bracket syntax: `id[Label]` or plain text.
+/// Parsed kanban `@{key: value}` metadata.
+struct KanbanMetadata {
+    priority: Option<String>,
+    assigned: Option<String>,
+    wip: Option<usize>,
+    tags: Vec<String>,
+}
+
+/// Strip `@{...}` metadata from end of line and parse key-value pairs.
+fn strip_kanban_metadata(text: &str) -> (&str, KanbanMetadata) {
+    let mut meta = KanbanMetadata {
+        priority: None,
+        assigned: None,
+        wip: None,
+        tags: Vec::new(),
+    };
+
+    let Some(at_pos) = text.find("@{") else {
+        return (text, meta);
+    };
+    let Some(close_pos) = text[at_pos..].find('}') else {
+        return (text, meta);
+    };
+    let body = &text[at_pos + 2..at_pos + close_pos];
+    let clean_text = text[..at_pos].trim();
+
+    for pair in body.split(',') {
+        let pair = pair.trim();
+        if let Some((key, value)) = pair.split_once(':') {
+            let key = key.trim().to_ascii_lowercase();
+            let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+            match key.as_str() {
+                "priority" => meta.priority = Some(value.to_string()),
+                "assigned" | "assign" => meta.assigned = Some(value.to_string()),
+                "wip" => meta.wip = value.parse().ok(),
+                "tag" | "tags" => {
+                    meta.tags.extend(value.split_whitespace().map(String::from));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    (clean_text, meta)
+}
+
 fn parse_kanban_item(text: &str) -> (String, String) {
     // Try to parse id[Label] syntax.
     if let Some(bracket_start) = text.find('[')
@@ -3787,8 +3866,8 @@ fn parse_timeline_events(
 
     // Events can be separated by colons
     for event_text in events_text.split(':') {
-        let event_text = event_text.trim();
-        if event_text.is_empty() {
+        let event_text_trimmed = event_text.trim();
+        if event_text_trimmed.is_empty() {
             continue;
         }
 
@@ -4664,6 +4743,9 @@ fn parse_sankey(input: &str, builder: &mut IrBuilder) {
             continue;
         };
 
+        builder.add_class_to_node(&source_label, "sankey-node", span);
+        builder.add_class_to_node(&target_label, "sankey-node", span);
+
         builder.push_edge(
             source_node,
             target_node,
@@ -4671,6 +4753,12 @@ fn parse_sankey(input: &str, builder: &mut IrBuilder) {
             Some(&value),
             span,
         );
+
+        // Add flow data attribute for gradient rendering.
+        if let Some(edge) = builder.ir_mut().edges.last_mut() {
+            edge.source_cardinality = None; // Not used for sankey
+            edge.target_cardinality = None;
+        }
     }
 }
 
@@ -10605,12 +10693,14 @@ Rel_Back(db, app, "Responds")"#,
             .ir
             .sequence_meta
             .expect("sequence_meta should be set");
-        let creates: Vec<_> = meta
-            .lifecycle_events
-            .iter()
-            .filter(|e| e.kind == fm_core::LifecycleEventKind::Create)
-            .collect();
-        assert_eq!(creates.len(), 1, "Should have one create event");
+        assert_eq!(
+            meta.lifecycle_events
+                .iter()
+                .filter(|e| e.kind == fm_core::LifecycleEventKind::Create)
+                .count(),
+            1,
+            "Should have one create event"
+        );
     }
 
     #[test]
@@ -10621,12 +10711,14 @@ Rel_Back(db, app, "Responds")"#,
             .ir
             .sequence_meta
             .expect("sequence_meta should be set");
-        let creates: Vec<_> = meta
-            .lifecycle_events
-            .iter()
-            .filter(|e| e.kind == fm_core::LifecycleEventKind::Create)
-            .collect();
-        assert_eq!(creates.len(), 1, "Should have one create event");
+        assert_eq!(
+            meta.lifecycle_events
+                .iter()
+                .filter(|e| e.kind == fm_core::LifecycleEventKind::Create)
+                .count(),
+            1,
+            "Should have one create event"
+        );
     }
 
     #[test]
@@ -12316,5 +12408,71 @@ Rel_Back(db, app, "Responds")"#,
             dev_commit.classes.iter().any(|c| c == "git-branch-1"),
             "dev commits should have git-branch-1"
         );
+    }
+
+    // ── Kanban metadata parsing tests ─────────────────────────────────
+
+    #[test]
+    fn kanban_card_priority_metadata_applied() {
+        let parsed = parse_mermaid("kanban\n  Todo\n    task1[Design] @{ priority: high }");
+        let card = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|n| n.classes.contains(&"kanban-card".to_string()))
+            .expect("should find kanban card");
+        assert!(
+            card.classes.iter().any(|c| c == "kanban-priority-high"),
+            "card should have kanban-priority-high class"
+        );
+    }
+
+    #[test]
+    fn kanban_card_assigned_metadata_applied() {
+        let parsed = parse_mermaid("kanban\n  Todo\n    task1[Design] @{ assigned: alice }");
+        let card = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|n| n.classes.contains(&"kanban-card".to_string()))
+            .expect("should find kanban card");
+        assert!(
+            card.classes.iter().any(|c| c == "kanban-assigned-alice"),
+            "card should have kanban-assigned-alice class"
+        );
+    }
+
+    #[test]
+    fn kanban_without_metadata_still_works() {
+        let parsed = parse_mermaid("kanban\n  Todo\n    task1[Design]");
+        let card = parsed
+            .ir
+            .nodes
+            .iter()
+            .find(|n| n.classes.contains(&"kanban-card".to_string()))
+            .expect("should find kanban card");
+        assert!(
+            !card
+                .classes
+                .iter()
+                .any(|c| c.starts_with("kanban-priority-")),
+            "card without metadata should not have priority class"
+        );
+    }
+
+    #[test]
+    fn strip_kanban_metadata_unit() {
+        let (text, meta) =
+            super::strip_kanban_metadata("task1[Design] @{ priority: high, assigned: bob }");
+        assert_eq!(text, "task1[Design]");
+        assert_eq!(meta.priority.as_deref(), Some("high"));
+        assert_eq!(meta.assigned.as_deref(), Some("bob"));
+    }
+
+    #[test]
+    fn strip_kanban_metadata_wip() {
+        let (text, meta) = super::strip_kanban_metadata("In Progress @{ wip: 3 }");
+        assert_eq!(text, "In Progress");
+        assert_eq!(meta.wip, Some(3));
     }
 }

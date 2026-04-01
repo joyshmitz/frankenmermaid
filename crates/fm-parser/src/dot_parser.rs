@@ -391,7 +391,6 @@ fn dot_shape_to_node_shape(name: &str) -> Option<NodeShape> {
         "roundedbox" | "rounded" => NodeShape::Rounded,
         "diamond" => NodeShape::Diamond,
         "circle" | "point" | "doublecircle" => NodeShape::Circle,
-        "ellipse" | "oval" => NodeShape::Rounded,
         "hexagon" => NodeShape::Hexagon,
         "trapezium" => NodeShape::Trapezoid,
         "invtrapezium" => NodeShape::InvTrapezoid,
