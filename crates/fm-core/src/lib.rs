@@ -2,8 +2,11 @@
 
 pub mod art;
 pub mod cga;
+pub mod constraints;
 mod font_metrics;
 pub mod leapfrog;
+#[cfg(test)]
+mod lens_tests;
 pub mod quotient_filter;
 pub mod succinct;
 
@@ -4274,12 +4277,14 @@ pub struct MermaidSourceMap {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct MermaidTextRange {
     pub start_byte: usize,
     pub end_byte: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct MermaidLensBinding {
     pub kind: MermaidSourceMapKind,
     pub index: usize,
@@ -4294,12 +4299,14 @@ pub struct MermaidLensBinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct MermaidLensEdit {
     pub element_id: String,
     pub replacement: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct MermaidLensEditResult {
     pub element_id: String,
     pub replaced_range: MermaidTextRange,
@@ -4386,7 +4393,8 @@ pub fn resolve_span_text_range(source: &str, span: Span) -> Option<MermaidTextRa
     }
 
     let line_starts = source_line_starts(source);
-    let start_byte = byte_index_for_line_col(source, &line_starts, span.start.line, span.start.col)?;
+    let start_byte =
+        byte_index_for_line_col(source, &line_starts, span.start.line, span.start.col)?;
     let end_col_exclusive = span.end.col.saturating_add(1);
     let end_byte = byte_index_for_line_col(source, &line_starts, span.end.line, end_col_exclusive)?;
     (end_byte >= start_byte).then_some(MermaidTextRange {
@@ -4559,14 +4567,16 @@ mod tests {
         MermaidDegradationPlan, MermaidDiagramIr, MermaidError, MermaidErrorCode,
         MermaidFallbackAction, MermaidFallbackPolicy, MermaidFidelity, MermaidGlyphMode,
         MermaidGuardReport, MermaidLayoutDecisionAlternative, MermaidLayoutDecisionLedger,
-        MermaidLayoutDecisionRecord, MermaidNativePressureSignals, MermaidPressureReport,
-        MermaidPressureTier, MermaidQualityMode, MermaidSanitizeMode, MermaidSupportLevel,
+        MermaidLayoutDecisionRecord, MermaidLensEdit, MermaidNativePressureSignals,
+        MermaidPressureReport, MermaidPressureTier, MermaidQualityMode, MermaidSanitizeMode,
+        MermaidSourceMap, MermaidSourceMapEntry, MermaidSourceMapKind, MermaidSupportLevel,
         MermaidWarningCode, MermaidWasmPressureSignals, NodeMap, NodeSet, NodeShape, NotePosition,
-        Position, Span, StructuredDiagnostic, capability_matrix, capability_matrix_json_pretty,
+        Position, Span, StructuredDiagnostic, apply_lens_edit, build_lens_bindings,
+        capability_matrix, capability_matrix_json_pretty,
         capability_readme_supported_diagram_types_markdown, capability_readme_surface_markdown,
         documented_diagram_types, is_allowed_style_property, mermaid_layout_guard_observability,
-        parse_mermaid_js_config_value, parse_style_string, sanitize_style_value, scale_budget,
-        to_init_parse,
+        parse_mermaid_js_config_value, parse_style_string, resolve_span_text_range,
+        sanitize_style_value, scale_budget, to_init_parse,
     };
 
     fn sample_span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -4916,6 +4926,64 @@ mod tests {
         assert_eq!(line_span.start.line, 9);
         assert_eq!(line_span.start.col, 1);
         assert_eq!(line_span.end.col, 1);
+    }
+
+    #[test]
+    fn resolve_span_text_range_maps_line_columns_to_byte_offsets() {
+        let source = "flowchart LR\nA-->B\n";
+        let range = resolve_span_text_range(source, sample_span(2, 1, 5)).expect("range");
+        assert_eq!(&source[range.start_byte..range.end_byte], "A-->B");
+    }
+
+    #[test]
+    fn build_lens_bindings_captures_snippets_from_source_map_entries() {
+        let source = "flowchart LR\nA-->B\n";
+        let source_map = MermaidSourceMap {
+            diagram_type: DiagramType::Flowchart,
+            entries: vec![
+                MermaidSourceMapEntry {
+                    kind: MermaidSourceMapKind::Node,
+                    index: 0,
+                    element_id: "fm-node-a-0".to_string(),
+                    source_id: Some("A".to_string()),
+                    span: sample_span(2, 1, 1),
+                },
+                MermaidSourceMapEntry {
+                    kind: MermaidSourceMapKind::Edge,
+                    index: 0,
+                    element_id: "fm-edge-0".to_string(),
+                    source_id: None,
+                    span: sample_span(2, 1, 5),
+                },
+            ],
+        };
+
+        let bindings = build_lens_bindings(source, &source_map);
+        assert_eq!(bindings[0].snippet.as_deref(), Some("A"));
+        assert_eq!(bindings[1].snippet.as_deref(), Some("A-->B"));
+    }
+
+    #[test]
+    fn apply_lens_edit_rewrites_the_selected_source_region() {
+        let source = "flowchart LR\nA-->B\n";
+        let source_map = MermaidSourceMap {
+            diagram_type: DiagramType::Flowchart,
+            entries: vec![MermaidSourceMapEntry {
+                kind: MermaidSourceMapKind::Edge,
+                index: 0,
+                element_id: "fm-edge-0".to_string(),
+                source_id: None,
+                span: sample_span(2, 1, 5),
+            }],
+        };
+        let edit = MermaidLensEdit {
+            element_id: "fm-edge-0".to_string(),
+            replacement: "A-.->B".to_string(),
+        };
+
+        let result = apply_lens_edit(source, &source_map, &edit).expect("edit should apply");
+        assert_eq!(result.previous_snippet, "A-->B");
+        assert_eq!(result.updated_source, "flowchart LR\nA-.->B\n");
     }
 
     #[test]

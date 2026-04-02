@@ -4,8 +4,10 @@ use std::sync::{LazyLock, RwLock};
 use std::time::Instant;
 
 use fm_core::{
-    MermaidBudgetLedger, MermaidDiagramIr, MermaidGuardReport, MermaidSourceMapKind,
-    MermaidWasmPressureSignals, Span, capability_matrix, mermaid_layout_guard_observability,
+    MermaidBudgetLedger, MermaidDiagramIr, MermaidGuardReport, MermaidLensBinding, MermaidLensEdit,
+    MermaidLensEditResult, MermaidLensError, MermaidSourceMapKind, MermaidWasmPressureSignals,
+    Span, apply_lens_edit, build_lens_bindings, capability_matrix,
+    mermaid_layout_guard_observability,
 };
 #[cfg(target_arch = "wasm32")]
 use fm_layout::IncrementalLayoutEngine;
@@ -59,6 +61,19 @@ pub struct SourceSpanRecord {
     id: Option<String>,
     element_id: String,
     span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmDiagramLens {
+    bindings: Vec<MermaidLensBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmLensEditResponse {
+    result: MermaidLensEditResult,
+    bindings: Vec<MermaidLensBinding>,
 }
 
 #[derive(Debug, Clone)]
@@ -313,6 +328,41 @@ fn collect_source_spans(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> Vec<So
             span: entry.span,
         })
         .collect()
+}
+
+fn build_diagram_lens(input: &str) -> WasmDiagramLens {
+    let parsed = parse(input);
+    let traced_layout = layout_diagram_traced(&parsed.ir);
+    let source_map = layout_source_map(&parsed.ir, &traced_layout.layout);
+    WasmDiagramLens {
+        bindings: build_lens_bindings(input, &source_map),
+    }
+}
+
+fn build_lens_edit_response(
+    input: &str,
+    element_id: &str,
+    replacement: &str,
+) -> Result<WasmLensEditResponse, MermaidLensError> {
+    let parsed = parse(input);
+    let traced_layout = layout_diagram_traced(&parsed.ir);
+    let source_map = layout_source_map(&parsed.ir, &traced_layout.layout);
+    let result = apply_lens_edit(
+        input,
+        &source_map,
+        &MermaidLensEdit {
+            element_id: element_id.to_string(),
+            replacement: replacement.to_string(),
+        },
+    )?;
+
+    let updated_source = result.updated_source.clone();
+    let updated_parsed = parse(&updated_source);
+    let updated_layout = layout_diagram_traced(&updated_parsed.ir);
+    let updated_source_map = layout_source_map(&updated_parsed.ir, &updated_layout.layout);
+    let bindings = build_lens_bindings(&updated_source, &updated_source_map);
+
+    Ok(WasmLensEditResponse { result, bindings })
 }
 
 fn read_runtime_config() -> RuntimeConfig {
@@ -842,6 +892,22 @@ pub fn source_spans_js(input: &str) -> Result<JsValue, JsValue> {
     to_js_value(&collect_source_spans(&parsed.ir, &traced_layout.layout))
 }
 
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = diagramLens))]
+pub fn diagram_lens_js(input: &str) -> Result<JsValue, JsValue> {
+    to_js_value(&build_diagram_lens(input))
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = applyLensEdit))]
+pub fn apply_lens_edit_js(
+    input: &str,
+    element_id: &str,
+    replacement: &str,
+) -> Result<JsValue, JsValue> {
+    let response = build_lens_edit_response(input, element_id, replacement)
+        .map_err(|err| js_error(err.to_string()))?;
+    to_js_value(&response)
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = describeDiagram))]
 pub fn describe_diagram_js(input: &str) -> Result<String, JsValue> {
     let parsed = parse(input);
@@ -1287,10 +1353,10 @@ mod tests {
     use super::{
         CanvasConfigOverrides, PressureConfigOverrides, RuntimeConfig, RuntimeInitConfig,
         SvgConfigOverrides, ThemePreset, align_canvas_typography_with_svg,
-        apply_budget_svg_simplifications, apply_canvas_theme_preset, canvas_font_size_px,
-        collect_source_spans, describe_diagram_js, merge_canvas_config, merge_pressure_config,
-        merge_svg_config, read_runtime_config, render, render_svg_js, requested_theme_preset,
-        write_runtime_config,
+        apply_budget_svg_simplifications, apply_canvas_theme_preset, build_diagram_lens,
+        build_lens_edit_response, canvas_font_size_px, collect_source_spans, describe_diagram_js,
+        merge_canvas_config, merge_pressure_config, merge_svg_config, read_runtime_config, render,
+        render_svg_js, requested_theme_preset, write_runtime_config,
     };
     use fm_core::{MermaidPressureTier, MermaidWasmPressureSignals};
     use fm_layout::layout_diagram_traced;
@@ -1346,6 +1412,35 @@ mod tests {
             describe_diagram_js("flowchart LR\nA[Start]-->B[End]").expect("summary should succeed");
         assert!(summary.contains("Key nodes"));
         assert!(summary.contains("Layout spans"));
+    }
+
+    #[test]
+    fn diagram_lens_js_reports_bindings_with_snippets() {
+        let lens = build_diagram_lens("flowchart LR\nA-->B\n");
+        assert!(
+            lens.bindings
+                .iter()
+                .any(|binding| binding.element_id == "fm-node-a-0")
+        );
+        assert!(
+            lens.bindings
+                .iter()
+                .any(|binding| binding.snippet.as_deref() == Some("A-->B"))
+        );
+    }
+
+    #[test]
+    fn apply_lens_edit_js_updates_source_and_rebuilds_bindings() {
+        let response = build_lens_edit_response("flowchart LR\nA-->B\n", "fm-edge-0", "A-.->B")
+            .expect("lens edit should succeed");
+        assert_eq!(response.result.previous_snippet, "A-->B");
+        assert_eq!(response.result.updated_source, "flowchart LR\nA-.->B\n");
+        assert!(
+            response
+                .bindings
+                .iter()
+                .any(|binding| binding.snippet.as_deref() == Some("A-.->B"))
+        );
     }
 
     #[test]

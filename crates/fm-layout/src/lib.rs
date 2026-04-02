@@ -2060,7 +2060,7 @@ impl IncrementalLayoutEngine {
         let mut traced =
             compute_traced_layout_with_config_and_guardrails(ir, algorithm, config, guardrails);
         let incremental_state = state_guard.finish();
-        
+
         let recompute_duration_us = saturating_elapsed_micros(start.elapsed());
 
         self.graph_metrics_cache = incremental_state.graph_metrics_cache;
@@ -15512,7 +15512,7 @@ mod tests {
     #[test]
     fn incremental_recompute_events_report_cache_hit_and_required_fields() {
         let ir = labeled_graph_ir(4, &[(0, 1), (1, 2), (2, 3)]);
-        
+
         let mut engine = IncrementalLayoutEngine::default();
         let first = engine.layout_diagram_traced_with_config_and_guardrails(
             &ir,
@@ -15535,7 +15535,7 @@ mod tests {
             second.trace.incremental.cache_hit,
             "expected at least one incremental cache hit event"
         );
-        
+
         assert_eq!(first.trace.incremental.query_type, "layout_full_recompute");
         assert_eq!(second.trace.incremental.query_type, "layout_memoized_reuse");
     }
