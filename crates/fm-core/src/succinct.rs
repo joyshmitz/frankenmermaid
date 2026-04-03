@@ -136,7 +136,9 @@ impl BitVector {
     #[must_use]
     pub fn select(&self, k: u32) -> Option<usize> {
         // Binary search over rank to find the word containing the k-th set bit.
-        let mut remaining = k + 1;
+        let Some(mut remaining) = k.checked_add(1) else {
+            return None; // k = u32::MAX, can't have that many set bits
+        };
         for (word_idx, &word) in self.words.iter().enumerate() {
             let pc = word.count_ones();
             if pc >= remaining {

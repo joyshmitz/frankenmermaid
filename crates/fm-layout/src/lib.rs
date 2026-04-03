@@ -211,7 +211,8 @@ impl LayoutDependencyGraph {
             let edge_indexes = edges
                 .iter()
                 .filter(|edge| {
-                    recursive_members.contains(&edge.source) && recursive_members.contains(&edge.target)
+                    recursive_members.contains(&edge.source)
+                        && recursive_members.contains(&edge.target)
                 })
                 .map(|edge| edge.edge_index)
                 .collect();
@@ -327,7 +328,8 @@ impl LayoutDependencyGraph {
         let mut estimated_overhead_bytes = 0_usize;
         for region in regions.values_mut() {
             region.estimated_bytes = estimate_region_bytes(region);
-            estimated_overhead_bytes = estimated_overhead_bytes.saturating_add(region.estimated_bytes);
+            estimated_overhead_bytes =
+                estimated_overhead_bytes.saturating_add(region.estimated_bytes);
             for input in &region.inputs {
                 index.entry(*input).or_default().insert(region.id);
             }
@@ -336,7 +338,8 @@ impl LayoutDependencyGraph {
         estimated_overhead_bytes = estimated_overhead_bytes
             .saturating_add(index.len().saturating_mul(size_of::<RegionInput>()))
             .saturating_add(
-                index.values()
+                index
+                    .values()
                     .map(|owners| owners.len().saturating_mul(size_of::<SubgraphRegionId>()))
                     .sum::<usize>(),
             );
@@ -364,13 +367,7 @@ impl DependencyGraph for LayoutDependencyGraph {
 
     fn locate_dirty_regions(&self, edit: LayoutEdit) -> DirtySet {
         let mut dirty = DirtySet::default();
-        dirty.extend(
-            self.index
-                .get(&edit.input())
-                .cloned()
-                .unwrap_or_default()
-                .into_iter(),
-        );
+        dirty.extend(self.index.get(&edit.input()).cloned().unwrap_or_default());
         dirty
     }
 
@@ -475,9 +472,24 @@ fn estimate_region_bytes(region: &SubgraphRegion) -> usize {
         .saturating_add(region.label.len())
         .saturating_add(region.node_indexes.len().saturating_mul(size_of::<usize>()))
         .saturating_add(region.edge_indexes.len().saturating_mul(size_of::<usize>()))
-        .saturating_add(region.subgraph_indexes.len().saturating_mul(size_of::<usize>()))
-        .saturating_add(region.depends_on.len().saturating_mul(size_of::<SubgraphRegionId>()))
-        .saturating_add(region.dependents.len().saturating_mul(size_of::<SubgraphRegionId>()))
+        .saturating_add(
+            region
+                .subgraph_indexes
+                .len()
+                .saturating_mul(size_of::<usize>()),
+        )
+        .saturating_add(
+            region
+                .depends_on
+                .len()
+                .saturating_mul(size_of::<SubgraphRegionId>()),
+        )
+        .saturating_add(
+            region
+                .dependents
+                .len()
+                .saturating_mul(size_of::<SubgraphRegionId>()),
+        )
         .saturating_add(region.inputs.len().saturating_mul(size_of::<RegionInput>()))
 }
 
@@ -2625,7 +2637,6 @@ fn select_general_graph_algorithm(ir: &MermaidDiagramIr) -> LayoutDispatch {
     .map_or(LayoutAlgorithm::Sugiyama, |(algorithm, _)| algorithm);
 
     let selected_expected_loss_permille = match selected {
-        LayoutAlgorithm::Sugiyama => sugiyama_loss,
         LayoutAlgorithm::Tree => tree_loss,
         LayoutAlgorithm::Force => force_loss,
         _ => sugiyama_loss,
@@ -2652,8 +2663,10 @@ const fn algorithm_available_for_diagram(
     algorithm: LayoutAlgorithm,
 ) -> bool {
     match algorithm {
-        LayoutAlgorithm::Auto => true,
-        LayoutAlgorithm::Sugiyama | LayoutAlgorithm::Force | LayoutAlgorithm::Tree => true,
+        LayoutAlgorithm::Auto
+        | LayoutAlgorithm::Sugiyama
+        | LayoutAlgorithm::Force
+        | LayoutAlgorithm::Tree => true,
         LayoutAlgorithm::Radial => matches!(diagram_type, DiagramType::Mindmap),
         LayoutAlgorithm::Timeline => matches!(diagram_type, DiagramType::Timeline),
         LayoutAlgorithm::Gantt => matches!(diagram_type, DiagramType::Gantt),
@@ -10545,9 +10558,8 @@ mod tests {
     use super::{
         CycleStrategy, DependencyGraph, DirtySet, GraphMetrics, IncrementalLayoutEngine,
         LayoutAlgorithm, LayoutDependencyGraph, LayoutEdit, LayoutGuardrails, LayoutPoint,
-        LayoutRect, LayoutSequenceLifecycleMarkerKind, RegionInput, RegionMemoryBudget,
-        RenderClip, RenderItem, RenderSource, SubgraphRegion, SubgraphRegionId,
-        SubgraphRegionKind,
+        LayoutRect, LayoutSequenceLifecycleMarkerKind, RegionInput, RegionMemoryBudget, RenderClip,
+        RenderItem, RenderSource, SubgraphRegion, SubgraphRegionId, SubgraphRegionKind,
         build_layout_decision_ledger, build_layout_guard_report, build_render_scene,
         dispatch_layout_algorithm, layout, layout_diagram, layout_diagram_force,
         layout_diagram_force_traced, layout_diagram_gantt, layout_diagram_grid,
@@ -10560,9 +10572,9 @@ mod tests {
     };
     use fm_core::{
         ArrowType, DiagramType, GanttDate, GanttExclude, GraphDirection, IrCluster, IrClusterId,
-        IrEdge, IrEndpoint, IrGanttMeta, IrGanttSection, IrGanttTask, IrGraphCluster, IrGraphNode,
-        IrLabel, IrLabelId, IrLifecycleEvent, IrNode, IrNodeId, IrParticipantGroup, IrPieMeta,
-        IrPieSlice, IrSequenceMeta, IrSequenceNote, IrSubgraph, IrSubgraphId, IrXyAxis,
+        IrEdge, IrEndpoint, IrGanttMeta, IrGanttSection, IrGanttTask, IrGraphCluster, IrGraphEdge,
+        IrGraphNode, IrLabel, IrLabelId, IrLifecycleEvent, IrNode, IrNodeId, IrParticipantGroup,
+        IrPieMeta, IrPieSlice, IrSequenceMeta, IrSequenceNote, IrSubgraph, IrSubgraphId, IrXyAxis,
         IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr, MermaidPressureTier,
         MermaidSourceMapKind, NodeShape, Span,
     };
@@ -10673,6 +10685,21 @@ mod tests {
         });
     }
 
+    fn append_labeled_node(ir: &mut MermaidDiagramIr, label_text: &str) -> usize {
+        let label_index = ir.labels.len();
+        ir.labels.push(IrLabel {
+            text: label_text.to_string(),
+            span: Span::default(),
+        });
+        let node_index = ir.nodes.len();
+        ir.nodes.push(IrNode {
+            id: format!("N{node_index}"),
+            label: Some(IrLabelId(label_index)),
+            ..IrNode::default()
+        });
+        node_index
+    }
+
     fn sample_dependency_graph() -> TestDependencyGraph {
         let root = SubgraphRegion {
             id: SubgraphRegionId(0),
@@ -10728,6 +10755,26 @@ mod tests {
 
     fn sample_layout_dependency_ir() -> MermaidDiagramIr {
         let mut ir = labeled_graph_ir(5, &[(0, 1), (1, 2), (2, 3), (3, 4)]);
+        ir.graph.nodes = (0..ir.nodes.len())
+            .map(|node_index| IrGraphNode {
+                node_id: IrNodeId(node_index),
+                clusters: Vec::new(),
+                subgraphs: Vec::new(),
+                ..IrGraphNode::default()
+            })
+            .collect();
+        ir.graph.edges = ir
+            .edges
+            .iter()
+            .enumerate()
+            .map(|(edge_index, edge)| IrGraphEdge {
+                edge_id: edge_index,
+                from: edge.from,
+                to: edge.to,
+                span: edge.span,
+                ..IrGraphEdge::default()
+            })
+            .collect();
 
         ir.graph.subgraphs.push(IrSubgraph {
             id: IrSubgraphId(0),
@@ -10839,6 +10886,15 @@ mod tests {
     }
 
     #[test]
+    fn layout_dependency_graph_build_is_deterministic_for_identical_ir() {
+        let ir = sample_layout_dependency_ir();
+        let first = LayoutDependencyGraph::from_ir(&ir);
+        let second = LayoutDependencyGraph::from_ir(&ir);
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
     fn layout_dependency_graph_cross_region_edges_seed_and_propagate_dirty_sets() {
         let ir = sample_layout_dependency_ir();
         let graph = LayoutDependencyGraph::from_ir(&ir);
@@ -10855,10 +10911,35 @@ mod tests {
             vec![SubgraphRegionId(1), SubgraphRegionId(2)]
         );
 
+        let cross_edge_removed =
+            graph.locate_dirty_regions(LayoutEdit::EdgeRemoved { edge_index: 1 });
+        assert_eq!(
+            cross_edge_removed.regions.into_iter().collect::<Vec<_>>(),
+            vec![SubgraphRegionId(1), SubgraphRegionId(2)]
+        );
+
+        let fragment_only_dirty =
+            graph.locate_dirty_regions(LayoutEdit::NodeRemoved { node_index: 4 });
+        assert_eq!(
+            fragment_only_dirty.regions.into_iter().collect::<Vec<_>>(),
+            vec![SubgraphRegionId(2)]
+        );
+
+        let subgraph_dirty =
+            graph.locate_dirty_regions(LayoutEdit::SubgraphChanged { subgraph_index: 1 });
+        assert_eq!(
+            subgraph_dirty.regions.into_iter().collect::<Vec<_>>(),
+            vec![SubgraphRegionId(1)]
+        );
+
         let propagated = graph.propagate_dirty(&DirtySet::from_region(SubgraphRegionId(0)));
         assert_eq!(
             propagated.regions.into_iter().collect::<Vec<_>>(),
-            vec![SubgraphRegionId(0), SubgraphRegionId(1), SubgraphRegionId(2)]
+            vec![
+                SubgraphRegionId(0),
+                SubgraphRegionId(1),
+                SubgraphRegionId(2)
+            ]
         );
     }
 
@@ -11027,6 +11108,123 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn incremental_layout_engine_matches_full_recompute_for_golden_edit_sequence() {
+        let mut engine = IncrementalLayoutEngine::default();
+        let mut ir = labeled_graph_ir(4, &[(0, 1), (1, 2), (2, 3)]);
+        let config = super::LayoutConfig::default();
+        let guardrails = LayoutGuardrails::default();
+
+        let baseline_incremental = engine.layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        let baseline_full = layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        assert_eq!(baseline_incremental.layout, baseline_full.layout);
+        assert_eq!(
+            baseline_incremental.trace.incremental.query_type,
+            "layout_full_recompute"
+        );
+
+        let mut observed_query_types = vec![baseline_incremental.trace.incremental.query_type];
+
+        let label_index = ir.nodes[1]
+            .label
+            .expect("labeled graph should assign every node a label")
+            .0;
+        ir.labels[label_index].text = "Node 1 expanded".to_string();
+        let step1_incremental = engine.layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        let step1_full = layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        assert_eq!(step1_incremental.layout, step1_full.layout);
+        assert_eq!(
+            step1_incremental.trace.incremental.query_type,
+            "layout_full_recompute_with_query_reuse"
+        );
+        assert_eq!(step1_incremental.trace.incremental.recomputed_nodes, 1);
+        observed_query_types.push(step1_incremental.trace.incremental.query_type);
+
+        let new_node = append_labeled_node(&mut ir, "Node 4");
+        ir.edges.push(IrEdge {
+            from: IrEndpoint::Node(IrNodeId(3)),
+            to: IrEndpoint::Node(IrNodeId(new_node)),
+            arrow: ArrowType::Arrow,
+            ..IrEdge::default()
+        });
+        let step2_incremental = engine.layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        let step2_full = layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        assert_eq!(step2_incremental.layout, step2_full.layout);
+        assert_eq!(
+            step2_incremental.trace.incremental.query_type,
+            "layout_full_recompute_with_query_reuse"
+        );
+        assert_eq!(
+            step2_incremental.trace.incremental.recomputed_nodes,
+            ir.nodes.len()
+        );
+        observed_query_types.push(step2_incremental.trace.incremental.query_type);
+
+        toggle_edge(&mut ir, 1, 2);
+        let step3_incremental = engine.layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        let step3_full = layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            config,
+            guardrails,
+        );
+        assert_eq!(step3_incremental.layout, step3_full.layout);
+        assert_eq!(
+            step3_incremental.trace.incremental.query_type,
+            "layout_full_recompute_with_query_reuse"
+        );
+        assert_eq!(
+            step3_incremental.trace.incremental.recomputed_nodes,
+            ir.nodes.len()
+        );
+        observed_query_types.push(step3_incremental.trace.incremental.query_type);
+
+        assert_eq!(
+            observed_query_types,
+            vec![
+                "layout_full_recompute",
+                "layout_full_recompute_with_query_reuse",
+                "layout_full_recompute_with_query_reuse",
+                "layout_full_recompute_with_query_reuse",
+            ]
+        );
     }
 
     fn sample_xychart_ir() -> MermaidDiagramIr {
@@ -15702,7 +15900,9 @@ mod tests {
             .with_target(false)
             .with_level(true);
 
-        let subscriber = tracing_subscriber::registry().with(fmt_layer);
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::TRACE)
+            .with(fmt_layer);
 
         // Run layout under the subscriber.
         let ir = graph_ir(DiagramType::Flowchart, 5, &[(0, 1), (1, 2), (2, 3), (3, 4)]);
@@ -15769,7 +15969,9 @@ mod tests {
             .with_target(false)
             .with_level(true);
 
-        let subscriber = tracing_subscriber::registry().with(fmt_layer);
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::TRACE)
+            .with(fmt_layer);
 
         // Use a cyclic graph to trigger the cycle_removal info event.
         let ir = graph_ir(DiagramType::Flowchart, 3, &[(0, 1), (1, 2), (2, 0)]);
@@ -15811,7 +16013,9 @@ mod tests {
             .with_target(false)
             .with_level(true);
 
-        let subscriber = tracing_subscriber::registry().with(fmt_layer);
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::TRACE)
+            .with(fmt_layer);
 
         let ir = graph_ir(DiagramType::Flowchart, 4, &[(0, 1), (1, 2), (2, 3)]);
         tracing::subscriber::with_default(subscriber, || {
@@ -16067,7 +16271,9 @@ mod tests {
             .with_target(false)
             .with_level(true);
 
-        let subscriber = tracing_subscriber::registry().with(fmt_layer);
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::TRACE)
+            .with(fmt_layer);
 
         let ir = graph_ir(DiagramType::Flowchart, 5, &[(0, 1), (1, 2), (2, 3), (3, 4)]);
         tracing::subscriber::with_default(subscriber, || {

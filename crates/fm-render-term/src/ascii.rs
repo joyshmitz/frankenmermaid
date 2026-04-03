@@ -33,7 +33,7 @@ pub fn classify_char(ch: char) -> CharClass {
         // Unicode box-drawing.
         '─' | '━' | '═' | '│' | '┃' | '║' => CharClass::BoxDrawing,
         '┌' | '┐' | '└' | '┘' | '┏' | '┓' | '┗' | '┛' | '╔' | '╗' | '╚' | '╝' | '╭' | '╮' | '╰'
-        | '╯' => CharClass::Junction,
+        | '╯' | '+' => CharClass::Junction,
         '├' | '┤' | '┬' | '┴' | '┼' | '┣' | '┫' | '┳' | '┻' | '╋' | '╠' | '╣' | '╦' | '╩' | '╬' => {
             CharClass::Junction
         }
@@ -41,7 +41,6 @@ pub fn classify_char(ch: char) -> CharClass {
         // ASCII box-drawing.
         '-' => CharClass::HorizontalLine,
         '|' => CharClass::VerticalLine,
-        '+' => CharClass::Junction,
         '/' | '\\' => CharClass::DiagonalLine,
 
         // Arrows.

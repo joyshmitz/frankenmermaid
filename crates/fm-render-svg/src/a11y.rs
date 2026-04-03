@@ -222,7 +222,6 @@ pub fn describe_edge(
         .unwrap_or("unknown");
 
     let arrow_desc = match arrow_type {
-        fm_core::ArrowType::Line => "connects to",
         fm_core::ArrowType::Arrow => "points to",
         fm_core::ArrowType::ThickArrow => "strongly points to",
         fm_core::ArrowType::DottedArrow => "optionally points to",

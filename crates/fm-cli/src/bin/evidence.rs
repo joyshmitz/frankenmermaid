@@ -2385,8 +2385,7 @@ fn combine_gate_statuses(left: PerfGateStatus, right: PerfGateStatus) -> PerfGat
     match (left, right) {
         (Fail, _) | (_, Fail) => Fail,
         (Warn, _) | (_, Warn) => Warn,
-        (Pass, Pass) => Pass,
-        (NoBaseline, Pass) | (Pass, NoBaseline) => Pass,
+        (Pass, Pass) | (NoBaseline, Pass) | (Pass, NoBaseline) => Pass,
         (NoBaseline, NoBaseline) => NoBaseline,
     }
 }

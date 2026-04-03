@@ -301,8 +301,10 @@ struct DetRng {
 
 impl DetRng {
     fn new(seed: u64) -> Self {
+        // xorshift64 has a fixed point at 0 — ensure we never start there.
+        let state = seed.wrapping_add(1);
         Self {
-            state: seed.wrapping_add(1), // Avoid 0 state
+            state: if state == 0 { 1 } else { state },
         }
     }
 

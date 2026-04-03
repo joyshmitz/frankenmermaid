@@ -944,17 +944,6 @@ impl Canvas2dRenderer {
 
                 match arrow {
                     ArrowType::Line => {}
-                    ArrowType::Arrow
-                    | ArrowType::ThickArrow
-                    | ArrowType::DottedArrow
-                    | ArrowType::ThickLine
-                    | ArrowType::DottedLine
-                    | ArrowType::DoubleArrow
-                    | ArrowType::DoubleThickArrow
-                    | ArrowType::DoubleDottedArrow => {
-                        draw_arrowhead(ctx, ex, ey, angle, 10.0, &self.config.edge_stroke);
-                        self.draw_calls += 1;
-                    }
                     ArrowType::Circle => {
                         draw_circle_marker(
                             ctx,
@@ -968,10 +957,6 @@ impl Canvas2dRenderer {
                     }
                     ArrowType::Cross => {
                         draw_cross_marker(ctx, ex, ey, 8.0, &self.config.edge_stroke);
-                        self.draw_calls += 1;
-                    }
-                    ArrowType::OpenArrow | ArrowType::DottedOpenArrow => {
-                        draw_arrowhead(ctx, ex, ey, angle, 10.0, &self.config.edge_stroke);
                         self.draw_calls += 1;
                     }
                     // All other arrow types (half arrows, stick arrows, etc.) — render as standard arrowhead.

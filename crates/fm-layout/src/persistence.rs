@@ -338,23 +338,19 @@ pub fn compute_persistence(
                 (v, u)
             };
 
-            let larger_neighbors: std::collections::BTreeSet<usize> =
-                adjacency[larger].iter().map(|&(n, _)| n).collect();
-
             for &(w, d_sw) in &adjacency[smaller] {
                 if w <= u || w <= v {
                     continue; // Avoid duplicates: require u < v < w ordering check
                 }
-                if !larger_neighbors.contains(&w) {
-                    continue;
-                }
 
-                // Found triangle (u, v, w) (or a permutation). Get all three edge distances.
-                let d_lw = adjacency[larger]
+                // Try to find w in the larger adjacency list. If found, we have a triangle.
+                let Some(d_lw) = adjacency[larger]
                     .iter()
                     .find(|&&(n, _)| n == w)
                     .map(|&(_, d)| d)
-                    .unwrap_or(f64::INFINITY);
+                else {
+                    continue;
+                };
 
                 let filtration = d_uv.max(d_sw).max(d_lw);
                 triangles.push(FiltrationTriangle {

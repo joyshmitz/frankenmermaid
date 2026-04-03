@@ -2269,9 +2269,8 @@ fn parse_state(input: &str, builder: &mut IrBuilder) {
         let trimmed = line.trim();
 
         // Inside a multi-line note block: collect until `end note`.
-        if let Some((ref _target, ref _position, ref mut lines, _start)) = note_block {
+        if let Some((target, position, mut lines, start)) = note_block.take() {
             if trimmed == "end note" {
-                let (target, position, lines, start) = note_block.take().unwrap();
                 let text = lines.join("\n");
                 let span = span_for(start, "");
                 builder.ir_mut().state_notes.push(fm_core::IrStateNote {
@@ -2281,9 +2280,10 @@ fn parse_state(input: &str, builder: &mut IrBuilder) {
                     span,
                 });
                 let _ = builder.intern_node(&target, None, NodeShape::Rounded, span);
-                continue;
+            } else {
+                lines.push(trimmed.to_string());
+                note_block = Some((target, position, lines, start));
             }
-            lines.push(trimmed.to_string());
             continue;
         }
 
@@ -4735,7 +4735,6 @@ fn parse_xychart(input: &str, builder: &mut IrBuilder) {
             let node_id = format!("{base_id}_{}", point_index + 1);
             let shape = match series_kind {
                 "bar" => NodeShape::Rect,
-                "line" | "area" => NodeShape::Circle,
                 _ => NodeShape::Circle,
             };
             let Some(node) = builder.intern_node(&node_id, Some(&node_label), shape, span) else {
@@ -4753,7 +4752,6 @@ fn parse_xychart(input: &str, builder: &mut IrBuilder) {
 
         xy_chart_meta.series.push(IrXySeries {
             kind: match series_kind {
-                "bar" => IrXySeriesKind::Bar,
                 "line" => IrXySeriesKind::Line,
                 "area" => IrXySeriesKind::Area,
                 _ => IrXySeriesKind::Bar,
@@ -5025,7 +5023,6 @@ fn parse_architecture(input: &str, builder: &mut IrBuilder) {
             let shape = match declaration.icon.as_deref() {
                 Some("database" | "db" | "disk") => NodeShape::Cylinder,
                 Some("cloud") => NodeShape::Rounded,
-                Some("server" | "compute") => NodeShape::Rect,
                 _ => NodeShape::Rect,
             };
             let Some(node_id) = builder.intern_node(&declaration.id, label, shape, span) else {
@@ -12600,10 +12597,5 @@ Rel_Back(db, app, "Responds")"#,
     fn packet_beta_fields_linked_sequentially() {
         let parsed = parse_mermaid("packet-beta\n  0-7: \"A\"\n  8-15: \"B\"\n  16-23: \"C\"");
         assert_eq!(parsed.ir.edges.len(), 2, "3 fields should produce 2 edges");
-    }
-}
-3 fields should produce 2 edges");
-    }
-}
     }
 }

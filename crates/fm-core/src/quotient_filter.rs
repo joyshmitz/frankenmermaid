@@ -172,13 +172,10 @@ impl QuotientFilter {
         // Shift elements right to make room at `pos`.
         self.shift_right(pos);
         self.slots[pos] = Some(remainder);
-        if pos != quotient {
-            self.is_shifted[pos] = true;
-        }
-        // If this isn't the first element in the run, mark as continuation.
-        if pos != run_start {
-            self.is_continuation[pos] = true;
-        }
+        // Reset metadata for the newly inserted element (shift_right may have
+        // left stale flags from the element that was previously at this position).
+        self.is_shifted[pos] = pos != quotient;
+        self.is_continuation[pos] = pos != run_start;
         self.count += 1;
         true
     }

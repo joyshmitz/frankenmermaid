@@ -661,13 +661,12 @@ fn map_marker_kind(kind: fm_layout::MarkerKind) -> &'static str {
     use fm_layout::MarkerKind;
     match kind {
         MarkerKind::None => "",
-        MarkerKind::Arrow => "url(#arrow-end)",
+        MarkerKind::Arrow | MarkerKind::DottedArrow => "url(#arrow-end)",
         MarkerKind::HalfArrowTop => "url(#arrow-half-top)",
         MarkerKind::HalfArrowBottom => "url(#arrow-half-bottom)",
         MarkerKind::StickArrowTop => "url(#arrow-stick-top)",
         MarkerKind::StickArrowBottom => "url(#arrow-stick-bottom)",
         MarkerKind::ThickArrow => "url(#arrow-filled)",
-        MarkerKind::DottedArrow => "url(#arrow-end)",
         MarkerKind::Circle => "url(#arrow-circle)",
         MarkerKind::Cross => "url(#arrow-cross)",
         MarkerKind::Diamond => "url(#arrow-diamond)",
@@ -3555,9 +3554,8 @@ fn render_node(
             .map(|l| l.text.as_str())
             .or_else(|| {
                 ir_node.and_then(|node| match node.shape {
-                    NodeShape::FilledCircle => None,
                     NodeShape::DoubleCircle if node.label.is_none() => None,
-                    NodeShape::HorizontalBar => None,
+                    NodeShape::FilledCircle | NodeShape::HorizontalBar => None,
                     _ => Some(node.id.as_str()),
                 })
             })
@@ -5655,7 +5653,7 @@ fn render_edge(
         )
     } else {
         match arrow {
-            ArrowType::Line => (None, None, None, &colors.edge),
+            ArrowType::Line | ArrowType::ThickLine => (None, None, None, &colors.edge),
             ArrowType::Arrow => (None, None, Some("url(#arrow-end)"), &colors.edge),
             ArrowType::OpenArrow => (None, None, Some("url(#arrow-open)"), &colors.edge),
             ArrowType::HalfArrowTop => (None, None, Some("url(#arrow-half-top)"), &colors.edge),
@@ -5734,7 +5732,6 @@ fn render_edge(
             ),
             ArrowType::Circle => (None, None, Some("url(#arrow-circle)"), &colors.edge),
             ArrowType::Cross => (None, None, Some("url(#arrow-cross)"), &colors.edge),
-            ArrowType::ThickLine => (None, None, None, &colors.edge),
             ArrowType::DottedLine => (Some("5,5"), None, None, &colors.edge),
             ArrowType::DoubleArrow => (
                 None,
