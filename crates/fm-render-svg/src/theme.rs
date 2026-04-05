@@ -741,7 +741,7 @@ fn hex_to_hsl(hex: &str) -> (f32, f32, f32) {
 
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
-    let l = (max + min) / 2.0;
+    let l = f32::midpoint(max, min);
 
     if (max - min).abs() < f32::EPSILON {
         return (0.0, 0.0, l);

@@ -215,8 +215,8 @@ impl PathCommand {
                     FmtNum(*rx),
                     FmtNum(*ry),
                     FmtNum(*x_rotation),
-                    if *large_arc { 1 } else { 0 },
-                    if *sweep { 1 } else { 0 },
+                    i32::from(*large_arc),
+                    i32::from(*sweep),
                     FmtNum(*x),
                     FmtNum(*y)
                 );
@@ -236,8 +236,8 @@ impl PathCommand {
                     FmtNum(*rx),
                     FmtNum(*ry),
                     FmtNum(*x_rotation),
-                    if *large_arc { 1 } else { 0 },
-                    if *sweep { 1 } else { 0 },
+                    i32::from(*large_arc),
+                    i32::from(*sweep),
                     FmtNum(*dx),
                     FmtNum(*dy)
                 );

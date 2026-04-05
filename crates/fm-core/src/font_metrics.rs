@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 /// Returns true for characters that occupy approximately 2 columns in
 /// monospace/proportional fonts — CJK ideographs, fullwidth forms, and
 /// common emoji. Based on UAX #11 East Asian Width property (W/F categories).
-const fn is_east_asian_wide(c: char) -> bool {
+#[must_use]
+pub const fn is_east_asian_wide(c: char) -> bool {
     let cp = c as u32;
     matches!(cp,
         // CJK Unified Ideographs

@@ -1316,9 +1316,18 @@ fn dirty_nodes_for_edits(
     previous_ir: &MermaidDiagramIr,
     current_ir: &MermaidDiagramIr,
 ) -> usize {
+    dirty_node_indexes_for_edits(previous_graph, current_graph, previous_ir, current_ir).len()
+}
+
+fn dirty_node_indexes_for_edits(
+    previous_graph: &LayoutDependencyGraph,
+    current_graph: &LayoutDependencyGraph,
+    previous_ir: &MermaidDiagramIr,
+    current_ir: &MermaidDiagramIr,
+) -> BTreeSet<usize> {
     let edits = derive_layout_edits(previous_ir, current_ir);
     if edits.is_empty() {
-        return 0;
+        return BTreeSet::new();
     }
 
     let previous_key = dependency_graph_cache_key(previous_ir);
@@ -1342,12 +1351,31 @@ fn dirty_nodes_for_edits(
 
     if same_topology {
         dirty_current.extend(dirty_previous.regions);
-        return count_dirty_nodes(current_graph, &dirty_current).min(current_ir.nodes.len());
+        return dirty_nodes_from_sets(current_graph, &dirty_current, current_ir.nodes.len());
     }
 
-    count_dirty_nodes(current_graph, &dirty_current)
-        .saturating_add(count_dirty_nodes(previous_graph, &dirty_previous))
-        .min(current_ir.nodes.len())
+    let mut dirty_nodes =
+        dirty_nodes_from_sets(current_graph, &dirty_current, current_ir.nodes.len());
+    dirty_nodes.extend(dirty_nodes_from_sets(
+        previous_graph,
+        &dirty_previous,
+        current_ir.nodes.len(),
+    ));
+    dirty_nodes
+}
+
+fn dirty_nodes_from_sets<G: DependencyGraph>(
+    graph: &G,
+    dirty: &DirtySet,
+    max_node_count: usize,
+) -> BTreeSet<usize> {
+    dirty
+        .regions
+        .iter()
+        .filter_map(|region_id| graph.regions().get(region_id))
+        .flat_map(|region| region.node_indexes.iter().copied())
+        .filter(|node_index| *node_index < max_node_count)
+        .collect()
 }
 
 fn incremental_region_members(
@@ -1372,14 +1400,31 @@ fn incremental_region_members(
     members.into_iter().collect()
 }
 
-fn count_dirty_nodes<G: DependencyGraph>(graph: &G, dirty: &DirtySet) -> usize {
-    dirty
-        .regions
-        .iter()
-        .filter_map(|region_id| graph.regions().get(region_id))
-        .flat_map(|region| region.node_indexes.iter().copied())
-        .collect::<BTreeSet<_>>()
-        .len()
+fn incremental_overlap_alignment(
+    dirty_members: &BTreeSet<usize>,
+    local_entries: &BTreeMap<usize, (LayoutRect, usize, usize)>,
+    nodes: &[LayoutNodeBox],
+) -> Option<(f32, f32)> {
+    let mut anchor_count = 0_u32;
+    let mut dx_total = 0.0_f32;
+    let mut dy_total = 0.0_f32;
+
+    for (&node_index, (bounds, _, _)) in local_entries {
+        if dirty_members.contains(&node_index) {
+            continue;
+        }
+        let Some(previous_node) = nodes.get(node_index) else {
+            continue;
+        };
+        dx_total += previous_node.bounds.center().x - bounds.center().x;
+        dy_total += previous_node.bounds.center().y - bounds.center().y;
+        anchor_count = anchor_count.saturating_add(1);
+    }
+
+    (anchor_count > 0).then_some((
+        dx_total / anchor_count as f32,
+        dy_total / anchor_count as f32,
+    ))
 }
 
 fn derive_layout_edits(previous: &MermaidDiagramIr, current: &MermaidDiagramIr) -> Vec<LayoutEdit> {
@@ -2685,6 +2730,7 @@ impl IncrementalLayoutEngine {
         if let Some(mut traced) =
             self.try_incremental_subgraph_relayout(ir, algorithm, &config, guardrails)
         {
+            let selective_recomputed_nodes = traced.trace.incremental.recomputed_nodes.max(1);
             let incremental_state = state_guard.finish();
             let recompute_duration_us = saturating_elapsed_micros(start.elapsed());
 
@@ -2694,7 +2740,7 @@ impl IncrementalLayoutEngine {
             traced.trace.incremental = IncrementalRecomputeTrace {
                 query_type: "layout_incremental_subgraph_relayout",
                 cache_hit: false,
-                recomputed_nodes: incremental_state.current_summary.recomputed_nodes.max(1),
+                recomputed_nodes: selective_recomputed_nodes,
                 total_nodes: incremental_state
                     .current_summary
                     .total_nodes
@@ -2786,7 +2832,7 @@ impl IncrementalLayoutEngine {
         if guard.fallback_applied || guard.selected_algorithm != LayoutAlgorithm::Sugiyama {
             return None;
         }
-        if dependency_graph_cache_key(&cached_graph.ir) != dependency_graph_cache_key(ir) {
+        if ir.nodes.len() != cached_graph.ir.nodes.len() {
             return None;
         }
 
@@ -2797,21 +2843,30 @@ impl IncrementalLayoutEngine {
         if edits.iter().any(|edit| {
             matches!(
                 edit,
-                LayoutEdit::NodeAdded { .. }
-                    | LayoutEdit::NodeRemoved { .. }
-                    | LayoutEdit::EdgeAdded { .. }
-                    | LayoutEdit::EdgeRemoved { .. }
+                LayoutEdit::NodeAdded { .. } | LayoutEdit::NodeRemoved { .. }
             )
         }) {
             return None;
         }
 
         track_dependency_graph_query(ir);
+        let current_graph =
+            if dependency_graph_cache_key(&cached_graph.ir) == dependency_graph_cache_key(ir) {
+                cached_graph.graph.clone()
+            } else {
+                LayoutDependencyGraph::from_ir(ir)
+            };
+        let dirty_node_indexes =
+            dirty_node_indexes_for_edits(&cached_graph.graph, &current_graph, &cached_graph.ir, ir);
+        if dirty_node_indexes.is_empty() {
+            return None;
+        }
 
         let mut dirty = DirtySet::default();
-        for edit in edits {
-            let located = cached_graph.graph.locate_dirty_regions(edit);
-            dirty.extend(cached_graph.graph.propagate_dirty(&located).regions);
+        for (region_id, region) in current_graph.regions() {
+            if !region.node_indexes.is_disjoint(&dirty_node_indexes) {
+                dirty.insert(*region_id);
+            }
         }
         if dirty.is_empty() {
             return None;
@@ -2835,10 +2890,11 @@ impl IncrementalLayoutEngine {
             .collect();
 
         for region_id in &dirty.regions {
-            let Some(region) = cached_graph.graph.regions().get(region_id) else {
+            let Some(region) = current_graph.regions().get(region_id) else {
                 continue;
             };
             let dirty_members: Vec<_> = region.node_indexes.iter().copied().collect();
+            let dirty_member_set = region.node_indexes.clone();
             if dirty_members.is_empty() {
                 continue;
             }
@@ -2865,6 +2921,8 @@ impl IncrementalLayoutEngine {
                 .into_iter()
                 .map(|(node_index, bounds, rank, order)| (node_index, (bounds, rank, order)))
                 .collect();
+            let (dx, dy) = incremental_overlap_alignment(&dirty_member_set, &local_entries, &nodes)
+                .unwrap_or((dx, dy));
             for node_index in dirty_members {
                 let Some((bounds, rank, order)) = local_entries.get(&node_index).cloned() else {
                     continue;
@@ -2938,7 +2996,16 @@ impl IncrementalLayoutEngine {
                     ..LayoutExtensions::default()
                 },
             },
-            trace,
+            trace: LayoutTrace {
+                incremental: IncrementalRecomputeTrace {
+                    query_type: "layout_incremental_subgraph_relayout",
+                    cache_hit: false,
+                    recomputed_nodes: dirty_node_indexes.len(),
+                    total_nodes: ir.nodes.len(),
+                    recompute_duration_us: 0,
+                },
+                ..trace
+            },
         })
     }
 }
@@ -11076,11 +11143,12 @@ mod tests {
     use super::{
         CachedNodeSize, CycleStrategy, DependencyGraph, DirtySet, GraphMetrics,
         IncrementalLayoutEngine, IncrementalLayoutSession, LayoutAlgorithm, LayoutDependencyGraph,
-        LayoutEdit, LayoutGuardrails, LayoutPoint, LayoutRect, LayoutSequenceLifecycleMarkerKind,
-        RegionInput, RegionMemoryBudget, RenderClip, RenderItem, RenderSource, SubgraphRegion,
-        SubgraphRegionId, SubgraphRegionKind, build_layout_decision_ledger,
-        build_layout_guard_report, build_render_scene, dispatch_layout_algorithm, layout,
-        layout_diagram, layout_diagram_force, layout_diagram_force_traced, layout_diagram_gantt,
+        LayoutEdit, LayoutGuardrails, LayoutNodeBox, LayoutPoint, LayoutRect,
+        LayoutSequenceLifecycleMarkerKind, RegionInput, RegionMemoryBudget, RenderClip, RenderItem,
+        RenderSource, SubgraphRegion, SubgraphRegionId, SubgraphRegionKind,
+        build_layout_decision_ledger, build_layout_guard_report, build_render_scene,
+        dispatch_layout_algorithm, incremental_overlap_alignment, layout, layout_diagram,
+        layout_diagram_force, layout_diagram_force_traced, layout_diagram_gantt,
         layout_diagram_grid, layout_diagram_incremental_traced_with_config_and_guardrails,
         layout_diagram_radial, layout_diagram_sankey, layout_diagram_sequence,
         layout_diagram_sequence_traced, layout_diagram_timeline, layout_diagram_traced,
@@ -11773,6 +11841,111 @@ mod tests {
             rerun.trace.incremental.query_type,
             "layout_full_recompute_with_query_reuse"
         );
+    }
+
+    #[test]
+    fn incremental_overlap_alignment_prefers_clean_overlap_members_as_anchors() {
+        let dirty_members = BTreeSet::from([0]);
+        let local_entries = BTreeMap::from([
+            (
+                0,
+                (
+                    LayoutRect {
+                        x: 80.0,
+                        y: 20.0,
+                        width: 60.0,
+                        height: 40.0,
+                    },
+                    0,
+                    0,
+                ),
+            ),
+            (
+                1,
+                (
+                    LayoutRect {
+                        x: 120.0,
+                        y: 100.0,
+                        width: 60.0,
+                        height: 40.0,
+                    },
+                    1,
+                    0,
+                ),
+            ),
+        ]);
+        let nodes = vec![
+            LayoutNodeBox {
+                node_index: 0,
+                node_id: "dirty".to_string(),
+                rank: 0,
+                order: 0,
+                span: Span::default(),
+                bounds: LayoutRect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 60.0,
+                    height: 40.0,
+                },
+            },
+            LayoutNodeBox {
+                node_index: 1,
+                node_id: "anchor".to_string(),
+                rank: 1,
+                order: 0,
+                span: Span::default(),
+                bounds: LayoutRect {
+                    x: 300.0,
+                    y: 260.0,
+                    width: 60.0,
+                    height: 40.0,
+                },
+            },
+        ];
+
+        let (dx, dy) = incremental_overlap_alignment(&dirty_members, &local_entries, &nodes)
+            .expect("clean overlap members should produce an anchor translation");
+
+        assert_eq!(dx, 180.0);
+        assert_eq!(dy, 160.0);
+    }
+
+    #[test]
+    fn incremental_layout_engine_selectively_relayouts_large_topology_change_with_stable_nodes() {
+        let mut engine = IncrementalLayoutEngine::default();
+        let baseline = large_subgraph_dependency_ir();
+        let config = super::LayoutConfig::default();
+        let guardrails = LayoutGuardrails::default();
+
+        let baseline_layout = engine.layout_diagram_traced_with_config_and_guardrails(
+            &baseline,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+
+        let mut edited = baseline.clone();
+        toggle_edge(&mut edited, 5, 20);
+
+        let rerun = engine.layout_diagram_traced_with_config_and_guardrails(
+            &edited,
+            LayoutAlgorithm::Auto,
+            config,
+            guardrails,
+        );
+
+        assert_eq!(
+            rerun.trace.incremental.query_type,
+            "layout_incremental_subgraph_relayout"
+        );
+        assert!(rerun.trace.incremental.recomputed_nodes <= 32);
+        for node_index in 32..64 {
+            assert_eq!(
+                rerun.layout.nodes[node_index].bounds,
+                baseline_layout.layout.nodes[node_index].bounds,
+                "clean right-side region drifted for node {node_index}"
+            );
+        }
     }
 
     proptest! {

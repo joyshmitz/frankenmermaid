@@ -172,6 +172,14 @@ impl QuotientFilter {
         // Shift elements right to make room at `pos`.
         self.shift_right(pos);
         self.slots[pos] = Some(remainder);
+
+        if pos == run_start {
+            // The old run start (if any) was shifted to `pos + 1`. It is now
+            // a continuation of the newly inserted element.
+            let next = (pos + 1) % self.table_size;
+            self.is_continuation[next] = true;
+        }
+
         // Reset metadata for the newly inserted element (shift_right may have
         // left stale flags from the element that was previously at this position).
         self.is_shifted[pos] = pos != quotient;
@@ -517,5 +525,40 @@ mod tests {
         qf.insert(&"world");
         assert!(qf.may_contain(&"hello"));
         assert!(qf.may_contain(&"world"));
+    }
+
+    #[test]
+    fn insert_smaller_remainder_into_existing_run() {
+        let qf = QuotientFilter::new(4, 8); // 16 slots
+        let mut items_by_quotient: std::collections::HashMap<usize, Vec<(u64, u64)>> =
+            std::collections::HashMap::new();
+
+        for i in 0..1000_u64 {
+            let (q, r) = qf.fingerprint(&i);
+            items_by_quotient.entry(q).or_default().push((i, r));
+        }
+
+        for (_, mut items) in items_by_quotient {
+            if items.len() >= 2 {
+                // Sort descending by remainder
+                items.sort_by_key(|&(_, r)| std::cmp::Reverse(r));
+
+                let mut test_qf = QuotientFilter::new(4, 8);
+                // Insert larger remainder first
+                test_qf.insert(&items[0].0);
+                // Insert smaller remainder next (into the same quotient run)
+                test_qf.insert(&items[1].0);
+
+                // Both must be found!
+                assert!(
+                    test_qf.may_contain(&items[0].0),
+                    "Failed to find larger remainder item!"
+                );
+                assert!(
+                    test_qf.may_contain(&items[1].0),
+                    "Failed to find smaller remainder item!"
+                );
+            }
+        }
     }
 }

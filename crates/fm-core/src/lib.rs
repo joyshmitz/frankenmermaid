@@ -12,7 +12,7 @@ pub mod succinct;
 
 pub use font_metrics::{
     CharWidthClass, DiagnosticLevel, FontMetrics, FontMetricsConfig, FontMetricsDiagnostic,
-    FontPreset,
+    FontPreset, is_east_asian_wide,
 };
 
 use std::collections::BTreeMap;

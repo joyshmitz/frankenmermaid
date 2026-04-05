@@ -747,7 +747,10 @@ fn colorize_marker(marker: char, status: DiffStatus, use_colors: bool) -> String
 }
 
 fn display_width(value: &str) -> usize {
-    strip_ansi(value).chars().count()
+    strip_ansi(value)
+        .chars()
+        .map(|c| if fm_core::is_east_asian_wide(c) { 2 } else { 1 })
+        .sum()
 }
 
 fn strip_ansi(input: &str) -> String {
@@ -815,13 +818,19 @@ fn truncate_display(value: &str, max_width: usize) -> String {
             continue;
         }
 
-        if current_width + 1 >= max_width {
-            result.push('…');
+        let char_width = if fm_core::is_east_asian_wide(c) { 2 } else { 1 };
+        if current_width + char_width > max_width {
+            if current_width < max_width {
+                result.push('…');
+            } else if !result.ends_with('…') {
+                result.pop();
+                result.push('…');
+            }
             break;
         }
 
         result.push(c);
-        current_width += 1;
+        current_width += char_width;
     }
 
     if has_ansi {

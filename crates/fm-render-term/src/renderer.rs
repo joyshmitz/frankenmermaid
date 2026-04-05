@@ -1208,14 +1208,14 @@ impl TermRenderer {
                 let (mid_x, mid_y) = if edge_path.points.len() == 4 {
                     let p1 = &edge_path.points[1];
                     let p2 = &edge_path.points[2];
-                    let px = (p1.x + p2.x) / 2.0;
-                    let py = (p1.y + p2.y) / 2.0;
+                    let px = f32::midpoint(p1.x, p2.x);
+                    let py = f32::midpoint(p1.y, p2.y);
                     self.point_to_cells(&fm_layout::LayoutPoint { x: px, y: py }, scale_x, scale_y)
                 } else if edge_path.points.len() == 2 {
                     let p1 = &edge_path.points[0];
                     let p2 = &edge_path.points[1];
-                    let px = (p1.x + p2.x) / 2.0;
-                    let py = (p1.y + p2.y) / 2.0;
+                    let px = f32::midpoint(p1.x, p2.x);
+                    let py = f32::midpoint(p1.y, p2.y);
                     self.point_to_cells(&fm_layout::LayoutPoint { x: px, y: py }, scale_x, scale_y)
                 } else {
                     let mid_idx = edge_path.points.len() / 2;

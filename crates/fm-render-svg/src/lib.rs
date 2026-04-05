@@ -2945,7 +2945,7 @@ fn render_pie_svg(
             let y1 = cy + radius * angle.sin();
             let x2 = cx + radius * (angle + sweep).cos();
             let y2 = cy + radius * (angle + sweep).sin();
-            let large_arc = if sweep > PI { 1 } else { 0 };
+            let large_arc = i32::from(sweep > PI);
             let d =
                 format!("M {cx} {cy} L {x1} {y1} A {radius} {radius} 0 {large_arc} 1 {x2} {y2} Z");
             Element::path()
@@ -5850,16 +5850,16 @@ fn render_edge(
             let p1 = &edge_path.points[1];
             let p2 = &edge_path.points[2];
             (
-                (p1.x + p2.x) / 2.0 + offset_x,
-                (p1.y + p2.y) / 2.0 + offset_y - 8.0,
+                f32::midpoint(p1.x, p2.x) + offset_x,
+                f32::midpoint(p1.y, p2.y) + offset_y - 8.0,
             )
         } else if edge_path.points.len() == 2 {
             // For straight lines, geometric center
             let p1 = &edge_path.points[0];
             let p2 = &edge_path.points[1];
             (
-                (p1.x + p2.x) / 2.0 + offset_x,
-                (p1.y + p2.y) / 2.0 + offset_y - 8.0,
+                f32::midpoint(p1.x, p2.x) + offset_x,
+                f32::midpoint(p1.y, p2.y) + offset_y - 8.0,
             )
         } else {
             // Fallback for other path lengths
@@ -7208,6 +7208,21 @@ mod tests {
         assert!(svg.contains(".fm-node-block-beta-space {"));
         assert!(!svg.contains("__space_12</text>"));
         assert!(!svg.contains("aria-label=\"__space_12\""));
+    }
+
+    #[test]
+    fn callback_nodes_emit_data_callback_hook_and_css_class() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        ir.nodes.push(IrNode {
+            id: "A".to_string(),
+            callback: Some("handleNodeClick".to_string()),
+            ..IrNode::default()
+        });
+
+        let svg = render_svg(&ir);
+        assert!(svg.contains("data-callback=\"handleNodeClick\""));
+        assert!(svg.contains("fm-node-has-callback"));
+        assert!(svg.contains("cursor: pointer;"));
     }
 
     #[test]
