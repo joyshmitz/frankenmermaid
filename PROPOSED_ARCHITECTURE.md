@@ -155,50 +155,45 @@ Final objective:
 
 ## Immediate Priority Order
 
-### 1. `BlockBeta`
+### 1. Conformance Harness
 
 Why first:
 
-- the FrankenTUI reference registry marks it effectively complete
-- frankenmermaid currently detects it but fallback-routes it
-- the family is relatively self-contained compared with `C4*`
-- `fm-layout` already has a grid/specialized slot for `DiagramType::BlockBeta`
+- dedicated parsers and layouts now exist for the previously called-out
+  families (`BlockBeta`, `Sankey`, `XyChart`, `ArchitectureBeta`, `C4*`)
+- parity claims without captured reference fixtures are still unproved
+- `FEATURE_PARITY.md` can only be trusted if it is tied to executable evidence
 
 Implementation target:
 
-- add a dedicated `parse_block_beta(...)` path in `fm-parser`
-- map block definitions into either dedicated IR fields in `fm-core` or an
-  intentionally designed generic representation if it remains sufficient
-- wire the family away from generic fallback handling
+- add fixture-backed parser/layout/render comparisons against the FrankenTUI
+  reference surface
+- cover both happy-path and edge-case diagrams per family
+- use the resulting fixtures to drive future parity updates
 
-### 2. `Sankey`
+### 2. Terminal Parity Audit
 
 Why second:
 
-- dedicated parser exists in the reference
-- `fm-layout` already has a specialized `Sankey` layout path
-- renderer already has family-specific fill hooks
+- FrankenTUI had fidelity-tier selection and overlay-oriented terminal behavior
+- frankenmermaid already implements several terminal specializations, but the
+  exact parity surface still needs an evidence-backed ledger
 
-### 3. `XyChart`
+### 3. Surface Truthfulness
 
 Why third:
 
-- explicit reference parser exists
-- renderer already contains xychart-specific styling hooks
-- current frankenmermaid state is still header detection plus fallback
+- README / support metadata / parity docs must reflect actual implementation
+  status and tests
+- false-negative parity docs are as harmful as false-positive marketing claims
 
-### 4. `ArchitectureBeta`
+### 4. Family-Specific Gap Closure
 
 Why fourth:
 
-- high-value parity target, but broader than `BlockBeta`/`Sankey`/`XyChart`
-
-### 5. `C4*`
-
-Why last in this wave:
-
-- shared parser infrastructure across multiple families
-- broader semantic surface and more likely to require dedicated IR design
+- after conformance fixtures exist, the remaining family-specific gaps will be
+  objective rather than inferred
+- only then is it worth doing another dedicated parser/layout/render wave
 
 ## Proposed Implementation Rules
 
@@ -214,14 +209,15 @@ Why last in this wave:
 
 The next implementation slice should be:
 
-1. Extract the exact `BlockBeta` parse behavior from the reference parser
-   helpers in `mermaid.rs`.
-2. Add a dedicated `BlockBeta` parser path in `fm-parser`.
-3. Add focused parser tests covering:
-   - basic blocks
-   - nested groups
-   - multi-block lines
-4. Route `DiagramType::BlockBeta` away from generic fallback.
-5. Re-run parser + workspace quality gates.
+1. Add the first fixture-backed conformance cases for already-implemented
+   families rather than speculating about fallback gaps that no longer exist.
+2. Start with parser + render surfaces that are easy to compare deterministically:
+   - click/link directives
+   - block-beta structure
+   - sankey record parsing
+   - xychart axis/series parsing
+3. Wire those fixtures into Rust tests and use them to correct
+   `FEATURE_PARITY.md`.
+4. Re-run targeted tests plus workspace quality gates.
 
-That is the smallest honest step that materially reduces the parity gap.
+That is the smallest honest step that materially reduces the parity gap now.

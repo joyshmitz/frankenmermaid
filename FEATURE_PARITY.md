@@ -103,16 +103,20 @@ Current status in this file is grounded in:
 
 ### Parser-Level
 
-- Click callbacks (`click nodeId call functionName`) — explicitly unsupported (warning emitted)
 - `classDef default` — neither FrankenTUI nor frankenmermaid supports this
+- Dedicated conformance fixtures are still missing, so several `Partial` rows
+  remain implementation-backed but not yet reference-proved against the
+  FrankenTUI extraction surface
 
 ### Rendering-Level
 
-- Terminal pie chart rendering (wedge-by-pixel, legend) — SVG only
-- Terminal gantt chart rendering (task bars, date axis) — SVG only
-- Debug overlay panel (crossings, bends, symmetry metrics) — TUI-specific
-- Fidelity tier selection for terminal (Outline/Compact/Normal/Fine) — not applicable to SVG
-- Interactive selection state (node highlight, directional navigation) — TUI-specific
+- Terminal fidelity-tier selection and overlay behavior still need an
+  evidence-backed parity audit against FrankenTUI's `Outline` / `Compact` /
+  `Normal` / `Rich` model
+- Debug overlay panel (crossings, bends, symmetry metrics) — TUI-specific and
+  not yet mapped into frankenmermaid surfaces
+- Interactive selection state (node highlight, directional navigation) —
+  TUI-specific and not yet mapped into frankenmermaid surfaces
 
 ### Areas Where frankenmermaid Is Ahead of FrankenTUI
 
@@ -126,3 +130,7 @@ Current status in this file is grounded in:
 - WASM/JavaScript API
 - 10 theme presets (vs 6 in FrankenTUI)
 - Accessibility (ARIA labels, accTitle/accDescr, keyboard nav)
+- Click callback hooks rendered into SVG via `data-callback` attributes for
+  host-side JS integration
+- Terminal pie chart rendering, gantt chart rendering, diff rendering, and
+  minimap rendering are all present as dedicated `fm-render-term` surfaces

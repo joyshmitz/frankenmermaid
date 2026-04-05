@@ -42,15 +42,18 @@ decides otherwise:
 
 ## Current Phase
 
-Phase 1 and 2 are required first because the repo currently lacks the standard
-port-spec documents:
+The repo is now in Phase 5: conformance testing and parity closure.
 
-- `PLAN_TO_PORT_*`
-- `EXISTING_*_STRUCTURE.md`
+The standard port-spec documents already exist:
+
+- `PLAN_TO_PORT_FRANKENTUI_MERMAID_TO_RUST.md`
+- `EXISTING_FRANKENTUI_MERMAID_STRUCTURE.md`
 - `PROPOSED_ARCHITECTURE.md`
 - `FEATURE_PARITY.md`
 
-Without these, "100% feature parity" is not measurable.
+That means the remaining blocker is no longer "missing plan/spec documents".
+The blocker is that parity still is not proven end-to-end by a dedicated
+FrankenTUI conformance harness and fixture corpus.
 
 ## Work Phases
 
@@ -93,11 +96,13 @@ Without these, "100% feature parity" is not measurable.
 
 Based on current code, the highest-value parity gaps are:
 
-1. Diagram families detected by `fm-parser` but still routed through the
-   fallback flowchart parser.
-2. CLI/README support claims that overstate actual implementation status.
-3. Missing conformance fixtures proving parser/layout/render behavior against
-   the FrankenTUI reference surfaces.
+1. Build fixture-backed conformance coverage proving parser/layout/render
+   behavior against the FrankenTUI reference surfaces.
+2. Keep `FEATURE_PARITY.md` synchronized with actual code and tests rather than
+   older implementation assumptions.
+3. Close the remaining genuinely unproved render-surface gaps, especially
+   terminal fidelity/overlay behaviors that existed in FrankenTUI and are not
+   yet fully accounted for in the parity ledger.
 
 ## Success Criteria
 
