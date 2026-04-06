@@ -19,6 +19,7 @@ fnx-experimental-directed = ["fnx-integration"]
 fm-core.workspace = true
 nalgebra.workspace = true
 tracing.workspace = true
+good_lp.workspace = true
 fnx-runtime = { workspace = true, optional = true }
 fnx-classes = { workspace = true, optional = true }
 fnx-algorithms = { workspace = true, optional = true }

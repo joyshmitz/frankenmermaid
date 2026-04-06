@@ -135,11 +135,24 @@ impl BitVector {
     /// Returns `None` if fewer than k+1 bits are set.
     #[must_use]
     pub fn select(&self, k: u32) -> Option<usize> {
-        // Binary search over rank to find the word containing the k-th set bit.
-        let Some(mut remaining) = k.checked_add(1) else {
-            return None; // k = u32::MAX, can't have that many set bits
-        };
-        for (word_idx, &word) in self.words.iter().enumerate() {
+        let mut remaining = k.checked_add(1)?;
+
+        // Binary search over rank to find the block containing the k-th set bit.
+        // rank_blocks is monotonic. We want the last block whose cumulative rank is < remaining.
+        let block_idx = self
+            .rank_blocks
+            .partition_point(|&r| r < remaining)
+            .saturating_sub(1);
+
+        if let Some(&block_rank) = self.rank_blocks.get(block_idx) {
+            remaining -= block_rank;
+        }
+
+        let start_word = block_idx * 8;
+        let end_word = (start_word + 8).min(self.words.len());
+
+        for word_idx in start_word..end_word {
+            let word = self.words[word_idx];
             let pc = word.count_ones();
             if pc >= remaining {
                 // The target bit is in this word.

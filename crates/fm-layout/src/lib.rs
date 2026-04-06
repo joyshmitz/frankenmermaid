@@ -22,6 +22,8 @@ use fm_core::{
     mermaid_cluster_element_id, mermaid_edge_element_id, mermaid_node_element_id,
     mermaid_node_element_id_with_variant,
 };
+use good_lp::solvers::WithTimeLimit;
+use good_lp::{Expression, Solution, SolverModel, constraint, default_solver, variable};
 use tracing::{debug, info, trace, warn};
 
 /// Design contract for subgraph-level incremental invalidation (`bd-20fq.1`).
@@ -748,11 +750,32 @@ impl CycleStrategy {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LayoutConfig {
     pub cycle_strategy: CycleStrategy,
     pub collapse_cycle_clusters: bool,
     pub font_metrics: Option<fm_core::FontMetrics>,
+    pub constraint_solver: ConstraintSolverMode,
+    pub constraint_solver_time_limit_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConstraintSolverMode {
+    Disabled,
+    #[default]
+    Optimize,
+}
+
+impl Default for LayoutConfig {
+    fn default() -> Self {
+        Self {
+            cycle_strategy: CycleStrategy::default(),
+            collapse_cycle_clusters: false,
+            font_metrics: None,
+            constraint_solver: ConstraintSolverMode::Optimize,
+            constraint_solver_time_limit_ms: 1_000,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -1494,7 +1517,6 @@ fn derive_layout_edits(previous: &MermaidDiagramIr, current: &MermaidDiagramIr) 
                     .nodes
                     .get(node_index)
                     .map(|node| &node.subgraphs)
-            || left.span_primary != right.span_primary
             || node_label_text(previous, left.label) != node_label_text(current, right.label)
         {
             edits.push(LayoutEdit::NodeChanged { node_index });
@@ -2574,8 +2596,7 @@ pub fn layout_diagram_traced_with_algorithm_and_guardrails(
         algorithm,
         LayoutConfig {
             cycle_strategy: default_cycle_strategy(),
-            collapse_cycle_clusters: false,
-            font_metrics: None,
+            ..LayoutConfig::default()
         },
         guardrails,
     )
@@ -2592,8 +2613,7 @@ pub fn layout_diagram_traced_with_algorithm_and_cycle_strategy(
         algorithm,
         LayoutConfig {
             cycle_strategy,
-            collapse_cycle_clusters: false,
-            font_metrics: None,
+            ..LayoutConfig::default()
         },
     )
 }
@@ -2976,6 +2996,13 @@ impl IncrementalLayoutEngine {
                     .get(node_index)
                     .map_or(Span::default(), |node| node.span_primary);
             }
+        }
+
+        for (node_index, node_box) in nodes.iter_mut().enumerate() {
+            node_box.span = ir
+                .nodes
+                .get(node_index)
+                .map_or(Span::default(), |node| node.span_primary);
         }
 
         let mut edges = build_edge_paths(ir, &nodes, &highlighted_edge_indexes);
@@ -3762,6 +3789,7 @@ fn layout_diagram_sugiyama_traced_with_config(
 
     let mut nodes = coordinate_assignment(ir, &node_sizes, &ranks, &ordering_by_rank, spacing);
     apply_subgraph_direction_overrides(ir, &node_sizes, &mut nodes, spacing);
+    apply_constraint_solver(ir, &mut nodes, spacing, &config);
     let mut edges = build_edge_paths(ir, &nodes, &cycle_result.highlighted_edge_indexes);
     bundle_parallel_edges(ir, &mut edges);
     let mut clusters = build_cluster_boxes(ir, &nodes, spacing);
@@ -9556,6 +9584,275 @@ fn apply_subgraph_direction_override(
     }
 }
 
+fn apply_constraint_solver(
+    ir: &MermaidDiagramIr,
+    nodes: &mut [LayoutNodeBox],
+    spacing: LayoutSpacing,
+    config: &LayoutConfig,
+) {
+    if config.constraint_solver == ConstraintSolverMode::Disabled || ir.constraints.is_empty() {
+        return;
+    }
+
+    if nodes.is_empty() {
+        return;
+    }
+
+    match solve_constraint_coordinates(ir, nodes, spacing, config.constraint_solver_time_limit_ms) {
+        Ok(applied) if applied > 0 => {
+            info!(
+                constraint_count = applied,
+                "layout.constraint_solver.applied"
+            );
+        }
+        Ok(_) => {}
+        Err(error) => {
+            warn!(%error, "layout.constraint_solver.fallback");
+        }
+    }
+}
+
+fn solve_constraint_coordinates(
+    ir: &MermaidDiagramIr,
+    nodes: &mut [LayoutNodeBox],
+    spacing: LayoutSpacing,
+    time_limit_ms: u64,
+) -> Result<usize, String> {
+    let horizontal_ranks = matches!(ir.direction, GraphDirection::LR | GraphDirection::RL);
+    let id_to_index: BTreeMap<&str, usize> = ir
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (node.id.as_str(), index))
+        .collect();
+    let ordered_nodes: BTreeSet<_> = ir
+        .constraints
+        .iter()
+        .filter_map(|constraint| match constraint {
+            fm_core::IrConstraint::OrderInRank { node_ids, .. } => Some(node_ids),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|node_id| id_to_index.get(node_id.as_str()).copied())
+        .collect();
+
+    let mut variables = good_lp::ProblemVariables::new();
+    let x_vars: Vec<_> = nodes.iter().map(|_| variables.add(variable())).collect();
+    let y_vars: Vec<_> = nodes.iter().map(|_| variables.add(variable())).collect();
+    let dx_pos: Vec<_> = nodes
+        .iter()
+        .map(|_| variables.add(variable().min(0.0)))
+        .collect();
+    let dx_neg: Vec<_> = nodes
+        .iter()
+        .map(|_| variables.add(variable().min(0.0)))
+        .collect();
+    let dy_pos: Vec<_> = nodes
+        .iter()
+        .map(|_| variables.add(variable().min(0.0)))
+        .collect();
+    let dy_neg: Vec<_> = nodes
+        .iter()
+        .map(|_| variables.add(variable().min(0.0)))
+        .collect();
+
+    let objective = (0..nodes.len()).fold(Expression::from(0.0), |mut expr, index| {
+        expr += dx_pos[index] + dx_neg[index] + dy_pos[index] + dy_neg[index];
+        expr
+    });
+
+    let mut model = variables
+        .minimise(objective)
+        .using(default_solver)
+        .with_time_limit((time_limit_ms.max(1) as f64) / 1000.0);
+
+    for (index, node) in nodes.iter().enumerate() {
+        let base_x = f64::from(node.bounds.x);
+        let base_y = f64::from(node.bounds.y);
+        model = model
+            .with(constraint!(x_vars[index] - base_x <= dx_pos[index]))
+            .with(constraint!(base_x - x_vars[index] <= dx_neg[index]))
+            .with(constraint!(y_vars[index] - base_y <= dy_pos[index]))
+            .with(constraint!(base_y - y_vars[index] <= dy_neg[index]));
+    }
+
+    let mut nodes_by_rank: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for node in nodes.iter() {
+        nodes_by_rank
+            .entry(node.rank)
+            .or_default()
+            .push(node.node_index);
+    }
+    for node_indexes in nodes_by_rank.values_mut() {
+        node_indexes.sort_by_key(|node_index| nodes[*node_index].order);
+        for pair in node_indexes.windows(2) {
+            let current = pair[0];
+            let next = pair[1];
+            if ordered_nodes.contains(&current) || ordered_nodes.contains(&next) {
+                continue;
+            }
+            let gap = in_rank_gap(&nodes[current], spacing, horizontal_ranks);
+            model = if horizontal_ranks {
+                model.with(constraint!(y_vars[next] - y_vars[current] >= gap))
+            } else {
+                model.with(constraint!(x_vars[next] - x_vars[current] >= gap))
+            };
+        }
+    }
+
+    let mut applied = 0_usize;
+    for constraint in &ir.constraints {
+        match constraint {
+            fm_core::IrConstraint::SameRank { node_ids, .. } => {
+                let resolved = resolve_constraint_nodes(node_ids, &id_to_index);
+                if let Some((&anchor, rest)) = resolved.split_first() {
+                    for &node_index in rest {
+                        model = if horizontal_ranks {
+                            model.with(constraint!(x_vars[node_index] == x_vars[anchor]))
+                        } else {
+                            model.with(constraint!(y_vars[node_index] == y_vars[anchor]))
+                        };
+                    }
+                    applied = applied.saturating_add(1);
+                }
+            }
+            fm_core::IrConstraint::MinLength {
+                from_id,
+                to_id,
+                min_len,
+                ..
+            } => {
+                let Some(&from_index) = id_to_index.get(from_id.as_str()) else {
+                    warn!(
+                        node_id = from_id,
+                        "layout.constraint_solver.unknown_from_id"
+                    );
+                    continue;
+                };
+                let Some(&to_index) = id_to_index.get(to_id.as_str()) else {
+                    warn!(node_id = to_id, "layout.constraint_solver.unknown_to_id");
+                    continue;
+                };
+                let gap = min_length_gap(&nodes[from_index], *min_len, spacing, horizontal_ranks);
+                model = if horizontal_ranks {
+                    model.with(constraint!(x_vars[to_index] - x_vars[from_index] >= gap))
+                } else {
+                    model.with(constraint!(y_vars[to_index] - y_vars[from_index] >= gap))
+                };
+                applied = applied.saturating_add(1);
+            }
+            fm_core::IrConstraint::Pin { node_id, x, y, .. } => {
+                let Some(&node_index) = id_to_index.get(node_id.as_str()) else {
+                    warn!(node_id, "layout.constraint_solver.unknown_pin_id");
+                    continue;
+                };
+                model = model
+                    .with(constraint!(x_vars[node_index] == *x))
+                    .with(constraint!(y_vars[node_index] == *y));
+                applied = applied.saturating_add(1);
+            }
+            fm_core::IrConstraint::OrderInRank { node_ids, .. } => {
+                let resolved = resolve_constraint_nodes(node_ids, &id_to_index);
+                for pair in resolved.windows(2) {
+                    let current = pair[0];
+                    let next = pair[1];
+                    let gap = in_rank_gap(&nodes[current], spacing, horizontal_ranks);
+                    model = if horizontal_ranks {
+                        model.with(constraint!(y_vars[next] - y_vars[current] >= gap))
+                    } else {
+                        model.with(constraint!(x_vars[next] - x_vars[current] >= gap))
+                    };
+                }
+                if resolved.len() > 1 {
+                    applied = applied.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    if applied == 0 {
+        return Ok(0);
+    }
+
+    let solution = model.solve().map_err(|error| error.to_string())?;
+    for (index, node) in nodes.iter_mut().enumerate() {
+        node.bounds.x = solution.value(x_vars[index]) as f32;
+        node.bounds.y = solution.value(y_vars[index]) as f32;
+    }
+    recompute_in_rank_orders(nodes, horizontal_ranks);
+
+    Ok(applied)
+}
+
+fn resolve_constraint_nodes(
+    node_ids: &[String],
+    id_to_index: &BTreeMap<&str, usize>,
+) -> Vec<usize> {
+    node_ids
+        .iter()
+        .filter_map(|node_id| match id_to_index.get(node_id.as_str()) {
+            Some(index) => Some(*index),
+            None => {
+                warn!(node_id, "layout.constraint_solver.unknown_constraint_id");
+                None
+            }
+        })
+        .collect()
+}
+
+fn in_rank_gap(node: &LayoutNodeBox, spacing: LayoutSpacing, horizontal_ranks: bool) -> f64 {
+    let extent = if horizontal_ranks {
+        node.bounds.height
+    } else {
+        node.bounds.width
+    };
+    f64::from(extent + spacing.node_spacing)
+}
+
+fn min_length_gap(
+    node: &LayoutNodeBox,
+    min_len: usize,
+    spacing: LayoutSpacing,
+    horizontal_ranks: bool,
+) -> f64 {
+    let primary_extent = if horizontal_ranks {
+        node.bounds.width
+    } else {
+        node.bounds.height
+    };
+    let base_gap = primary_extent + spacing.rank_spacing;
+    f64::from(base_gap * min_len.max(1) as f32)
+}
+
+fn recompute_in_rank_orders(nodes: &mut [LayoutNodeBox], horizontal_ranks: bool) {
+    let mut by_rank: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for node in nodes.iter() {
+        by_rank.entry(node.rank).or_default().push(node.node_index);
+    }
+
+    for node_indexes in by_rank.values_mut() {
+        node_indexes.sort_by(|left, right| {
+            let left_coord = if horizontal_ranks {
+                nodes[*left].bounds.y
+            } else {
+                nodes[*left].bounds.x
+            };
+            let right_coord = if horizontal_ranks {
+                nodes[*right].bounds.y
+            } else {
+                nodes[*right].bounds.x
+            };
+            left_coord
+                .total_cmp(&right_coord)
+                .then_with(|| left.cmp(right))
+        });
+
+        for (order, node_index) in node_indexes.iter().copied().enumerate() {
+            nodes[node_index].order = order;
+        }
+    }
+}
+
 fn layout_bounds_for_members(
     member_indexes: &[usize],
     nodes: &[LayoutNodeBox],
@@ -11177,29 +11474,29 @@ mod tests {
         clippy::many_single_char_names
     )]
     use super::{
-        CachedNodeSize, CycleStrategy, DependencyGraph, DirtySet, GraphMetrics,
-        IncrementalLayoutEngine, IncrementalLayoutSession, LayoutAlgorithm, LayoutDependencyGraph,
-        LayoutEdit, LayoutGuardrails, LayoutNodeBox, LayoutPoint, LayoutRect,
-        LayoutSequenceLifecycleMarkerKind, RegionInput, RegionMemoryBudget, RenderClip, RenderItem,
-        RenderSource, SubgraphRegion, SubgraphRegionId, SubgraphRegionKind,
-        build_layout_decision_ledger, build_layout_guard_report, build_render_scene,
-        dispatch_layout_algorithm, incremental_overlap_alignment, layout, layout_diagram,
-        layout_diagram_force, layout_diagram_force_traced, layout_diagram_gantt,
+        CachedNodeSize, ConstraintSolverMode, CycleStrategy, DependencyGraph, DiagramLayout,
+        DirtySet, GraphMetrics, IncrementalLayoutEngine, IncrementalLayoutSession, LayoutAlgorithm,
+        LayoutConfig, LayoutDependencyGraph, LayoutEdit, LayoutGuardrails, LayoutNodeBox,
+        LayoutPoint, LayoutRect, LayoutSequenceLifecycleMarkerKind, RegionInput,
+        RegionMemoryBudget, RenderClip, RenderItem, RenderSource, SubgraphRegion, SubgraphRegionId,
+        SubgraphRegionKind, build_layout_decision_ledger, build_layout_guard_report,
+        build_render_scene, dispatch_layout_algorithm, incremental_overlap_alignment, layout,
+        layout_diagram, layout_diagram_force, layout_diagram_force_traced, layout_diagram_gantt,
         layout_diagram_grid, layout_diagram_incremental_traced_with_config_and_guardrails,
         layout_diagram_radial, layout_diagram_sankey, layout_diagram_sequence,
         layout_diagram_sequence_traced, layout_diagram_timeline, layout_diagram_traced,
         layout_diagram_traced_with_algorithm, layout_diagram_traced_with_algorithm_and_guardrails,
         layout_diagram_traced_with_config_and_guardrails, layout_diagram_tree,
-        layout_diagram_with_cycle_strategy, layout_diagram_xychart, layout_source_map,
-        route_edge_points, route_edge_points_with_obstacles,
+        layout_diagram_with_config, layout_diagram_with_cycle_strategy, layout_diagram_xychart,
+        layout_source_map, route_edge_points, route_edge_points_with_obstacles,
     };
     use fm_core::{
         ArrowType, DiagramType, GanttDate, GanttExclude, GraphDirection, IrCluster, IrClusterId,
-        IrEdge, IrEndpoint, IrGanttMeta, IrGanttSection, IrGanttTask, IrGraphCluster, IrGraphEdge,
-        IrGraphNode, IrLabel, IrLabelId, IrLifecycleEvent, IrNode, IrNodeId, IrParticipantGroup,
-        IrPieMeta, IrPieSlice, IrSequenceMeta, IrSequenceNote, IrSubgraph, IrSubgraphId, IrXyAxis,
-        IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr, MermaidPressureTier,
-        MermaidSourceMapKind, NodeShape, Span,
+        IrConstraint, IrEdge, IrEndpoint, IrGanttMeta, IrGanttSection, IrGanttTask, IrGraphCluster,
+        IrGraphEdge, IrGraphNode, IrLabel, IrLabelId, IrLifecycleEvent, IrNode, IrNodeId,
+        IrParticipantGroup, IrPieMeta, IrPieSlice, IrSequenceMeta, IrSequenceNote, IrSubgraph,
+        IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr,
+        MermaidPressureTier, MermaidSourceMapKind, NodeShape, Span,
     };
     use proptest::prelude::*;
     use std::cell::RefCell;
@@ -14049,7 +14346,7 @@ mod tests {
         let config = LayoutConfig {
             cycle_strategy: CycleStrategy::Greedy,
             collapse_cycle_clusters: true,
-            font_metrics: None,
+            ..LayoutConfig::default()
         };
         let layout = super::layout_diagram_with_config(&ir, config);
 
@@ -14139,7 +14436,7 @@ mod tests {
         let config = LayoutConfig {
             cycle_strategy: CycleStrategy::Greedy,
             collapse_cycle_clusters: false,
-            font_metrics: None,
+            ..LayoutConfig::default()
         };
         let layout = super::layout_diagram_with_config(&ir, config);
 
@@ -16213,6 +16510,99 @@ mod tests {
             });
         }
         ir
+    }
+
+    fn layout_with_constraints(ir: &MermaidDiagramIr) -> DiagramLayout {
+        layout_diagram_with_config(
+            ir,
+            LayoutConfig {
+                constraint_solver: ConstraintSolverMode::Optimize,
+                ..LayoutConfig::default()
+            },
+        )
+    }
+
+    fn node_bounds<'a>(layout: &'a DiagramLayout, node_id: &str) -> &'a LayoutRect {
+        &layout
+            .nodes
+            .iter()
+            .find(|node| node.node_id == node_id)
+            .unwrap()
+            .bounds
+    }
+
+    #[test]
+    fn constraint_solver_keeps_unconstrained_layouts_identical() {
+        let ir = labeled_graph_ir(4, &[(0, 2), (1, 2), (2, 3)]);
+        let optimized = layout_with_constraints(&ir);
+        let disabled = layout_diagram_with_config(
+            &ir,
+            LayoutConfig {
+                constraint_solver: ConstraintSolverMode::Disabled,
+                ..LayoutConfig::default()
+            },
+        );
+        assert_eq!(optimized, disabled);
+    }
+
+    #[test]
+    fn constraint_solver_enforces_pin_coordinates() {
+        let mut ir = labeled_graph_ir(4, &[(0, 2), (1, 2), (2, 3)]);
+        ir.constraints.push(IrConstraint::Pin {
+            node_id: "N1".to_string(),
+            x: 320.0,
+            y: 24.0,
+            span: Span::default(),
+        });
+
+        let layout = layout_with_constraints(&ir);
+        let pinned = node_bounds(&layout, "N1");
+        assert!((pinned.x - 320.0).abs() < 1.0);
+        assert!((pinned.y - 24.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn constraint_solver_enforces_in_rank_order() {
+        let mut ir = labeled_graph_ir(4, &[(0, 2), (1, 2), (2, 3)]);
+        ir.constraints.push(IrConstraint::OrderInRank {
+            node_ids: vec!["N1".to_string(), "N0".to_string()],
+            span: Span::default(),
+        });
+
+        let layout = layout_with_constraints(&ir);
+        let first = node_bounds(&layout, "N1");
+        let second = node_bounds(&layout, "N0");
+        assert!(first.x < second.x);
+    }
+
+    #[test]
+    fn constraint_solver_enforces_min_length_visual_gap() {
+        let mut ir = labeled_graph_ir(2, &[(0, 1)]);
+        ir.constraints.push(IrConstraint::MinLength {
+            from_id: "N0".to_string(),
+            to_id: "N1".to_string(),
+            min_len: 2,
+            span: Span::default(),
+        });
+
+        let layout = layout_with_constraints(&ir);
+        let from = node_bounds(&layout, "N0");
+        let to = node_bounds(&layout, "N1");
+        assert!(to.y - from.y >= 200.0);
+    }
+
+    #[test]
+    fn constraint_solver_enforces_same_rank_alignment() {
+        let mut ir = labeled_graph_ir(3, &[(0, 1), (1, 2)]);
+        ir.constraints.push(IrConstraint::SameRank {
+            node_ids: vec!["N0".to_string(), "N1".to_string()],
+            span: Span::default(),
+        });
+
+        let layout = layout_with_constraints(&ir);
+        let first = node_bounds(&layout, "N0");
+        let second = node_bounds(&layout, "N1");
+        assert!((first.y - second.y).abs() < 1.0);
     }
 
     #[test]

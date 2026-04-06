@@ -129,14 +129,14 @@ impl QuotientFilter {
         let (quotient, remainder) = self.fingerprint(value);
 
         if !self.is_occupied[quotient] {
-            // Fast path: canonical slot's run doesn't exist yet.
-            // Find the actual slot (may need to skip shifted elements).
-            let slot = self.find_first_empty_from(quotient);
-            self.slots[slot] = Some(remainder);
+            // The run for this quotient doesn't exist yet, but we need to insert it
+            // in sorted order within the cluster (if any).
+            let run_start = self.find_run_start(quotient);
+            self.shift_right(run_start);
+            self.slots[run_start] = Some(remainder);
             self.is_occupied[quotient] = true;
-            if slot != quotient {
-                self.is_shifted[slot] = true;
-            }
+            self.is_shifted[run_start] = run_start != quotient;
+            self.is_continuation[run_start] = false;
             self.count += 1;
             return true;
         }
@@ -559,6 +559,42 @@ mod tests {
                     "Failed to find smaller remainder item!"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn insert_into_existing_cluster_causes_false_negative_bug() {
+        let mut qf = QuotientFilter::new(4, 8); // 16 slots
+
+        // We want to create a cluster that covers a quotient we haven't inserted yet.
+        // Let's insert elements with quotient 2 and 4.
+        let mut inserted = Vec::new();
+        for i in 0..1000_u64 {
+            if inserted.len() >= 10 {
+                break; // Leave room in the 16-slot table
+            }
+            let (q, _r) = qf.fingerprint(&i);
+            if (q == 2 || q == 4) && qf.insert(&i) {
+                inserted.push(i);
+            }
+        }
+
+        // Now find an element with q == 3.
+        let mut d = None;
+        for i in 0..1000_u64 {
+            let (q, _r) = qf.fingerprint(&i);
+            if q == 3 && !qf.may_contain(&i) {
+                d = Some(i);
+                break;
+            }
+        }
+
+        if let Some(d) = d {
+            assert!(qf.insert(&d), "Table was full!");
+            assert!(
+                qf.may_contain(&d),
+                "False negative on newly inserted element!"
+            );
         }
     }
 }

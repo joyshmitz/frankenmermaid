@@ -22,6 +22,7 @@ Current status in this file is grounded in:
 - CLI support reporting in [`crates/fm-cli/src/main.rs`](/data/projects/frankenmermaid/crates/fm-cli/src/main.rs)
 - layout specialization in [`crates/fm-layout/src/lib.rs`](/data/projects/frankenmermaid/crates/fm-layout/src/lib.rs)
 - fixture-backed FrankenTUI conformance coverage in [`crates/fm-cli/tests/frankentui_conformance_test.rs`](/data/projects/frankenmermaid/crates/fm-cli/tests/frankentui_conformance_test.rs)
+- hosted mermaid.js differential evidence in [`scripts/run_static_web_e2e.py`](/data/projects/frankenmermaid/scripts/run_static_web_e2e.py) and [`scripts/showcase_harness.py`](/data/projects/frankenmermaid/scripts/showcase_harness.py)
 - behavioral reference paths listed in [`AGENTS.md`](/data/projects/frankenmermaid/AGENTS.md)
 
 ## Current Baseline
@@ -114,6 +115,13 @@ Current status in this file is grounded in:
 - Several `Partial` rows still remain implementation-backed rather than fully
   reference-proved because the fixture corpus is intentionally narrow in this
   first pass
+- The showcase E2E harness now emits machine-checked differential summaries for
+  the compare/export path so mermaid.js shadow rendering is tracked as evidence,
+  but this is still browser-surface evidence rather than full per-family parser
+  parity proof
+- Hosted E2E summaries and replay manifests now preserve per-run `trace_id`
+  lineage so deterministic replay evidence can be tied back to the same
+  observability IDs emitted by the Rust runtime
 
 ### Rendering-Level
 

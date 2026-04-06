@@ -370,82 +370,82 @@ fn parse_dot_node_fragment(raw: &str) -> Option<DotNode> {
 
 fn extract_dot_attribute_raw(attributes: &str, key: &str) -> Option<String> {
     let lower_key = key.to_ascii_lowercase();
-    let mut in_quote = false;
-    let mut html_depth = 0;
-    let mut escaped = false;
-    let mut current_key = String::new();
-    let mut current_val = String::new();
-    let mut parsing_key = true;
+    let mut chars = attributes.chars().peekable();
 
-    for ch in attributes.chars() {
-        if escaped {
-            if parsing_key {
-                current_key.push(ch);
+    while let Some(ch) = chars.next() {
+        if ch.is_whitespace() || ch == '[' || ch == ']' || ch == ',' {
+            continue;
+        }
+
+        let mut current_key = String::new();
+        current_key.push(ch);
+        while let Some(&c) = chars.peek() {
+            if c == '=' || c.is_whitespace() || c == '[' || c == ']' || c == ',' {
+                break;
+            }
+            current_key.push(chars.next().unwrap());
+        }
+
+        while let Some(&c) = chars.peek() {
+            if c.is_whitespace() {
+                chars.next();
             } else {
-                current_val.push(ch);
+                break;
             }
-            escaped = false;
-            continue;
         }
 
-        if ch == '\\' {
-            escaped = true;
-            if parsing_key {
-                current_key.push(ch);
+        let mut has_eq = false;
+        if let Some(&'=') = chars.peek() {
+            has_eq = true;
+            chars.next();
+            while let Some(&c) = chars.peek() {
+                if c.is_whitespace() {
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        let mut current_val = String::new();
+        if has_eq && let Some(&c) = chars.peek() {
+            if c == '"' {
+                chars.next();
+                let mut escaped = false;
+                for vc in chars.by_ref() {
+                    if escaped {
+                        current_val.push(vc);
+                        escaped = false;
+                    } else if vc == '\\' {
+                        escaped = true;
+                        current_val.push(vc);
+                    } else if vc == '"' {
+                        break;
+                    } else {
+                        current_val.push(vc);
+                    }
+                }
+                current_val = format!("\"{current_val}\"");
             } else {
-                current_val.push(ch);
-            }
-            continue;
-        }
+                let mut html_depth = 0;
+                while let Some(&vc) = chars.peek() {
+                    if vc == '<' {
+                        html_depth += 1;
+                    } else if vc == '>' && html_depth > 0 {
+                        html_depth -= 1;
+                    }
 
-        if ch == '"' && html_depth == 0 {
-            in_quote = !in_quote;
-            if parsing_key {
-                current_key.push(ch);
-            } else {
-                current_val.push(ch);
-            }
-            continue;
-        }
-
-        if !in_quote {
-            if ch == '<' {
-                html_depth += 1;
-            } else if ch == '>' && html_depth > 0 {
-                html_depth -= 1;
+                    if html_depth == 0 && (vc.is_whitespace() || vc == ',' || vc == ']') {
+                        break;
+                    }
+                    current_val.push(chars.next().unwrap());
+                }
             }
         }
 
-        if !in_quote
-            && html_depth == 0
-            && (ch == ',' || ch == ']' || ch == '[' || ch == ' ' || ch == '\t')
-        {
-            if !current_key.trim().is_empty() && current_key.trim().eq_ignore_ascii_case(&lower_key)
-            {
-                return Some(current_val.trim().to_string());
-            }
-            if !parsing_key || !current_key.trim().is_empty() {
-                current_key.clear();
-                current_val.clear();
-                parsing_key = true;
-            }
-            continue;
+        if current_key.eq_ignore_ascii_case(&lower_key) {
+            return Some(current_val);
         }
-
-        if !in_quote && html_depth == 0 && ch == '=' && parsing_key {
-            parsing_key = false;
-            continue;
-        }
-
-        if parsing_key {
-            current_key.push(ch);
-        } else {
-            current_val.push(ch);
-        }
-    }
-
-    if current_key.trim().eq_ignore_ascii_case(&lower_key) {
-        return Some(current_val.trim().to_string());
     }
     None
 }
@@ -1013,4 +1013,18 @@ fn dot_compass_points_stripped() {
     assert_eq!(result.ir.edges.len(), 1);
     assert!(result.ir.nodes.iter().any(|n| n.id == "A"));
     assert!(result.ir.nodes.iter().any(|n| n.id == "B"));
+}
+
+#[test]
+fn extract_attribute_with_spaces() {
+    let attr = "shape = box";
+    assert_eq!(
+        extract_dot_attribute_raw(attr, "shape"),
+        Some("box".to_string())
+    );
+    let attr2 = "shape= box";
+    assert_eq!(
+        extract_dot_attribute_raw(attr2, "shape"),
+        Some("box".to_string())
+    );
 }
