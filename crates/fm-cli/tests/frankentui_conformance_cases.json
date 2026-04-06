@@ -1,0 +1,221 @@
+[
+  {
+    "id": "click_link_tooltip",
+    "description": "FrankenTUI click directives resolve safe links with tooltips.",
+    "input_path": "fixtures/frankentui_conformance/click_link_tooltip.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:12575",
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:12593"
+    ],
+    "expected": {
+      "diagram_type": "flowchart",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 2,
+        "edges": 1,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "nodes": [
+        {
+          "id": "A",
+          "href": "https://example.com",
+          "tooltip": "Go to site"
+        }
+      ],
+      "svg_contains": [
+        "href=\"https://example.com\"",
+        "target=\"_blank\"",
+        "A",
+        "B"
+      ],
+      "svg_not_contains": [
+        "data-callback="
+      ]
+    }
+  },
+  {
+    "id": "click_callback_tooltip",
+    "description": "FrankenTUI click callback directives preserve callback identity and tooltip metadata.",
+    "input_path": "fixtures/frankentui_conformance/click_callback_tooltip.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:8424",
+      "/dp/frankentui/crates/ftui-extras/src/mermaid_render.rs:6677"
+    ],
+    "expected": {
+      "diagram_type": "flowchart",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 2,
+        "edges": 1,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "nodes": [
+        {
+          "id": "A",
+          "classes": [
+            "has-callback"
+          ],
+          "callback": "handleNodeClick",
+          "tooltip": "Open details"
+        }
+      ],
+      "svg_contains": [
+        "data-callback=\"handleNodeClick\"",
+        "fm-node-has-callback"
+      ],
+      "svg_not_contains": [
+        "href=\""
+      ]
+    }
+  },
+  {
+    "id": "block_beta_nested_groups",
+    "description": "FrankenTUI block-beta keeps nested group structure, spans, and block styling.",
+    "input_path": "fixtures/frankentui_conformance/block_beta_nested_groups.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:13914",
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:13946"
+    ],
+    "expected": {
+      "diagram_type": "block-beta",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 4,
+        "edges": 0,
+        "clusters": 1,
+        "subgraphs": 1
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "classes": [
+            "block-beta",
+            "block-beta-span-2"
+          ]
+        },
+        {
+          "id": "c",
+          "classes": [
+            "block-beta"
+          ]
+        }
+      ],
+      "svg_contains": [
+        "class=\"fm-cluster\"",
+        "class=\"fm-cluster-label\"",
+        "fm-node-block-beta",
+        "inner1"
+      ]
+    }
+  },
+  {
+    "id": "sankey_links",
+    "description": "FrankenTUI sankey fixtures preserve flow rows as nodes plus labeled edges.",
+    "input_path": "fixtures/frankentui_conformance/sankey_links.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:13867",
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:13895"
+    ],
+    "expected": {
+      "diagram_type": "sankey",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 3,
+        "edges": 2,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "nodes": [
+        {
+          "id": "Bio-energy",
+          "classes": [
+            "sankey-node"
+          ]
+        }
+      ],
+      "edge_labels": [
+        "124.729",
+        "35.793"
+      ],
+      "svg_contains": [
+        "Agriculture",
+        "Bio-energy",
+        "Electricity",
+        "124.729",
+        "35.793"
+      ]
+    }
+  },
+  {
+    "id": "xychart_axes_series",
+    "description": "FrankenTUI xychart fixtures preserve axis metadata plus named bar and line series.",
+    "input_path": "fixtures/frankentui_conformance/xychart_axes_series.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:13992",
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:14043"
+    ],
+    "expected": {
+      "diagram_type": "xyChart",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 6,
+        "edges": 2,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "xychart": {
+        "title": "Sales",
+        "x_categories": [
+          "jan",
+          "feb",
+          "mar"
+        ],
+        "y_label": "Revenue",
+        "y_min": 0.0,
+        "y_max": 100.0,
+        "series": [
+          {
+            "kind": "bar",
+            "name": "Revenue",
+            "values": [
+              10.0,
+              20.0,
+              30.0
+            ]
+          },
+          {
+            "kind": "line",
+            "name": "Target",
+            "values": [
+              15.0,
+              25.0,
+              35.0
+            ]
+          }
+        ]
+      },
+      "svg_contains": [
+        "fm-xychart-axis",
+        "fm-xychart-gridline",
+        "fm-xychart-bar",
+        "fm-xychart-line",
+        "fm-xychart-point",
+        "fm-xychart-legend",
+        "Revenue",
+        "Target"
+      ]
+    }
+  }
+]

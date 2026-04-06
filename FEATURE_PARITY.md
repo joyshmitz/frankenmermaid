@@ -21,6 +21,7 @@ Current status in this file is grounded in:
 - type detection in [`crates/fm-parser/src/lib.rs`](/data/projects/frankenmermaid/crates/fm-parser/src/lib.rs)
 - CLI support reporting in [`crates/fm-cli/src/main.rs`](/data/projects/frankenmermaid/crates/fm-cli/src/main.rs)
 - layout specialization in [`crates/fm-layout/src/lib.rs`](/data/projects/frankenmermaid/crates/fm-layout/src/lib.rs)
+- fixture-backed FrankenTUI conformance coverage in [`crates/fm-cli/tests/frankentui_conformance_test.rs`](/data/projects/frankenmermaid/crates/fm-cli/tests/frankentui_conformance_test.rs)
 - behavioral reference paths listed in [`AGENTS.md`](/data/projects/frankenmermaid/AGENTS.md)
 
 ## Current Baseline
@@ -43,9 +44,9 @@ Current status in this file is grounded in:
 | Pie | Yes | Yes | Pie | Yes | Partial | Slice values, title, showData, wedge SVG rendering with accent colors |
 | Quadrant Chart | Yes | Yes | Quadrant | Yes | Partial | Axis labels, quadrant labels, data points with [0,1] coords, scatter SVG |
 | Git Graph | Yes | Yes | GitGraph | Yes | Partial | Commits, branches, merges, cherry-pick, lane-based layout |
-| Sankey | Yes | Yes | Sankey | Yes | Partial | Dedicated parser and flow-preserving layout |
-| XY Chart | Yes | Yes | XyChart | Yes | Partial | Axis/series metadata, bar/line/area rendering |
-| Block Beta | Yes | Yes | Grid | Yes | Partial | Column spanning, space blocks, group nesting |
+| Sankey | Yes | Yes | Sankey | Yes | Partial | Dedicated parser and flow-preserving layout; fixture-backed FrankenTUI conformance for link rows |
+| XY Chart | Yes | Yes | XyChart | Yes | Partial | Axis/series metadata, bar/line/area rendering; fixture-backed FrankenTUI conformance for axes + named series |
+| Block Beta | Yes | Yes | Grid | Yes | Partial | Column spanning, space blocks, group nesting; fixture-backed FrankenTUI conformance for nested structure |
 | Architecture Beta | Yes | Yes | Sugiyama | Yes | Partial | Groups, services, junctions, icon classes |
 | C4 family | Yes | Yes | Sugiyama | Yes | Partial | Boundary detection, C4 node metadata |
 | Kanban | Yes | Yes | Kanban | Yes | Partial | Columns and cards via clusters |
@@ -81,7 +82,7 @@ Current status in this file is grounded in:
 | accTitle/accDescr directives | Complete | Parsed and propagated to SVG title/desc |
 | Subgraph direction override | Complete | `direction LR` inside subgraph blocks |
 | linkStyle default | Complete | Default style for all unindexed edges |
-| Click directives with tooltips | Complete | `click nodeId "url" "tooltip"` |
+| Click/callback directives with tooltips | Complete | `click nodeId "url" "tooltip"` plus callback hooks; fixture-backed FrankenTUI conformance coverage exists |
 | ER cardinality labels | Complete | Notation parsed and rendered as endpoint labels |
 | Theme variable overrides | Complete | primaryColor, lineColor, clusterBkg, etc. mapped to palette |
 | Sequence notes SVG | Complete | Rounded-corner boxes near lifelines |
@@ -104,9 +105,15 @@ Current status in this file is grounded in:
 ### Parser-Level
 
 - `classDef default` — neither FrankenTUI nor frankenmermaid supports this
-- Dedicated conformance fixtures are still missing, so several `Partial` rows
-  remain implementation-backed but not yet reference-proved against the
-  FrankenTUI extraction surface
+- The first fixture-backed FrankenTUI conformance slice now exists in
+  [`crates/fm-cli/tests/frankentui_conformance_test.rs`](/data/projects/frankenmermaid/crates/fm-cli/tests/frankentui_conformance_test.rs)
+  and
+  [`crates/fm-cli/tests/frankentui_conformance_cases.json`](/data/projects/frankenmermaid/crates/fm-cli/tests/frankentui_conformance_cases.json),
+  covering click/callback directives, block-beta structure, sankey links, and
+  xychart axes/series against explicit reference-surface expectations
+- Several `Partial` rows still remain implementation-backed rather than fully
+  reference-proved because the fixture corpus is intentionally narrow in this
+  first pass
 
 ### Rendering-Level
 
