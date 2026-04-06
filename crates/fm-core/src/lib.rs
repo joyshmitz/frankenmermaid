@@ -3,6 +3,7 @@
 pub mod art;
 pub mod cga;
 pub mod constraints;
+pub mod epoch;
 mod font_metrics;
 pub mod leapfrog;
 #[cfg(test)]
