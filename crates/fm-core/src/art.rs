@@ -135,21 +135,21 @@ impl<V> AdaptiveRadixTree<V> {
 
     /// Insert a key-value pair. Returns the previous value if the key existed.
     pub fn insert(&mut self, key: &[u8], value: V) -> Option<V> {
-        if self.root.is_none() {
+        if let Some(ref mut root) = self.root {
+            let old = Self::insert_into(root, key, 0, value);
+            if old.is_none() {
+                self.len += 1;
+            }
+            old
+        } else {
             self.root = Some(Box::new(ArtNode {
                 prefix: key.to_vec(),
                 value: Some(value),
                 children: ArtChildren::new(),
             }));
             self.len += 1;
-            return None;
+            None
         }
-
-        let old = Self::insert_into(self.root.as_mut().unwrap(), key, 0, value);
-        if old.is_none() {
-            self.len += 1;
-        }
-        old
     }
 
     /// Insert using a string key.

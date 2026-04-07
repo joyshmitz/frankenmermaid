@@ -241,11 +241,12 @@ impl CsrGraph {
         // Build offsets.
         let mut offsets = Vec::with_capacity(num_nodes + 1);
         offsets.push(0);
+        let mut last = 0;
         for &d in &degrees {
-            let last = *offsets.last().unwrap();
-            offsets.push(last + d);
+            last += d;
+            offsets.push(last);
         }
-        let total_edges = *offsets.last().unwrap() as usize;
+        let total_edges = last as usize;
 
         // Fill targets.
         let mut targets = vec![0_u32; total_edges];
