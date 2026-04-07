@@ -148,8 +148,7 @@ jobs:
       - name: Run installer canary against current checkout
         shell: bash
         env:
-          FM_INSTALL_GIT_URL: file://${{ github.workspace }}
-          FM_INSTALL_GIT_REV: ${{ github.sha }}
+          FM_INSTALL_PATH: ${{ github.workspace }}/crates/fm-cli
           FM_INSTALL_ROOT: /tmp/fm-install-root
         run: |
           set -euo pipefail

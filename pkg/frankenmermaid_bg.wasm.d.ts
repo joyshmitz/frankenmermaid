@@ -2,7 +2,6 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_diagram_free: (a: number, b: number) => void;
-export const capabilityMatrix: (a: number) => void;
 export const detectType: (a: number, b: number, c: number) => void;
 export const diagram_destroy: (a: number) => void;
 export const diagram_new: (a: number, b: number, c: number) => void;
