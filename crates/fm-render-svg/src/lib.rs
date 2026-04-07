@@ -8263,4 +8263,317 @@ mod tests {
         );
         assert!(svg.contains("loop [3 times]"), "should render label text");
     }
+
+    // ─── E2E smoke tests for all 24 diagram types ───
+
+    /// Parse -> layout -> render SVG for each diagram type.
+    /// Verifies the complete pipeline doesn't panic and produces valid SVG.
+    fn smoke_test_diagram(input: &str, expected_type: &str, min_nodes: usize) {
+        let detected = fm_parser::detect_type_with_confidence(input);
+        assert!(
+            detected.confidence >= 0.5,
+            "{expected_type}: confidence too low ({:.2}), detected as {:?}",
+            detected.confidence,
+            detected.diagram_type,
+        );
+
+        let parsed = fm_parser::parse(input);
+        assert!(
+            parsed.ir.nodes.len() >= min_nodes || !parsed.ir.edges.is_empty(),
+            "{expected_type}: expected >= {min_nodes} nodes or some edges, got {} nodes, {} edges",
+            parsed.ir.nodes.len(),
+            parsed.ir.edges.len(),
+        );
+
+        let traced = fm_layout::layout_diagram_traced(&parsed.ir);
+        let svg = render_svg_with_layout(
+            &parsed.ir,
+            &traced.layout,
+            &SvgRenderConfig::default(),
+        );
+
+        assert!(
+            svg.starts_with("<svg") || svg.starts_with("<?xml"),
+            "{expected_type}: SVG output should start with <svg or <?xml, got: {}",
+            &svg[..svg.len().min(80)],
+        );
+        assert!(
+            svg.contains("</svg>"),
+            "{expected_type}: SVG output should contain closing tag"
+        );
+        assert!(
+            svg.len() > 100,
+            "{expected_type}: SVG output suspiciously short ({} bytes)",
+            svg.len(),
+        );
+    }
+
+    #[test]
+    fn smoke_flowchart() {
+        smoke_test_diagram("flowchart LR\n  A-->B-->C", "flowchart", 2);
+    }
+
+    #[test]
+    fn smoke_sequence() {
+        smoke_test_diagram(
+            "sequenceDiagram\n  Alice->>Bob: hello",
+            "sequence",
+            2,
+        );
+    }
+
+    #[test]
+    fn smoke_class() {
+        smoke_test_diagram(
+            "classDiagram\n  class Animal {\n    +name: string\n  }",
+            "class",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_state() {
+        smoke_test_diagram(
+            "stateDiagram-v2\n  [*] --> Active\n  Active --> [*]",
+            "state",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_er() {
+        smoke_test_diagram(
+            "erDiagram\n  CUSTOMER ||--o{ ORDER : places",
+            "er",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_gantt() {
+        smoke_test_diagram(
+            "gantt\n  title Plan\n  section A\n  Task1: a1, 2024-01-01, 7d",
+            "gantt",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_pie() {
+        smoke_test_diagram(
+            "pie title Votes\n  \"Dogs\" : 70\n  \"Cats\" : 30",
+            "pie",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_gitgraph() {
+        smoke_test_diagram(
+            "gitGraph\n  commit\n  branch dev\n  commit",
+            "gitgraph",
+            0,
+        );
+    }
+
+    #[test]
+    fn smoke_journey() {
+        smoke_test_diagram(
+            "journey\n  title My Day\n  section Morning\n  Wake up: 5: Me",
+            "journey",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_mindmap() {
+        smoke_test_diagram(
+            "mindmap\n  root((Central))\n    Branch1\n    Branch2",
+            "mindmap",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_timeline() {
+        smoke_test_diagram(
+            "timeline\n  title History\n  2020 : Event A\n  2021 : Event B",
+            "timeline",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_sankey() {
+        smoke_test_diagram(
+            "sankey-beta\n\nSource,Target,10\nSource,Other,5",
+            "sankey",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_quadrant() {
+        smoke_test_diagram(
+            "quadrantChart\n  title Skills\n  x-axis Low --> High\n  y-axis Low --> High\n  A: [0.3, 0.6]",
+            "quadrant",
+            0,
+        );
+    }
+
+    #[test]
+    fn smoke_xychart() {
+        smoke_test_diagram(
+            "xychart-beta\n  title Sales\n  x-axis [Q1, Q2, Q3]\n  line [10, 20, 15]",
+            "xychart",
+            0,
+        );
+    }
+
+    #[test]
+    fn smoke_block_beta() {
+        smoke_test_diagram(
+            "block-beta\n  columns 2\n  A B\n  C D",
+            "block-beta",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_packet_beta() {
+        smoke_test_diagram(
+            "packet-beta\n  0-15: \"Source Port\"\n  16-31: \"Dest Port\"",
+            "packet-beta",
+            0,
+        );
+    }
+
+    #[test]
+    fn smoke_architecture_beta() {
+        smoke_test_diagram(
+            "architecture-beta\n  group api(cloud)[API]\n  service auth(server)[Auth] in api",
+            "architecture-beta",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_c4context() {
+        smoke_test_diagram(
+            "C4Context\n  Person(user, \"User\")\n  System(sys, \"System\")\n  Rel(user, sys, \"Uses\")",
+            "C4Context",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_c4container() {
+        smoke_test_diagram(
+            "C4Container\n  Container(app, \"App\")\n  Container(db, \"DB\")",
+            "C4Container",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_c4component() {
+        smoke_test_diagram(
+            "C4Component\n  Component(auth, \"Auth\")\n  Component(api, \"API\")",
+            "C4Component",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_c4dynamic() {
+        smoke_test_diagram(
+            "C4Dynamic\n  Person(user, \"User\")\n  Rel(user, api, \"Call\")",
+            "C4Dynamic",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_c4deployment() {
+        smoke_test_diagram(
+            "C4Deployment\n  Deployment_Node(server, \"Server\") {\n    Container(app, \"App\")\n  }",
+            "C4Deployment",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_requirement() {
+        smoke_test_diagram(
+            "requirementDiagram\n  requirement req1 {\n    id: 1\n    text: Must work\n  }",
+            "requirement",
+            1,
+        );
+    }
+
+    #[test]
+    fn smoke_kanban() {
+        smoke_test_diagram(
+            "kanban\n  column Todo\n    card Task1\n    card Task2",
+            "kanban",
+            1,
+        );
+    }
+
+    // ─── Cross-cutting feature tests ───
+
+    #[test]
+    fn smoke_init_directive() {
+        let input = "%%{init: {\"theme\":\"dark\"}}%%\nflowchart LR\n  A-->B";
+        let parsed = fm_parser::parse(input);
+        // Should still detect and parse successfully despite init directive.
+        assert!(
+            !parsed.ir.nodes.is_empty(),
+            "init directive should not prevent parsing"
+        );
+    }
+
+    #[test]
+    fn smoke_dot_bridge() {
+        let input = "digraph G { A -> B; B -> C }";
+        let detected = fm_parser::detect_type_with_confidence(input);
+        assert!(
+            detected.confidence >= 0.5,
+            "DOT should be detected with reasonable confidence"
+        );
+        let parsed = fm_parser::parse(input);
+        let traced = fm_layout::layout_diagram_traced(&parsed.ir);
+        let svg = render_svg_with_layout(
+            &parsed.ir,
+            &traced.layout,
+            &SvgRenderConfig::default(),
+        );
+        assert!(svg.contains("<svg"), "DOT bridge should produce SVG");
+    }
+
+    #[test]
+    fn smoke_fuzzy_detection() {
+        let detected = fm_parser::detect_type_with_confidence("flowchrt LR\n  A-->B");
+        // Fuzzy match should still detect as flowchart but with lower confidence.
+        assert_eq!(
+            format!("{:?}", detected.diagram_type),
+            "Flowchart",
+            "fuzzy match should detect flowchart"
+        );
+        assert!(
+            detected.confidence < 1.0,
+            "fuzzy match confidence should be < 1.0"
+        );
+    }
+
+    #[test]
+    fn smoke_error_recovery() {
+        let input = "flowchart LR\n  A-->B\n  !!!invalid!!!\n  C-->D";
+        let parsed = fm_parser::parse(input);
+        // Should recover and produce some nodes/edges despite invalid syntax.
+        assert!(
+            !parsed.ir.nodes.is_empty() || !parsed.ir.edges.is_empty(),
+            "error recovery should still produce IR"
+        );
+    }
 }

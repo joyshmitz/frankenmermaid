@@ -2737,10 +2737,13 @@ mod render_tests {
     use super::{
         ColorChoice, OutputFormat, RenderSurfaceOptions, SvgRenderConfig, TermRenderConfig,
         ThemePreset, build_svg_render_config, diff_use_colors, extract_svg_dimensions,
-        normalize_positive_font_size, parse_positive_dimension_arg, parse_positive_font_size_arg,
-        render_format, terminal_size,
+        layout_without_back_edges, normalize_positive_font_size, parse_positive_dimension_arg,
+        parse_positive_font_size_arg, render_format, terminal_size,
     };
-    use fm_layout::layout_diagram;
+    use fm_layout::{
+        DiagramLayout, LayoutEdgePath, LayoutExtensions, LayoutPoint, LayoutRect, LayoutStats,
+        layout_diagram,
+    };
     use fm_parser::parse;
 
     #[test]
@@ -2806,6 +2809,56 @@ mod render_tests {
     }
 
     #[test]
+    fn layout_without_back_edges_filters_reversed_edges() {
+        let layout = DiagramLayout {
+            nodes: Vec::new(),
+            clusters: Vec::new(),
+            cycle_clusters: Vec::new(),
+            edges: vec![
+                LayoutEdgePath {
+                    edge_index: 0,
+                    span: Default::default(),
+                    points: vec![
+                        LayoutPoint { x: 0.0, y: 0.0 },
+                        LayoutPoint { x: 1.0, y: 0.0 },
+                    ],
+                    reversed: false,
+                    is_self_loop: false,
+                    parallel_offset: 0.0,
+                    bundle_count: 1,
+                    bundled: false,
+                },
+                LayoutEdgePath {
+                    edge_index: 1,
+                    span: Default::default(),
+                    points: vec![
+                        LayoutPoint { x: 1.0, y: 0.0 },
+                        LayoutPoint { x: 0.0, y: 0.0 },
+                    ],
+                    reversed: true,
+                    is_self_loop: false,
+                    parallel_offset: 0.0,
+                    bundle_count: 1,
+                    bundled: false,
+                },
+            ],
+            bounds: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
+            stats: LayoutStats::default(),
+            extensions: LayoutExtensions::default(),
+        };
+
+        let filtered = layout_without_back_edges(&layout);
+        assert_eq!(filtered.edges.len(), 1);
+        assert_eq!(filtered.edges[0].edge_index, 0);
+        assert_eq!(layout.edges.len(), 2);
+    }
+
+    #[test]
     fn parse_positive_font_size_arg_rejects_invalid_values() {
         assert_eq!(parse_positive_font_size_arg("18").ok(), Some(18.0));
         assert!(parse_positive_font_size_arg("0").is_err());
@@ -2857,7 +2910,8 @@ mod render_tests {
 mod config_tests {
     use super::{
         FrankenmermaidConfigFile, LayoutAlgorithmArg, OutputFormat, build_base_svg_render_config,
-        build_layout_config, resolve_layout_algorithm, resolve_output_format, resolve_theme_name,
+        build_layout_config, resolve_layout_algorithm, resolve_output_format,
+        resolve_show_back_edges, resolve_theme_name,
     };
     use fm_layout::{CycleStrategy, EdgeRouting};
     use fm_render_svg::ThemePreset;
@@ -2976,6 +3030,21 @@ mod config_tests {
         assert!(!svg.shadows);
         assert!(!svg.node_gradients);
         assert!(svg.animations_enabled);
+    }
+
+    #[test]
+    fn render_show_back_edges_defaults_to_true_and_reads_config() {
+        let defaults = FrankenmermaidConfigFile::default();
+        assert!(resolve_show_back_edges(&defaults));
+
+        let config: FrankenmermaidConfigFile = toml::from_str(
+            r#"
+                [render]
+                show_back_edges = false
+            "#,
+        )
+        .expect("parse config");
+        assert!(!resolve_show_back_edges(&config));
     }
 }
 
