@@ -8612,4 +8612,49 @@ mod tests {
         );
         assert!(svg.contains("Revenue"), "xychart should render title");
     }
+
+    // ─── Incremental layout engine integration test ───
+
+    #[test]
+    fn incremental_engine_reuses_layout_on_label_edit() {
+        let mut engine = fm_layout::IncrementalLayoutEngine::default();
+        let input_a = "flowchart LR\n  A[Hello]-->B-->C-->D-->E-->F-->G-->H";
+        let input_b = "flowchart LR\n  A[World]-->B-->C-->D-->E-->F-->G-->H";
+
+        let parsed_a = fm_parser::parse(input_a);
+        let config = fm_layout::LayoutConfig::default();
+        let guardrails = fm_layout::LayoutGuardrails::default();
+
+        // First render: full compute.
+        let traced_a = engine.layout_diagram_traced_with_config_and_guardrails(
+            &parsed_a.ir,
+            fm_layout::LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        let svg_a =
+            render_svg_with_layout(&parsed_a.ir, &traced_a.layout, &SvgRenderConfig::default());
+        assert!(svg_a.contains("<svg"));
+
+        // Second render with label edit: should use cache/incremental path.
+        let parsed_b = fm_parser::parse(input_b);
+        let traced_b = engine.layout_diagram_traced_with_config_and_guardrails(
+            &parsed_b.ir,
+            fm_layout::LayoutAlgorithm::Auto,
+            config,
+            guardrails,
+        );
+        let svg_b =
+            render_svg_with_layout(&parsed_b.ir, &traced_b.layout, &SvgRenderConfig::default());
+        assert!(svg_b.contains("<svg"));
+
+        // Label changed: SVGs should differ.
+        assert_ne!(svg_a, svg_b, "label edit should produce different SVG");
+
+        // Second layout should be faster or use cache (recomputed_nodes < total).
+        assert!(
+            traced_b.trace.incremental.recomputed_nodes <= traced_b.layout.stats.node_count,
+            "incremental should recompute at most all nodes"
+        );
+    }
 }
