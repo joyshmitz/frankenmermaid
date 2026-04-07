@@ -295,6 +295,7 @@ def build_replay_command(
     *,
     bead_id: str,
     repo_root: str,
+    serve_root: str | None,
     output_root: str,
     chromium: str,
     timeout_seconds: int,
@@ -314,12 +315,12 @@ def build_replay_command(
         bead_id,
         "--repo-root",
         repo_root,
-        "--output-root",
-        output_root,
         "--chromium",
         chromium,
         "--timeout-seconds",
         str(timeout_seconds),
+        "--output-root",
+        output_root,
         "--repeat",
         str(repeat),
         "--route-prefix",
@@ -331,6 +332,8 @@ def build_replay_command(
         "--scenario-prefix",
         scenario_prefix,
     ]
+    if serve_root:
+        command.extend(["--serve-root", serve_root])
     if revision:
         command.extend(["--revision", revision])
     if scenario_id:
@@ -345,6 +348,7 @@ def write_replay_bundle(
     bundle_dir: Path,
     bead_id: str,
     repo_root: Path,
+    serve_root: Path | None,
     output_root: Path,
     chromium: str,
     timeout_seconds: int,
@@ -363,6 +367,7 @@ def write_replay_bundle(
     suite_command = build_replay_command(
         bead_id=bead_id,
         repo_root=str(repo_root),
+        serve_root=str(serve_root) if serve_root else None,
         output_root=str(output_root),
         chromium=chromium,
         timeout_seconds=timeout_seconds,
@@ -392,6 +397,7 @@ def write_replay_bundle(
                     "command": build_replay_command(
                         bead_id=bead_id,
                         repo_root=str(repo_root),
+                        serve_root=str(serve_root) if serve_root else None,
                         output_root=str(output_root),
                         chromium=chromium,
                         timeout_seconds=timeout_seconds,
@@ -448,6 +454,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run hosted showcase E2E flows")
     parser.add_argument("--bead-id", default="bd-2u0.5.8.2.3")
     parser.add_argument("--repo-root", default=".", help="Repository root to serve")
+    parser.add_argument(
+        "--serve-root",
+        help="Optional alternate document root to serve while keeping evidence paths relative to --repo-root",
+    )
     parser.add_argument("--output-root", default="evidence/runs/web/bd-2u0.5.8.2.3")
     parser.add_argument(
         "--chromium",
@@ -492,6 +502,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     repo_root = Path(args.repo_root).resolve()
+    serve_root = Path(args.serve_root).resolve() if args.serve_root else repo_root
     output_root = (repo_root / args.output_root).resolve()
     scenarios = select_scenarios(args.scenario_id)
     profiles = select_profiles(args.profile_id)
@@ -500,10 +511,11 @@ def main() -> int:
     ).stdout.strip()
     script_hash = showcase_harness.sha256_file(Path(__file__).resolve())
 
-    server, base_url = start_http_server(repo_root)
+    server, base_url = start_http_server(serve_root)
     summary: dict[str, object] = {
         "ok": True,
         "base_url": base_url,
+        "serve_root": str(serve_root),
         "route_prefix": args.route_prefix,
         "surface": args.surface,
         "host_kind": args.host_kind,
@@ -621,12 +633,14 @@ def main() -> int:
         server.server_close()
 
     summary_path = output_root / f"{timestamp_utc()}__determinism__summary.json"
+    summary["summary_path"] = str(summary_path.relative_to(repo_root))
     write_text(summary_path, json.dumps(summary, indent=2) + "\n")
     if args.replay_bundle_dir:
         summary["replay_bundle"] = write_replay_bundle(
             bundle_dir=(repo_root / args.replay_bundle_dir).resolve(),
             bead_id=args.bead_id,
             repo_root=repo_root,
+            serve_root=serve_root,
             output_root=output_root,
             chromium=args.chromium,
             timeout_seconds=args.timeout_seconds,

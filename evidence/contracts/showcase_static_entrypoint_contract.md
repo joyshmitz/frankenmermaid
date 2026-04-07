@@ -43,6 +43,17 @@ The static host must treat asset loading as relative to the entry document, not 
 
 Hosted `/web` deployments should therefore be packageable without rewriting the shared-core logic. When `/web` is served as a file-style route, the browser may resolve those relative references to root-level `/pkg/...` and `/evidence/...`; deployments may also choose an equivalent route-local asset layout if the same runtime/data semantics are preserved.
 
+### Current Cache Safety Constraint
+
+The checked-in browser runtime contract still points at stable asset names:
+
+- `./pkg/frankenmermaid.js`
+- `./pkg/frankenmermaid_bg.wasm`
+
+Because those paths are not revisioned today, `/pkg/*` must remain `public, max-age=0, must-revalidate`.
+`immutable` caching is forbidden for the non-revisioned `/pkg/*` surface because it can pin stale runtimes after deploy.
+Once deploy packaging emits revisioned asset paths or hashed filenames, the entry HTML may switch to those versioned URLs and only those versioned runtime assets may become `public, max-age=31536000, immutable`.
+
 ## Bootstrap Contract
 
 The static host bootstrap sequence must preserve this order of meaning:
@@ -99,10 +110,20 @@ The static host must make deployment state reviewable:
 
 Cloudflare-hosted static deployments must satisfy these assumptions:
 
-- The `/web` route serves the showcase entry document.
-- Relative references from that document must still resolve to the expected runtime/data artifacts, whether that means root-level `/pkg/...` and `/evidence/...` under file-style `/web` hosting or an equivalent route-local static asset layout.
-- Direct navigation to deep links with query state must return the showcase entry rather than a 404 or unrelated route shell.
-- Asset caching policy may vary, but bootstrap must tolerate `no-store` validation probes without changing semantics.
+- `/web` and `/web_react` share one Pages project/domain partition under `frankenmermaid.com`.
+- The `/web` route serves the static showcase entry document, and `/web_react` serves the React host entry document.
+- `/web/` and `/web_react/` should redirect to `/web` and `/web_react` with HTTP 301 while preserving the query string.
+- Because query-bearing deep links must survive canonicalization, those trailing-slash redirects should be implemented as Cloudflare Redirect Rules or Bulk Redirects with query preservation enabled instead of Pages `_redirects`.
+- Relative references from those documents must still resolve to the expected runtime/data artifacts, whether that means root-level `/pkg/...` and `/evidence/...` under file-style hosting or an equivalent route-local static asset layout.
+- Direct navigation to deep links with query state must return the correct showcase entry rather than a 404 or unrelated route shell.
+- Query parameters on `/web` and `/web_react` are state-bearing and must stay in the cache key; do not use cache rules that ignore search parameters for the entry HTML routes.
+- Current cache matrix:
+  - `/web`, `/web/*`, `/web_react`, `/web_react/*` => `public, max-age=0, must-revalidate`
+  - `/pkg/*` => `public, max-age=0, must-revalidate`
+  - `/evidence/*` => `public, max-age=3600, must-revalidate`
+- Future optimization after versioned assets exist:
+  - `/pkg/<revision>/*` or hashed runtime filenames => `public, max-age=31536000, immutable`
+- If Pages Functions are introduced, `_routes.json` should exclude `/pkg/*`, `/evidence/*`, `/web`, `/web/*`, `/web_react`, and `/web_react/*` unless a route is intentionally dynamic.
 
 ## Validation Checklist
 
@@ -111,6 +132,12 @@ This contract is considered satisfied only when the static host demonstrates all
 - A deep link containing `sample`, `compare`, `lab`, `studio`, and `source` restores the expected state under `/web`.
 - Invalid `compare`, `lab`, `studio`, or `shells` query values degrade to canonical defaults.
 - Same-origin relative asset resolution is used for hosted mode.
+- `/web/` and `/web_react/` redirect to their canonical non-trailing-slash entry routes while preserving query state.
+- The canonical trailing-slash redirects are modeled as Redirect Rules or Bulk Redirects rather than Pages `_redirects`.
+- The current non-revisioned `/pkg/*` surface stays on `public, max-age=0, must-revalidate`.
+- Only revisioned or hashed runtime assets are allowed to move to `public, max-age=31536000, immutable`.
+- Query-bearing entry routes do not use cache behavior that ignores search parameters.
+- The future `_routes.json` exclusion plan is documented for any Pages Functions rollout.
 - File-mode fallback behavior is documented and remains honest.
 - Runtime-unavailable UI remains distinct from live-runtime UI.
 - Capability artifact loading remains semantically equivalent between fetched and fallback modes.

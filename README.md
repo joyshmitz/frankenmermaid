@@ -22,6 +22,8 @@ erminal/web output from a single pipeline.
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/frankenmermaid/main/install.sh" | bash
 ```
 
+The installer builds `fm-cli` from the GitHub repo with Cargo and installs it into `~/.local/bin`.
+
 </div>
 
 ---
@@ -30,15 +32,15 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/frankenmermaid/m
 
 **The Problem**: Mermaid syntax is great for documentation-as-code, but real-world diagrams hit walls fast. Cycles produce tangled layouts. Malformed input crashes the parser. Large graphs slow to a crawl. Styling control is limited. And there is no terminal output at all.
 
-**The Solution**: `frankenmermaid` is a ground-up Rust implementation with a shared intermediate representation that feeds 10+ layout algorithms and 3 render backends. It recovers from bad input instead of failing, picks cycle-aware layout strategies automatically, and produces deterministic output suitable for CI snapshot testing.
+**The Solution**: `frankenmermaid` is a ground-up Rust implementation with a shared intermediate representation that feeds 15 layout algorithms and 3 render backends. It recovers from bad input instead of failing, picks cycle-aware layout strategies automatically, and produces deterministic output suitable for CI snapshot testing.
 
 ### Why Use frankenmermaid?
 
 | Feature | What It Does |
 |---------|--------------|
-| **25 Diagram Types** | Flowchart, sequence, class, state, ER, gantt, pie, gitGraph, journey, mindmap, timeline, sankey, quadrant, xyChart, block-beta, packet-beta, architecture-beta, 5 C4 variants, requirement, kanban |
+| **24 Diagram Types** | Flowchart, sequence, class, state, ER, gantt, pie, gitGraph, journey, mindmap, timeline, sankey, quadrant, xyChart, block-beta, packet-beta, architecture-beta, 5 C4 variants, requirement, kanban |
 | **Intent-Aware Parsing** | Recovers from malformed syntax and infers likely intent instead of failing. Fuzzy keyword matching catches typos like `flowchar` or `seqeunceDiagram` |
-| **10 Layout Algorithms** | Sugiyama (hierarchical), force-directed, tree, radial, timeline, gantt, sankey, kanban/grid, and sequence with auto-selection per diagram type |
+| **15 Layout Algorithms** | Sugiyama, force, tree, radial, timeline, gantt, xychart, sankey, kanban, grid, sequence, pie, quadrant, gitgraph, and packet, with auto-selection per diagram type |
 | **4 Cycle Strategies** | Greedy, DFS back-edge, MFAS approximation, and cycle-aware layout with cluster collapse and quality metrics |
 | **High-Fidelity SVG** | Responsive viewBox, 20+ node shapes, gradient fills, drop shadows, glow effects, cluster backgrounds, accessible markup, 4 theme presets |
 | **Terminal Rendering** | Braille (2x4), block (2x2), half-block, and cell-only sub-pixel modes with Unicode box-drawing and ASCII fallback |
@@ -136,6 +138,7 @@ fm-cli render diagrams/process.mmd --format svg --theme dark --output out/proces
 | `xyChart` | Partial |
 | `requirementDiagram` | Implemented |
 | `packet-beta` | Implemented |
+| `kanban` | Implemented |
 <!-- END GENERATED: supported-diagram-types -->
 
 **Key:** Full = complete syntax coverage. Basic = core syntax works, advanced features in progress. Minimal = parsed but rendering needs dedicated work.
@@ -437,8 +440,8 @@ A --> B
 | Crate | Lines | Responsibility |
 |-------|-------|----------------|
 | `fm-core` | ~4,000 | Shared IR types, config, errors, diagnostics, 20+ node shapes |
-| `fm-parser` | ~8,700 | 25-type detection + parsing + error recovery + DOT bridge |
-| `fm-layout` | ~8,400 | 10 layout algorithms, 4 cycle strategies, crossing minimization |
+| `fm-parser` | ~8,700 | 24-type detection + parsing + error recovery + DOT bridge |
+| `fm-layout` | ~8,400 | 15 layout algorithms, 4 cycle strategies, crossing minimization |
 | `fm-render-svg` | ~7,000 | Accessible, themeable SVG with gradients/shadows/glows |
 | `fm-render-term` | ~4,400 | Terminal renderer + diff engine + minimap + 4 fidelity modes |
 | `fm-render-canvas` | ~2,500 | Canvas2D web rendering with trait-based abstraction |
@@ -469,7 +472,7 @@ A --> B
                     v
       +----------------------------+
       | fm-layout                  |
-      |  - auto algorithm select   |  10 algorithms available
+      |  - auto algorithm select   |  15 algorithms available
       |  - cycle strategy          |  4 cycle-breaking modes
       |  - crossing minimization   |  barycenter + transpose
       +----------------------------+
@@ -581,15 +584,20 @@ When `algorithm = "auto"` (the default), the engine maps diagram types to their 
 | Algorithm | Used For | Strategy |
 |-----------|----------|----------|
 | **Sugiyama** | Flowchart, class, state, ER, C4, requirement | Hierarchical layered layout with rank assignment and crossing minimization |
-| **Force-directed** | Available for all graph types | Spring-electrical simulation with Barnes-Hut optimization |
+| **Force** | Available for all graph types | Spring-electrical simulation with Barnes-Hut optimization |
 | **Tree** | Available for all graph types | Reingold-Tilford tidy tree with Knuth-style spacing |
 | **Radial** | Mindmap | Concentric rings with angle allocation proportional to subtree leaf count |
-| **Sequence** | Sequence diagrams | Horizontal participant columns, vertical message stacking, self-message loops |
 | **Timeline** | Timeline diagrams | Linear horizontal periods with vertically stacked events |
 | **Gantt** | Gantt charts | Time-axis bar layout with section swimlanes |
+| **XyChart** | XY chart diagrams | Cartesian axis layout with spaced categories and plotted series anchors |
 | **Sankey** | Sankey diagrams | Flow-conserving column layout with iterative relaxation |
 | **Kanban** | Journey, kanban | Fixed-column card stacking |
 | **Grid** | Block-beta | CSS-grid-like positioning with column/row spans |
+| **Sequence** | Sequence diagrams | Horizontal participant columns, vertical message stacking, self-message loops |
+| **Pie** | Pie diagrams | Radial slice layout with centered slice geometry and label anchoring |
+| **Quadrant** | Quadrant charts | Four-quadrant scatter layout around central axes |
+| **GitGraph** | GitGraph diagrams | Branch-lane layout with chronological commit stacking |
+| **Packet** | Packet-beta diagrams | Grid-derived packet lane layout for packet-beta structures |
 
 ### The Sugiyama Algorithm (Hierarchical Layout)
 
@@ -819,7 +827,7 @@ The `MermaidDiagramIr` is the central data structure that connects parsing to la
 
 ```rust
 MermaidDiagramIr {
-    diagram_type: DiagramType,          // One of 25 types
+    diagram_type: DiagramType,          // One of 24 types
     direction: GraphDirection,          // TB, LR, RL, BT
     nodes: Vec<IrNode>,                 // Each with shape, label, classes, href, span
     edges: Vec<IrEdge>,                 // Each with arrow type, label, span

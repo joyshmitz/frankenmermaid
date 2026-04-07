@@ -339,11 +339,15 @@ Non-negotiable responsive rules:
 - The static `/web` entry semantics now live in `evidence/contracts/showcase_static_entrypoint_contract.md`.
 - `/web` should treat that file as the contract for route prefixing, relative asset resolution, bootstrap ordering, standalone-file fallback behavior, and deep-link restoration.
 - The first concrete static host container now lives at `web/index.html`, with route-local cache policy in `web/_headers`.
+- `bd-2u0.5.9.1` now defines the Cloudflare Pages route/cache plan: query-bearing `/web` and `/web_react` entry routes stay `must-revalidate`, the current non-revisioned `/pkg/*` runtime surface also stays `must-revalidate`, and only future revisioned runtime assets may become `immutable`.
 - That container should stay deliberately thin: it inherits the standalone showcase behavior, preserves the original relative asset semantics under `/web`, and should not fork the showcase logic into a second independent implementation.
 - The `/web_react` component and service boundary now lives in `evidence/contracts/showcase_react_embedding_contract.md`.
 - `/web_react` should treat that file as the normative contract for provider/root props, route adapter ownership, telemetry/state callbacks, and the split between shared-core state and React host composition.
 - The shared validation contract now lives in `evidence/contracts/showcase_test_taxonomy_and_logging_schema.md`.
 - Showcase-related beads should emit evidence against that taxonomy and schema rather than defining bead-local logging conventions.
+- The route/cache contract gate now lives in `scripts/showcase_harness.py validate-hosting-plan`; deployment beads should treat that validator output as the pre-`wrangler` proof that the dual-surface Pages plan is coherent.
+- The concrete Pages deployment runbook now lives in `scripts/cloudflare_pages_ops.py`, and `scripts/showcase_harness.py validate-cloudflare-deploy-ops` is the bead-local gate for staged bundle, preview/prod dry-run commands, and rollback drill completeness.
+- The post-stage deployment smoke gate now lives in `scripts/cloudflare_pages_ops.py smoke-check`; CI should treat that staged-bundle replay/parity summary as the release-facing proof that `/web` and `/web_react` still boot, restore state, and agree after Pages packaging.
 
 ## Launch Scope Boundary
 

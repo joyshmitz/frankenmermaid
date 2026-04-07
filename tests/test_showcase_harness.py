@@ -125,6 +125,92 @@ class ShowcaseHarnessTests(unittest.TestCase):
         self.assertEqual(result["surface"], "web_react")
         self.assertTrue(result["entry_hash"].startswith("sha256:"))
 
+    def test_validate_hosting_plan_smoke(self):
+        root = Path(__file__).resolve().parent.parent
+        result = HARNESS.validate_cloudflare_hosting_plan(
+            static_headers=root / "web" / "_headers",
+            react_headers=root / "web_react" / "_headers",
+            static_contract=root / "evidence" / "contracts" / "showcase_static_entrypoint_contract.md",
+            react_contract=root / "evidence" / "contracts" / "showcase_react_embedding_contract.md",
+            strategy_doc=root / "evidence" / "demo_strategy.md",
+        )
+        self.assertEqual(result["surface"], "cloudflare-hosting-plan")
+        self.assertTrue(result["static_headers_hash"].startswith("sha256:"))
+        self.assertTrue(result["react_headers_hash"].startswith("sha256:"))
+
+    def test_validate_hosting_plan_rejects_immutable_stable_pkg_cache(self):
+        with TemporaryDirectory() as tempdir:
+            temp = Path(tempdir)
+            static_headers = temp / "static_headers"
+            react_headers = temp / "react_headers"
+            static_contract = temp / "static_contract.md"
+            react_contract = temp / "react_contract.md"
+            strategy = temp / "demo_strategy.md"
+
+            bad_headers = (
+                "/pkg/*\n"
+                "  Cache-Control: public, max-age=31536000, immutable\n\n"
+                "/evidence/*\n"
+                "  Cache-Control: public, max-age=3600, must-revalidate\n\n"
+                "/web\n"
+                "  Cache-Control: public, max-age=0, must-revalidate\n\n"
+                "/web/*\n"
+                "  Cache-Control: public, max-age=0, must-revalidate\n\n"
+                "/web_react\n"
+                "  Cache-Control: public, max-age=0, must-revalidate\n\n"
+                "/web_react/*\n"
+                "  Cache-Control: public, max-age=0, must-revalidate\n"
+            )
+            static_headers.write_text(bad_headers)
+            react_headers.write_text(bad_headers)
+            static_contract.write_text(
+                "Current cache matrix:\n"
+                "`_routes.json` should exclude `/pkg/*`, `/evidence/*`, `/web`, `/web/*`, `/web_react`, and `/web_react/*`\n"
+                "Future optimization after versioned assets exist:\n"
+            )
+            react_contract.write_text(
+                "`/web_react` shares the same Pages project cache matrix as `/web`.\n"
+                "When deployment packaging emits revisioned runtime asset paths or hashed filenames\n"
+            )
+            strategy.write_text("bd-2u0.5.9.1\nvalidate-hosting-plan\n")
+
+            with self.assertRaises(RuntimeError):
+                HARNESS.validate_cloudflare_hosting_plan(
+                    static_headers=static_headers,
+                    react_headers=react_headers,
+                    static_contract=static_contract,
+                    react_contract=react_contract,
+                    strategy_doc=strategy,
+                )
+
+    def test_validate_cloudflare_deploy_ops_smoke(self):
+        root = Path(__file__).resolve().parent.parent
+        result = HARNESS.validate_cloudflare_deploy_ops(
+            wrangler_config=root / "wrangler.jsonc",
+            ops_script=root / "scripts" / "cloudflare_pages_ops.py",
+            static_contract=root / "evidence" / "contracts" / "showcase_static_entrypoint_contract.md",
+            react_contract=root / "evidence" / "contracts" / "showcase_react_embedding_contract.md",
+            strategy_doc=root / "evidence" / "demo_strategy.md",
+        )
+        self.assertEqual(result["surface"], "cloudflare-deploy-ops")
+        self.assertTrue(result["wrangler_config_hash"].startswith("sha256:"))
+        self.assertTrue(result["ops_script_hash"].startswith("sha256:"))
+
+    def test_validate_cloudflare_deploy_ops_rejects_missing_strategy_trace(self):
+        root = Path(__file__).resolve().parent.parent
+        with TemporaryDirectory() as tempdir:
+            temp = Path(tempdir)
+            strategy = temp / "demo_strategy.md"
+            strategy.write_text("missing deploy ops trace\n")
+            with self.assertRaises(RuntimeError):
+                HARNESS.validate_cloudflare_deploy_ops(
+                    wrangler_config=root / "wrangler.jsonc",
+                    ops_script=root / "scripts" / "cloudflare_pages_ops.py",
+                    static_contract=root / "evidence" / "contracts" / "showcase_static_entrypoint_contract.md",
+                    react_contract=root / "evidence" / "contracts" / "showcase_react_embedding_contract.md",
+                    strategy_doc=strategy,
+                )
+
     def test_validate_react_web_rejects_missing_host_markers(self):
         with TemporaryDirectory() as tempdir:
             temp = Path(tempdir)

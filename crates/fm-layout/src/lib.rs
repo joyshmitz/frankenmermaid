@@ -22,7 +22,9 @@ use fm_core::{
     mermaid_cluster_element_id, mermaid_edge_element_id, mermaid_node_element_id,
     mermaid_node_element_id_with_variant,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use good_lp::solvers::WithTimeLimit;
+#[cfg(not(target_arch = "wasm32"))]
 use good_lp::{Expression, Solution, SolverModel, constraint, default_solver, variable};
 use tracing::{debug, info, trace, warn};
 
@@ -783,7 +785,7 @@ pub struct LayoutStats {
     pub node_count: usize,
     pub edge_count: usize,
     pub crossing_count: usize,
-    /// Crossing count after barycenter (before transpose/sifting refinement).
+    /// Crossing count after barycenter/e-graph ordering (before transpose/sifting refinement).
     pub crossing_count_before_refinement: usize,
     pub reversed_edges: usize,
     pub cycle_count: usize,
@@ -8869,9 +8871,15 @@ fn crossing_minimization(
         }
     }
 
-    let crossing_count = total_crossings(ir, ranks, &ordering_by_rank);
+    let barycenter_crossing_count = total_crossings(ir, ranks, &ordering_by_rank);
+    let crossing_count = if barycenter_crossing_count == 0 {
+        0
+    } else {
+        apply_egraph_ordering_pass(ir, ranks, &mut ordering_by_rank, barycenter_crossing_count)
+    };
     debug!(
-        crossings_after_barycenter = crossing_count,
+        crossings_after_barycenter = barycenter_crossing_count,
+        crossings_after_egraph = crossing_count,
         ranks = ordering_by_rank.len(),
         "layout.crossing_minimization"
     );
@@ -9612,6 +9620,7 @@ fn apply_constraint_solver(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn solve_constraint_coordinates(
     ir: &MermaidDiagramIr,
     nodes: &mut [LayoutNodeBox],
@@ -9782,6 +9791,18 @@ fn solve_constraint_coordinates(
     recompute_in_rank_orders(nodes, horizontal_ranks);
 
     Ok(applied)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn solve_constraint_coordinates(
+    _ir: &MermaidDiagramIr,
+    _nodes: &mut [LayoutNodeBox],
+    _spacing: LayoutSpacing,
+    _time_limit_ms: u64,
+) -> Result<usize, String> {
+    Err(String::from(
+        "constraint solver is unavailable on wasm32 builds and falls back to heuristic layout",
+    ))
 }
 
 fn resolve_constraint_nodes(
@@ -10110,6 +10131,156 @@ fn nodes_by_rank(node_count: usize, ranks: &BTreeMap<usize, usize>) -> BTreeMap<
         nodes_by_rank.entry(rank).or_default().push(node_index);
     }
     nodes_by_rank
+}
+
+fn layer_edges_between_ranks(
+    ir: &MermaidDiagramIr,
+    ranks: &BTreeMap<usize, usize>,
+    upper_rank: usize,
+    lower_rank: usize,
+) -> crate::egraph_ordering::LayerEdges {
+    let mut edges = Vec::new();
+
+    for edge in &ir.edges {
+        let Some(mut source) = endpoint_node_index(ir, edge.from) else {
+            continue;
+        };
+        let Some(mut target) = endpoint_node_index(ir, edge.to) else {
+            continue;
+        };
+        let Some(mut source_rank) = ranks.get(&source).copied() else {
+            continue;
+        };
+        let Some(mut target_rank) = ranks.get(&target).copied() else {
+            continue;
+        };
+
+        if source_rank == target_rank {
+            continue;
+        }
+        if source_rank > target_rank {
+            std::mem::swap(&mut source, &mut target);
+            std::mem::swap(&mut source_rank, &mut target_rank);
+        }
+        if source_rank != upper_rank || target_rank != lower_rank {
+            continue;
+        }
+        if target_rank != source_rank.saturating_add(1) {
+            continue;
+        }
+
+        edges.push((source, target));
+    }
+
+    edges.sort_unstable();
+    crate::egraph_ordering::LayerEdges { edges }
+}
+
+fn egraph_optimized_order_for_rank(
+    ir: &MermaidDiagramIr,
+    ranks: &BTreeMap<usize, usize>,
+    ordering_by_rank: &BTreeMap<usize, Vec<usize>>,
+    rank: usize,
+) -> Option<(usize, crate::egraph_ordering::LayerOptimizationResult)> {
+    let current_order = ordering_by_rank.get(&rank)?.clone();
+    if current_order.len() < 2 || !crate::egraph_ordering::should_use_egraph(current_order.len()) {
+        return None;
+    }
+
+    let current = crate::egraph_ordering::LayerOrdering::new(current_order);
+
+    let upper_ordering = rank.checked_sub(1).and_then(|upper_rank| {
+        ordering_by_rank
+            .get(&upper_rank)
+            .cloned()
+            .map(crate::egraph_ordering::LayerOrdering::new)
+    });
+    let upper_edges = rank.checked_sub(1).and_then(|upper_rank| {
+        let edges = layer_edges_between_ranks(ir, ranks, upper_rank, rank);
+        (!edges.edges.is_empty()).then_some(edges)
+    });
+
+    let lower_ordering = rank.checked_add(1).and_then(|lower_rank| {
+        ordering_by_rank
+            .get(&lower_rank)
+            .cloned()
+            .map(crate::egraph_ordering::LayerOrdering::new)
+    });
+    let lower_edges = rank.checked_add(1).and_then(|lower_rank| {
+        let edges = layer_edges_between_ranks(ir, ranks, rank, lower_rank);
+        (!edges.edges.is_empty()).then_some(edges)
+    });
+
+    if upper_edges.is_none() && lower_edges.is_none() {
+        return None;
+    }
+
+    let local_crossings_before = crate::egraph_ordering::local_crossing_count(
+        &current,
+        upper_ordering.as_ref().zip(upper_edges.as_ref()),
+        lower_ordering.as_ref().zip(lower_edges.as_ref()),
+    );
+    let result = crate::egraph_ordering::optimize_layer_ordering(
+        &current,
+        upper_ordering.as_ref().zip(upper_edges.as_ref()),
+        lower_ordering.as_ref().zip(lower_edges.as_ref()),
+    );
+
+    (result.crossing_count < local_crossings_before).then_some((local_crossings_before, result))
+}
+
+fn apply_egraph_ordering_pass(
+    ir: &MermaidDiagramIr,
+    ranks: &BTreeMap<usize, usize>,
+    ordering_by_rank: &mut BTreeMap<usize, Vec<usize>>,
+    mut best_crossings: usize,
+) -> usize {
+    let rank_keys: Vec<usize> = ordering_by_rank.keys().copied().collect();
+    for _ in 0..2 {
+        let mut improved = false;
+        for &rank in &rank_keys {
+            let Some((local_crossings_before, result)) =
+                egraph_optimized_order_for_rank(ir, ranks, ordering_by_rank, rank)
+            else {
+                continue;
+            };
+
+            let Some(original_order) = ordering_by_rank.get(&rank).cloned() else {
+                continue;
+            };
+            let (estimated_egraph_nodes, estimated_egraph_bytes) =
+                crate::egraph_ordering::estimate_egraph_size(original_order.len());
+            ordering_by_rank.insert(rank, result.ordering.order.clone());
+            let total_after = total_crossings(ir, ranks, ordering_by_rank);
+
+            if total_after < best_crossings {
+                improved = true;
+                debug!(
+                    rank,
+                    local_crossings_before,
+                    local_crossings_after = result.crossing_count,
+                    total_crossings_before = best_crossings,
+                    total_crossings_after = total_after,
+                    rewrites_applied = result.rewrites_applied,
+                    estimated_egraph_nodes,
+                    estimated_egraph_bytes,
+                    "layout.crossing_egraph"
+                );
+                best_crossings = total_after;
+                if best_crossings == 0 {
+                    return 0;
+                }
+            } else {
+                ordering_by_rank.insert(rank, original_order);
+            }
+        }
+
+        if !improved {
+            break;
+        }
+    }
+
+    best_crossings
 }
 
 fn reorder_rank_by_barycenter(
@@ -15342,6 +15513,48 @@ mod tests {
             stage_names.contains(&"crossing_refinement"),
             "Trace should include crossing_refinement stage, got: {stage_names:?}"
         );
+    }
+
+    #[test]
+    fn egraph_rank_optimizer_rewrites_middle_rank_when_local_cost_drops() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Flowchart);
+        for i in 0..9 {
+            ir.nodes.push(IrNode {
+                id: format!("N{i}"),
+                ..IrNode::default()
+            });
+        }
+        for (from, to) in [(0, 3), (1, 4), (4, 6), (4, 7)] {
+            ir.edges.push(IrEdge {
+                from: IrEndpoint::Node(IrNodeId(from)),
+                to: IrEndpoint::Node(IrNodeId(to)),
+                arrow: ArrowType::Arrow,
+                ..IrEdge::default()
+            });
+        }
+
+        let ranks = BTreeMap::from([
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 1),
+            (4, 1),
+            (5, 1),
+            (6, 2),
+            (7, 2),
+            (8, 2),
+        ]);
+
+        let mut ordering_by_rank =
+            BTreeMap::from([(0, vec![0, 1, 2]), (1, vec![4, 3, 5]), (2, vec![6, 7, 8])]);
+        let (local_crossings_before, result) =
+            super::egraph_optimized_order_for_rank(&ir, &ranks, &ordering_by_rank, 1)
+                .expect("middle rank should have an improving e-graph rewrite");
+
+        assert_eq!(local_crossings_before, 1);
+        ordering_by_rank.insert(1, result.ordering.order);
+        assert_eq!(ordering_by_rank.get(&1), Some(&vec![3, 4, 5]));
+        assert_eq!(result.crossing_count, 0);
     }
 
     #[test]

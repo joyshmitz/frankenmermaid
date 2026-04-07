@@ -192,6 +192,21 @@ At minimum, the telemetry/event payloads must carry enough information to map ba
 - Runtime-unavailable states must remain honest even if React suspense boundaries are used.
 - React re-renders must not break latest-edit-wins semantics or resurrect stale revisions.
 
+## Cloudflare Pages Route And Cache Alignment
+
+`/web_react` shares the same Pages project cache matrix as `/web`.
+
+- `/web_react` is the canonical React route root.
+- `/web_react/` should redirect to `/web_react` with HTTP 301 while preserving the query string.
+- Because query-bearing deep links must survive canonicalization, those trailing-slash redirects should be implemented as Cloudflare Redirect Rules or Bulk Redirects with query preservation enabled instead of Pages `_redirects`.
+- Query-bearing entry routes must not use cache rules that ignore search parameters.
+- Current shared cache matrix:
+  - `/web_react`, `/web_react/*` => `public, max-age=0, must-revalidate`
+  - `/pkg/*` => `public, max-age=0, must-revalidate` while runtime asset names remain stable
+  - `/evidence/*` => `public, max-age=3600, must-revalidate`
+- When deployment packaging emits revisioned runtime asset paths or hashed filenames, the React host may consume those versioned URLs and only those versioned runtime assets may become `public, max-age=31536000, immutable`.
+- If Pages Functions are introduced, `_routes.json` should exclude the static showcase routes/assets unless a route is intentionally dynamic.
+
 ## Versioning Expectations
 
 This contract should be treated as versioned by semantic meaning rather than arbitrary prop churn.
@@ -216,6 +231,9 @@ The React embedding contract is only satisfied when:
 - route integration is defined as an adapter, not hard-coded component logic
 - shell, compare, lab, and studio state remain portable
 - diagnostics/fallback/runtime truth are preserved across component boundaries
+- the Cloudflare Pages route/cache matrix stays aligned with the static `/web` contract
+- canonical trailing-slash redirects are kept out of Pages `_redirects` when query preservation matters
+- stable `/pkg/*` asset names remain revalidating until revisioned asset paths exist
 - the contract points downstream React implementation work at reusable tests/logging rather than ad hoc host-local checks
 
 ## Downstream Consequences

@@ -7304,27 +7304,40 @@ fn parse_init_directives(input: &str, builder: &mut IrBuilder) {
 
 fn parse_front_matter_config(front_matter_payload: &str, builder: &mut IrBuilder) {
     let span = Span::at_line(1, front_matter_payload.chars().count());
-    let yaml_value = match serde_yaml::from_str::<Value>(front_matter_payload) {
-        Ok(value) => value,
-        Err(error) => {
-            let message = format!("Front matter: invalid YAML config: {error}");
-            builder.add_warning(message.clone());
-            builder.add_init_error(message, span);
-            return;
-        }
-    };
-
-    if let Some(title) = yaml_value.get("title").and_then(Value::as_str)
-        && let Some(title) = clean_label(Some(title))
+    #[cfg(target_arch = "wasm32")]
     {
-        builder.set_title(title);
+        let message = String::from(
+            "Front matter: YAML config is unavailable in wasm32 builds; ignoring front matter",
+        );
+        builder.add_warning(message.clone());
+        builder.add_init_error(message, span);
+        return;
     }
 
-    let config_value = yaml_value
-        .get("config")
-        .cloned()
-        .unwrap_or_else(|| yaml_value.clone());
-    apply_mermaid_config_value(config_value, "Front matter", span, builder);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let yaml_value = match serde_yaml::from_str::<Value>(front_matter_payload) {
+            Ok(value) => value,
+            Err(error) => {
+                let message = format!("Front matter: invalid YAML config: {error}");
+                builder.add_warning(message.clone());
+                builder.add_init_error(message, span);
+                return;
+            }
+        };
+
+        if let Some(title) = yaml_value.get("title").and_then(Value::as_str)
+            && let Some(title) = clean_label(Some(title))
+        {
+            builder.set_title(title);
+        }
+
+        let config_value = yaml_value
+            .get("config")
+            .cloned()
+            .unwrap_or_else(|| yaml_value.clone());
+        apply_mermaid_config_value(config_value, "Front matter", span, builder);
+    }
 }
 
 fn apply_mermaid_config_value(value: Value, context: &str, span: Span, builder: &mut IrBuilder) {

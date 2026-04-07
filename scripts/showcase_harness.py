@@ -70,6 +70,10 @@ PARITY_ACCEPTABLE_DELTA_FIELDS = (
     "trace_id",
 )
 
+REVALIDATING_CACHE_CONTROL = "public, max-age=0, must-revalidate"
+EVIDENCE_CACHE_CONTROL = "public, max-age=3600, must-revalidate"
+IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
 
 class HtmlSmokeParser(HTMLParser):
     """Minimal parser wrapper so malformed HTML raises via feed/close usage."""
@@ -83,6 +87,37 @@ class CheckResult:
 
     def to_dict(self) -> dict[str, object]:
         return {"name": self.name, "ok": self.ok, "detail": self.detail}
+
+
+def parse_headers_manifest(text: str) -> dict[str, dict[str, str]]:
+    rules: dict[str, dict[str, str]] = {}
+    current_rule: str | None = None
+
+    for raw_line in text.splitlines():
+        if not raw_line.strip():
+            continue
+
+        if raw_line.startswith((" ", "\t")):
+            if current_rule is None:
+                raise RuntimeError("header line appeared before any route rule")
+            name, separator, value = raw_line.strip().partition(":")
+            if separator != ":":
+                raise RuntimeError(f"invalid header line: {raw_line.strip()}")
+            rules[current_rule][name.strip().lower()] = value.strip()
+            continue
+
+        current_rule = raw_line.strip()
+        rules[current_rule] = {}
+
+    return rules
+
+
+def has_cache_rule(
+    rules: dict[str, dict[str, str]],
+    route: str,
+    expected_cache_control: str,
+) -> bool:
+    return rules.get(route, {}).get("cache-control") == expected_cache_control
 
 
 def sha256_file(path: Path) -> str:
@@ -488,10 +523,27 @@ def run_node_check(script: str) -> None:
             pass
 
 
+def run_json_command(command: list[str], cwd: Path) -> dict[str, object]:
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"command failed: {' '.join(command)}")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"command did not emit valid JSON: {' '.join(command)}") from exc
+
+
 def validate_static_web(entry: Path, headers: Path, contract: Path, log_path: Path | None) -> dict[str, object]:
     entry_text = entry.read_text()
     headers_text = headers.read_text()
     contract_text = contract.read_text()
+    header_rules = parse_headers_manifest(headers_text)
 
     parser = HtmlSmokeParser()
     parser.feed(entry_text)
@@ -517,18 +569,47 @@ def validate_static_web(entry: Path, headers: Path, contract: Path, log_path: Pa
         ),
         CheckResult(
             "pkg cache rule",
-            "/pkg/*" in headers_text,
-            "static host publishes immutable cache policy for root pkg assets",
+            has_cache_rule(header_rules, "/pkg/*", REVALIDATING_CACHE_CONTROL),
+            "static host keeps stable /pkg/* runtime assets on a revalidating cache policy until revisioned asset paths exist",
         ),
         CheckResult(
             "evidence cache rule",
-            "/evidence/*" in headers_text,
+            has_cache_rule(header_rules, "/evidence/*", EVIDENCE_CACHE_CONTROL),
             "static host publishes review-friendly cache policy for evidence artifacts",
+        ),
+        CheckResult(
+            "headers root rule",
+            has_cache_rule(header_rules, "/web", REVALIDATING_CACHE_CONTROL),
+            "static host publishes explicit revalidating cache behavior for the /web entry route",
+        ),
+        CheckResult(
+            "headers subtree rule",
+            has_cache_rule(header_rules, "/web/*", REVALIDATING_CACHE_CONTROL),
+            "static host publishes explicit revalidating cache behavior for /web deep links",
         ),
         CheckResult(
             "contract alignment",
             "root-level `/pkg/...` and `/evidence/...`" in contract_text,
             "entrypoint contract matches file-style /web asset semantics",
+        ),
+        CheckResult(
+            "contract cache safety",
+            "Because those paths are not revisioned today, `/pkg/*` must remain `public, max-age=0, must-revalidate`."
+            in contract_text
+            and "`immutable` caching is forbidden for the non-revisioned `/pkg/*` surface" in contract_text,
+            "entrypoint contract documents the stable-runtime cache safety constraint",
+        ),
+        CheckResult(
+            "contract route strategy",
+            "`/web/` and `/web_react/` should redirect to `/web` and `/web_react` with HTTP 301 while preserving the query string."
+            in contract_text
+            and "Cloudflare Redirect Rules or Bulk Redirects with query preservation enabled instead of Pages `_redirects`"
+            in contract_text
+            and "Query parameters on `/web` and `/web_react` are state-bearing and must stay in the cache key;"
+            in contract_text
+            and "`_routes.json` should exclude `/pkg/*`, `/evidence/*`, `/web`, `/web/*`, `/web_react`, and `/web_react/*`"
+            in contract_text,
+            "entrypoint contract documents the Cloudflare route, cache-key, and Functions-exclusion plan",
         ),
     ]
 
@@ -557,6 +638,7 @@ def validate_react_web(entry: Path, headers: Path, contract: Path, log_path: Pat
     entry_text = entry.read_text()
     headers_text = headers.read_text()
     contract_text = contract.read_text()
+    header_rules = parse_headers_manifest(headers_text)
 
     parser = HtmlSmokeParser()
     parser.feed(entry_text)
@@ -592,19 +674,42 @@ def validate_react_web(entry: Path, headers: Path, contract: Path, log_path: Pat
         ),
         CheckResult(
             "headers root rule",
-            "/web_react" in headers_text,
-            "react route publishes explicit cache behavior for the root route",
+            has_cache_rule(header_rules, "/web_react", REVALIDATING_CACHE_CONTROL),
+            "react route publishes explicit revalidating cache behavior for the root route",
         ),
         CheckResult(
             "headers subtree rule",
-            "/web_react/*" in headers_text,
-            "react route publishes explicit cache behavior for deep links",
+            has_cache_rule(header_rules, "/web_react/*", REVALIDATING_CACHE_CONTROL),
+            "react route publishes explicit revalidating cache behavior for deep links",
+        ),
+        CheckResult(
+            "pkg cache rule",
+            has_cache_rule(header_rules, "/pkg/*", REVALIDATING_CACHE_CONTROL),
+            "react route keeps stable /pkg/* runtime assets on a revalidating cache policy until revisioned asset paths exist",
+        ),
+        CheckResult(
+            "evidence cache rule",
+            has_cache_rule(header_rules, "/evidence/*", EVIDENCE_CACHE_CONTROL),
+            "react route publishes review-friendly cache policy for evidence artifacts",
         ),
         CheckResult(
             "contract alignment",
             "bd-2u0.5.8.3.2" in contract_text
             and "the `/web_react` route against this component/service boundary" in contract_text,
             "react route aligns with the checked-in embedding contract",
+        ),
+        CheckResult(
+            "contract cache matrix",
+            "`/web_react` shares the same Pages project cache matrix as `/web`." in contract_text
+            and "Cloudflare Redirect Rules or Bulk Redirects with query preservation enabled instead of Pages `_redirects`"
+            in contract_text
+            and "Query-bearing entry routes must not use cache rules that ignore search parameters."
+            in contract_text
+            and "`/pkg/*` => `public, max-age=0, must-revalidate` while runtime asset names remain stable"
+            in contract_text
+            and "`_routes.json` should exclude the static showcase routes/assets unless a route is intentionally dynamic."
+            in contract_text,
+            "react embedding contract aligns with the Cloudflare route/cache strategy",
         ),
     ]
 
@@ -625,6 +730,267 @@ def validate_react_web(entry: Path, headers: Path, contract: Path, log_path: Pat
         "headers_hash": sha256_file(headers),
         "contract_hash": sha256_file(contract),
         "log_path": str(log_path) if log_path else None,
+        "checks": [check.to_dict() for check in checks],
+    }
+
+
+def validate_cloudflare_hosting_plan(
+    *,
+    static_headers: Path,
+    react_headers: Path,
+    static_contract: Path,
+    react_contract: Path,
+    strategy_doc: Path | None = None,
+) -> dict[str, object]:
+    static_rules = parse_headers_manifest(static_headers.read_text())
+    react_rules = parse_headers_manifest(react_headers.read_text())
+    static_contract_text = static_contract.read_text()
+    react_contract_text = react_contract.read_text()
+    strategy_text = strategy_doc.read_text() if strategy_doc is not None else ""
+
+    checks = [
+        CheckResult(
+            "shared pkg cache rule",
+            has_cache_rule(static_rules, "/pkg/*", REVALIDATING_CACHE_CONTROL)
+            and has_cache_rule(react_rules, "/pkg/*", REVALIDATING_CACHE_CONTROL),
+            "both showcase hosts keep stable /pkg/* runtime assets revalidating until versioned paths exist",
+        ),
+        CheckResult(
+            "shared evidence cache rule",
+            has_cache_rule(static_rules, "/evidence/*", EVIDENCE_CACHE_CONTROL)
+            and has_cache_rule(react_rules, "/evidence/*", EVIDENCE_CACHE_CONTROL),
+            "both showcase hosts publish the same review-friendly cache policy for evidence artifacts",
+        ),
+        CheckResult(
+            "static route rules",
+            has_cache_rule(static_rules, "/web", REVALIDATING_CACHE_CONTROL)
+            and has_cache_rule(static_rules, "/web/*", REVALIDATING_CACHE_CONTROL),
+            "static host publishes explicit revalidating cache rules for /web and /web/*",
+        ),
+        CheckResult(
+            "react route rules",
+            has_cache_rule(react_rules, "/web_react", REVALIDATING_CACHE_CONTROL)
+            and has_cache_rule(react_rules, "/web_react/*", REVALIDATING_CACHE_CONTROL),
+            "react host publishes explicit revalidating cache rules for /web_react and /web_react/*",
+        ),
+        CheckResult(
+            "static contract route matrix",
+            "Current cache matrix:" in static_contract_text
+            and "Future optimization after versioned assets exist:" in static_contract_text
+            and "Cloudflare Redirect Rules or Bulk Redirects with query preservation enabled instead of Pages `_redirects`"
+            in static_contract_text
+            and "`_routes.json` should exclude `/pkg/*`, `/evidence/*`, `/web`, `/web/*`, `/web_react`, and `/web_react/*`"
+            in static_contract_text,
+            "static contract captures the current cache matrix, the future immutable-versioned path plan, and the Functions exclusion plan",
+        ),
+        CheckResult(
+            "react contract alignment",
+            "`/web_react` shares the same Pages project cache matrix as `/web`." in react_contract_text
+            and "Cloudflare Redirect Rules or Bulk Redirects with query preservation enabled instead of Pages `_redirects`"
+            in react_contract_text
+            and "When deployment packaging emits revisioned runtime asset paths or hashed filenames" in react_contract_text,
+            "react contract acknowledges the shared Pages route/cache matrix and the future versioned-asset handoff",
+        ),
+    ]
+
+    if strategy_doc is not None:
+        checks.append(
+            CheckResult(
+                "strategy trace",
+                "bd-2u0.5.9.1" in strategy_text and "validate-hosting-plan" in strategy_text,
+                "demo strategy points deployment work at the checked-in hosting-plan validator",
+            )
+        )
+
+    failures = [check.detail for check in checks if not check.ok]
+    if failures:
+        raise RuntimeError("; ".join(failures))
+
+    return {
+        "surface": "cloudflare-hosting-plan",
+        "static_headers": str(static_headers),
+        "react_headers": str(react_headers),
+        "static_contract": str(static_contract),
+        "react_contract": str(react_contract),
+        "strategy_doc": str(strategy_doc) if strategy_doc else None,
+        "static_headers_hash": sha256_file(static_headers),
+        "react_headers_hash": sha256_file(react_headers),
+        "static_contract_hash": sha256_file(static_contract),
+        "react_contract_hash": sha256_file(react_contract),
+        "strategy_doc_hash": sha256_file(strategy_doc) if strategy_doc else None,
+        "checks": [check.to_dict() for check in checks],
+    }
+
+
+def validate_cloudflare_deploy_ops(
+    *,
+    wrangler_config: Path,
+    ops_script: Path,
+    static_contract: Path,
+    react_contract: Path,
+    strategy_doc: Path | None = None,
+) -> dict[str, object]:
+    repo_root = ops_script.resolve().parent.parent
+    wrangler_payload = json.loads(wrangler_config.read_text())
+    static_contract_text = static_contract.read_text()
+    react_contract_text = react_contract.read_text()
+    strategy_text = strategy_doc.read_text() if strategy_doc is not None else ""
+
+    with tempfile.TemporaryDirectory() as tempdir:
+        temp_root = Path(tempdir)
+        staged_bundle = run_json_command(
+            [
+                "python3",
+                str(ops_script),
+                "stage-bundle",
+                "--repo-root",
+                str(repo_root),
+                "--output-dir",
+                str(temp_root / "bundle"),
+            ],
+            cwd=repo_root,
+        )
+        preview_deploy = run_json_command(
+            [
+                "python3",
+                str(ops_script),
+                "preview-deploy",
+                "--repo-root",
+                str(repo_root),
+                "--output-dir",
+                str(temp_root / "preview"),
+                "--project-name",
+                "frankenmermaid",
+                "--branch",
+                "preview-smoke",
+                "--commit-hash",
+                "deadbeef",
+                "--commit-message",
+                "preview smoke",
+                "--dry-run",
+            ],
+            cwd=repo_root,
+        )
+        production_deploy = run_json_command(
+            [
+                "python3",
+                str(ops_script),
+                "production-deploy",
+                "--repo-root",
+                str(repo_root),
+                "--output-dir",
+                str(temp_root / "production"),
+                "--project-name",
+                "frankenmermaid",
+                "--commit-hash",
+                "deadbeef",
+                "--commit-message",
+                "production smoke",
+                "--dry-run",
+            ],
+            cwd=repo_root,
+        )
+        rollback_drill = run_json_command(
+            [
+                "python3",
+                str(ops_script),
+                "rollback-drill",
+                "--account-id",
+                "account-id",
+                "--project-name",
+                "frankenmermaid",
+                "--deployment-id",
+                "deployment-id",
+                "--reason",
+                "smoke drill",
+                "--dry-run",
+            ],
+            cwd=repo_root,
+        )
+
+    checks = [
+        CheckResult(
+            "wrangler config name",
+            isinstance(wrangler_payload.get("name"), str) and bool(wrangler_payload.get("name")),
+            "wrangler config defines a Pages project name",
+        ),
+        CheckResult(
+            "wrangler output dir",
+            isinstance(wrangler_payload.get("pages_build_output_dir"), str)
+            and wrangler_payload["pages_build_output_dir"].startswith("./dist/cloudflare-pages/"),
+            "wrangler config points at an isolated dist/cloudflare-pages staging root",
+        ),
+        CheckResult(
+            "wrangler env overrides",
+            wrangler_payload.get("env", {}).get("preview", {}).get("vars", {}).get("FM_DEPLOY_ENV") == "preview"
+            and wrangler_payload.get("env", {}).get("production", {}).get("vars", {}).get("FM_DEPLOY_ENV")
+            == "production",
+            "wrangler config distinguishes preview and production deployment metadata",
+        ),
+        CheckResult(
+            "static redirect strategy",
+            "Cloudflare Redirect Rules or Bulk Redirects with query preservation enabled instead of Pages `_redirects`"
+            in static_contract_text,
+            "static contract documents the Redirect Rules requirement for canonical query-preserving redirects",
+        ),
+        CheckResult(
+            "react redirect strategy",
+            "Cloudflare Redirect Rules or Bulk Redirects with query preservation enabled instead of Pages `_redirects`"
+            in react_contract_text,
+            "react contract documents the Redirect Rules requirement for canonical query-preserving redirects",
+        ),
+        CheckResult(
+            "bundle staging",
+            staged_bundle.get("action") == "stage-bundle"
+            and staged_bundle.get("redirect_strategy", {}).get("kind") == "cloudflare-redirect-rules"
+            and any(item.get("path") == "_headers" for item in staged_bundle.get("generated_files", [])),
+            "ops script stages the Pages bundle, emits a merged root _headers file, and records Redirect Rules guidance",
+        ),
+        CheckResult(
+            "preview deploy dry run",
+            preview_deploy.get("action") == "preview-deploy"
+            and "--branch" in preview_deploy.get("command", [])
+            and "preview-smoke" in preview_deploy.get("command", []),
+            "ops script prints a preview deployment command with explicit branch metadata",
+        ),
+        CheckResult(
+            "production deploy dry run",
+            production_deploy.get("action") == "production-deploy"
+            and "--branch" not in production_deploy.get("command", []),
+            "ops script prints a production deployment command without preview-branch override",
+        ),
+        CheckResult(
+            "rollback drill",
+            rollback_drill.get("supported_execution") == "dashboard"
+            and rollback_drill.get("preflight_request", {}).get("method") == "GET",
+            "ops script keeps rollback honesty by using a deployment-list preflight and dashboard rollback drill payload",
+        ),
+    ]
+    if strategy_doc is not None:
+        checks.append(
+            CheckResult(
+                "strategy trace",
+                "cloudflare_pages_ops.py" in strategy_text and "validate-cloudflare-deploy-ops" in strategy_text,
+                "demo strategy points deployment work at the checked-in runbook and validator",
+            )
+        )
+
+    failures = [check.detail for check in checks if not check.ok]
+    if failures:
+        raise RuntimeError("; ".join(failures))
+
+    return {
+        "surface": "cloudflare-deploy-ops",
+        "wrangler_config": str(wrangler_config),
+        "ops_script": str(ops_script),
+        "static_contract": str(static_contract),
+        "react_contract": str(react_contract),
+        "strategy_doc": str(strategy_doc) if strategy_doc else None,
+        "wrangler_config_hash": sha256_file(wrangler_config),
+        "ops_script_hash": sha256_file(ops_script),
+        "static_contract_hash": sha256_file(static_contract),
+        "react_contract_hash": sha256_file(react_contract),
+        "strategy_doc_hash": sha256_file(strategy_doc) if strategy_doc else None,
         "checks": [check.to_dict() for check in checks],
     }
 
@@ -775,6 +1141,30 @@ def cmd_validate_react_web(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate_cloudflare_hosting_plan(args: argparse.Namespace) -> int:
+    result = validate_cloudflare_hosting_plan(
+        static_headers=Path(args.static_headers),
+        react_headers=Path(args.react_headers),
+        static_contract=Path(args.static_contract),
+        react_contract=Path(args.react_contract),
+        strategy_doc=Path(args.strategy_doc) if args.strategy_doc else None,
+    )
+    print(json.dumps({"ok": True, "result": result}, indent=2))
+    return 0
+
+
+def cmd_validate_cloudflare_deploy_ops(args: argparse.Namespace) -> int:
+    result = validate_cloudflare_deploy_ops(
+        wrangler_config=Path(args.wrangler_config),
+        ops_script=Path(args.ops_script),
+        static_contract=Path(args.static_contract),
+        react_contract=Path(args.react_contract),
+        strategy_doc=Path(args.strategy_doc) if args.strategy_doc else None,
+    )
+    print(json.dumps({"ok": True, "result": result}, indent=2))
+    return 0
+
+
 def cmd_validate_showcase_accessibility(args: argparse.Namespace) -> int:
     result = validate_showcase_accessibility(
         entry=Path(args.entry),
@@ -844,6 +1234,50 @@ def build_parser() -> argparse.ArgumentParser:
     validate_react.add_argument("--contract", required=True, help="Path to React embedding contract")
     validate_react.add_argument("--log", help="Optional path to structured evidence log to validate too")
     validate_react.set_defaults(func=cmd_validate_react_web)
+
+    validate_hosting_plan = subparsers.add_parser(
+        "validate-hosting-plan",
+        help="Validate the cross-surface Cloudflare route/cache/asset strategy for /web and /web_react",
+    )
+    validate_hosting_plan.add_argument("--static-headers", required=True, help="Path to web/_headers")
+    validate_hosting_plan.add_argument("--react-headers", required=True, help="Path to web_react/_headers")
+    validate_hosting_plan.add_argument(
+        "--static-contract",
+        required=True,
+        help="Path to the static entry contract",
+    )
+    validate_hosting_plan.add_argument(
+        "--react-contract",
+        required=True,
+        help="Path to the React embedding contract",
+    )
+    validate_hosting_plan.add_argument(
+        "--strategy-doc",
+        help="Optional path to the demo strategy document for traceability checks",
+    )
+    validate_hosting_plan.set_defaults(func=cmd_validate_cloudflare_hosting_plan)
+
+    validate_deploy_ops = subparsers.add_parser(
+        "validate-cloudflare-deploy-ops",
+        help="Validate the checked-in Pages/Wrangler deployment automation for /web and /web_react",
+    )
+    validate_deploy_ops.add_argument("--wrangler-config", required=True, help="Path to wrangler.jsonc")
+    validate_deploy_ops.add_argument("--ops-script", required=True, help="Path to cloudflare_pages_ops.py")
+    validate_deploy_ops.add_argument(
+        "--static-contract",
+        required=True,
+        help="Path to the static entry contract",
+    )
+    validate_deploy_ops.add_argument(
+        "--react-contract",
+        required=True,
+        help="Path to the React embedding contract",
+    )
+    validate_deploy_ops.add_argument(
+        "--strategy-doc",
+        help="Optional path to the demo strategy document for traceability checks",
+    )
+    validate_deploy_ops.set_defaults(func=cmd_validate_cloudflare_deploy_ops)
 
     validate_a11y = subparsers.add_parser(
         "validate-showcase-accessibility",

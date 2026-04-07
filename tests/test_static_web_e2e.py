@@ -91,6 +91,7 @@ class StaticWebE2eHelperTests(unittest.TestCase):
         command = build_replay_command(
             bead_id="bd-2u0.5.11.4",
             repo_root=".",
+            serve_root=None,
             output_root="evidence/runs/web/bd-2u0.5.11.4",
             chromium="/snap/bin/chromium",
             timeout_seconds=8,
@@ -110,6 +111,23 @@ class StaticWebE2eHelperTests(unittest.TestCase):
         self.assertIn("--route-prefix", command)
         self.assertIn("/web_react", command)
 
+    def test_build_replay_command_supports_explicit_serve_root(self):
+        command = build_replay_command(
+            bead_id="bd-2u0.5.9.3",
+            repo_root=".",
+            serve_root="/tmp/staged-pages",
+            output_root="evidence/runs/web/bd-2u0.5.9.3",
+            chromium="/snap/bin/chromium",
+            timeout_seconds=8,
+            route_prefix="/web",
+            surface="web",
+            host_kind="static-web",
+            scenario_prefix="static-web",
+            repeat=2,
+        )
+        self.assertIn("--serve-root", command)
+        self.assertIn("/tmp/staged-pages", command)
+
     def test_write_replay_bundle_emits_manifest_and_script(self):
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -117,6 +135,7 @@ class StaticWebE2eHelperTests(unittest.TestCase):
                 bundle_dir=root / "bundle",
                 bead_id="bd-2u0.5.11.4",
                 repo_root=root,
+                serve_root=root / "serve-root",
                 output_root=root / "evidence",
                 chromium="/snap/bin/chromium",
                 timeout_seconds=8,
@@ -146,6 +165,7 @@ class StaticWebE2eHelperTests(unittest.TestCase):
             self.assertIn("\"surface\": \"web_react\"", manifest)
             self.assertIn("react-web-compare-export", manifest)
             self.assertIn("python3 scripts/run_static_web_e2e.py", script)
+            self.assertIn("--serve-root", script)
             self.assertIn("--profile-id desktop-default", script)
             self.assertEqual(manifest_json["trace_index"][0]["trace_id"], "trace-123")
             self.assertEqual(manifest_json["scenario_commands"][0]["trace_ids"], ["trace-123"])

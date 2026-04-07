@@ -177,6 +177,17 @@ pub struct LayerEdges {
     pub edges: Vec<(usize, usize)>,
 }
 
+/// Result of bounded rewrite exploration for a single layer ordering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayerOptimizationResult {
+    /// Best ordering discovered during rewrite exploration.
+    pub ordering: LayerOrdering,
+    /// Combined crossing count against the fixed adjacent layer(s).
+    pub crossing_count: usize,
+    /// Number of strictly improving rewrite rounds applied.
+    pub rewrites_applied: usize,
+}
+
 /// Count the number of edge crossings between two adjacent layers.
 ///
 /// Two edges (u1→v1) and (u2→v2) cross iff the relative order of u1,u2 in
@@ -225,6 +236,27 @@ pub fn crossing_count(upper: &LayerOrdering, lower: &LayerOrdering, edges: &Laye
     // Count inversions in the lower positions using merge sort.
     let lower_positions: Vec<usize> = edge_positions.iter().map(|&(_, lo)| lo).collect();
     count_inversions(&lower_positions)
+}
+
+/// Compute the combined crossing count contributed by one layer against its adjacent layers.
+///
+/// When both adjacent layers are present, this sums crossings for:
+/// - `upper -> current`
+/// - `current -> lower`
+#[must_use]
+pub fn local_crossing_count(
+    current: &LayerOrdering,
+    upper: Option<(&LayerOrdering, &LayerEdges)>,
+    lower: Option<(&LayerOrdering, &LayerEdges)>,
+) -> usize {
+    let mut total = 0;
+    if let Some((upper_ordering, upper_edges)) = upper {
+        total += crossing_count(upper_ordering, current, upper_edges);
+    }
+    if let Some((lower_ordering, lower_edges)) = lower {
+        total += crossing_count(current, lower_ordering, lower_edges);
+    }
+    total
 }
 
 /// Count inversions in a sequence using merge sort. O(n log n).
@@ -341,6 +373,127 @@ pub fn estimate_egraph_size(n: usize) -> (usize, usize) {
 pub fn should_use_egraph(nodes_per_layer: usize) -> bool {
     // Practical limit: ~100 nodes for interactive, ~200 for batch.
     nodes_per_layer <= 100
+}
+
+fn median_insert_candidates(
+    ordering: &LayerOrdering,
+    upper: Option<(&LayerOrdering, &LayerEdges)>,
+    lower: Option<(&LayerOrdering, &LayerEdges)>,
+) -> Vec<LayerOrdering> {
+    let mut candidates = Vec::new();
+
+    for &node_id in &ordering.order {
+        if let Some((upper_ordering, upper_edges)) = upper
+            && let Some(target_pos) = median_position(node_id, upper_ordering, upper_edges, false)
+            && let Some(candidate) = move_node(ordering, node_id, target_pos)
+        {
+            candidates.push(candidate);
+        }
+
+        if let Some((lower_ordering, lower_edges)) = lower
+            && let Some(target_pos) = median_position(node_id, lower_ordering, lower_edges, true)
+            && let Some(candidate) = move_node(ordering, node_id, target_pos)
+        {
+            candidates.push(candidate);
+        }
+    }
+
+    candidates
+}
+
+fn block_rotation_candidates(ordering: &LayerOrdering) -> Vec<LayerOrdering> {
+    let mut candidates = Vec::new();
+    let n = ordering.len();
+    for len in 3..=n.min(4) {
+        for start in 0..=n - len {
+            for amount in 1..len {
+                if let Some(candidate) = block_rotate(ordering, start, len, amount) {
+                    candidates.push(candidate);
+                }
+            }
+        }
+    }
+    candidates
+}
+
+fn candidate_orderings(
+    ordering: &LayerOrdering,
+    upper: Option<(&LayerOrdering, &LayerEdges)>,
+    lower: Option<(&LayerOrdering, &LayerEdges)>,
+) -> Vec<LayerOrdering> {
+    let mut candidates = all_adjacent_swaps(ordering);
+    candidates.extend(median_insert_candidates(ordering, upper, lower));
+    candidates.extend(block_rotation_candidates(ordering));
+    candidates.sort_by(|left, right| left.order.cmp(&right.order));
+    candidates.dedup_by(|left, right| left.order == right.order);
+    candidates
+}
+
+/// Run a bounded deterministic rewrite search over a layer ordering.
+///
+/// This is the practical integration wedge for the e-graph work: we enumerate
+/// rewrite neighbors (adjacent swaps, median insertions, small block rotations),
+/// score them against the fixed adjacent layer(s), and repeatedly take the best
+/// strictly improving rewrite until a local optimum is reached.
+#[must_use]
+pub fn optimize_layer_ordering(
+    ordering: &LayerOrdering,
+    upper: Option<(&LayerOrdering, &LayerEdges)>,
+    lower: Option<(&LayerOrdering, &LayerEdges)>,
+) -> LayerOptimizationResult {
+    let mut best = ordering.clone();
+    let mut best_crossings = local_crossing_count(&best, upper, lower);
+    if best.len() < 2 || !should_use_egraph(best.len()) {
+        return LayerOptimizationResult {
+            ordering: best,
+            crossing_count: best_crossings,
+            rewrites_applied: 0,
+        };
+    }
+
+    let mut rewrites_applied = 0;
+    let max_rounds = best.len().saturating_mul(2).max(1);
+    for _ in 0..max_rounds {
+        let mut best_candidate: Option<(usize, LayerOrdering)> = None;
+        for candidate in candidate_orderings(&best, upper, lower) {
+            let candidate_crossings = local_crossing_count(&candidate, upper, lower);
+            if candidate_crossings >= best_crossings {
+                continue;
+            }
+
+            match &mut best_candidate {
+                Some((current_best_crossings, current_best_ordering)) => {
+                    if candidate_crossings < *current_best_crossings
+                        || (candidate_crossings == *current_best_crossings
+                            && candidate.order < current_best_ordering.order)
+                    {
+                        *current_best_crossings = candidate_crossings;
+                        *current_best_ordering = candidate;
+                    }
+                }
+                None => {
+                    best_candidate = Some((candidate_crossings, candidate));
+                }
+            }
+        }
+
+        let Some((candidate_crossings, candidate)) = best_candidate else {
+            break;
+        };
+
+        best = candidate;
+        best_crossings = candidate_crossings;
+        rewrites_applied += 1;
+        if best_crossings == 0 {
+            break;
+        }
+    }
+
+    LayerOptimizationResult {
+        ordering: best,
+        crossing_count: best_crossings,
+        rewrites_applied,
+    }
 }
 
 #[cfg(test)]
@@ -528,6 +681,51 @@ mod tests {
         let c1 = crossing_count(&upper, &lower, &edges);
         let c2 = crossing_count(&upper, &lower, &edges);
         assert_eq!(c1, c2);
+    }
+
+    #[test]
+    fn local_crossing_count_sums_both_adjacent_pairs() {
+        let upper = LayerOrdering::new(vec![0, 1, 2]);
+        let current = LayerOrdering::new(vec![4, 3, 5]);
+        let lower = LayerOrdering::new(vec![6, 7, 8]);
+        let upper_edges = LayerEdges {
+            edges: vec![(0, 3), (1, 4)],
+        };
+        let lower_edges = LayerEdges {
+            edges: vec![(4, 6), (4, 7)],
+        };
+
+        assert_eq!(
+            local_crossing_count(
+                &current,
+                Some((&upper, &upper_edges)),
+                Some((&lower, &lower_edges))
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn optimize_layer_ordering_improves_combined_crossings() {
+        let upper = LayerOrdering::new(vec![0, 1, 2]);
+        let current = LayerOrdering::new(vec![4, 3, 5]);
+        let lower = LayerOrdering::new(vec![6, 7, 8]);
+        let upper_edges = LayerEdges {
+            edges: vec![(0, 3), (1, 4)],
+        };
+        let lower_edges = LayerEdges {
+            edges: vec![(4, 6), (4, 7)],
+        };
+
+        let result = optimize_layer_ordering(
+            &current,
+            Some((&upper, &upper_edges)),
+            Some((&lower, &lower_edges)),
+        );
+
+        assert_eq!(result.ordering.order, vec![3, 4, 5]);
+        assert_eq!(result.crossing_count, 0);
+        assert!(result.rewrites_applied > 0);
     }
 
     #[test]

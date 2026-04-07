@@ -121,6 +121,51 @@ jobs:
         if: matrix.fnx_mode == 'on'
         run: cargo test --workspace --all-targets --features fnx-integration
 
+  installer-canary:
+    name: Installer Canary
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            bash \
+            build-essential \
+            ca-certificates \
+            curl \
+            git
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Run installer canary against current checkout
+        shell: bash
+        env:
+          FM_INSTALL_GIT_URL: file://${{ github.workspace }}
+          FM_INSTALL_GIT_REV: ${{ github.sha }}
+          FM_INSTALL_ROOT: /tmp/fm-install-root
+        run: |
+          set -euo pipefail
+          bash ./install.sh
+          export PATH="/tmp/fm-install-root/bin:$PATH"
+          printf 'flowchart LR\nA-->B\n' | fm-cli detect - | tee /tmp/fm-detect.txt
+          grep -qi 'flowchart' /tmp/fm-detect.txt
+          printf 'flowchart LR\nA-->B\n' | fm-cli render - --format svg > /tmp/fm.svg
+          grep -q '<svg' /tmp/fm.svg
+          fm-cli capabilities > /tmp/fm-capabilities.json
+          test -s /tmp/fm-capabilities.json
+          if printf 'flowchrt LR\nA-->B\n' | fm-cli validate - --fail-on warning; then
+            echo "expected validation warning gate to fail for typo input" >&2
+            exit 1
+          fi
+
   golden-checksum-guard:
     name: Golden Checksum Guard
     needs: quality-gate-config
@@ -548,6 +593,8 @@ jobs:
               --artifact artifacts/evidence/signoff/summary.json \
               --artifact artifacts/evidence/signoff/README.md \
               --artifact artifacts/evidence/demo/demo-evidence-summary.json \
+              --artifact artifacts/evidence/demo/deploy-smoke/deploy-smoke-summary.json \
+              --artifact artifacts/evidence/demo/deploy-smoke/deploy-smoke-parity.json \
               --artifact artifacts/evidence/demo/static-replay/replay_manifest.json \
               --artifact artifacts/evidence/demo/static-replay/replay_suite.sh \
               --artifact artifacts/evidence/demo/react-replay/replay_manifest.json \
@@ -671,6 +718,21 @@ jobs:
             --repeat "${{ needs.quality-gate-config.outputs.demo_react_repeat }}" \
             --replay-bundle-dir artifacts/evidence/demo/react-replay
 
+      - name: Run staged Cloudflare deploy smoke gate
+        shell: bash
+        run: |
+          CHROMIUM_BIN="$(command -v chromium || command -v chromium-browser || command -v google-chrome)"
+          python3 scripts/cloudflare_pages_ops.py smoke-check \
+            --repo-root . \
+            --stage-dir artifacts/evidence/demo/deploy-smoke-stage \
+            --output-root artifacts/evidence/demo/deploy-smoke \
+            --chromium "$CHROMIUM_BIN" \
+            --scenario-id static-web-compare-export \
+            --scenario-id static-web-diagnostics-recovery \
+            --profile-id desktop-default \
+            --repeat 2 \
+            --report-out artifacts/evidence/demo/deploy-smoke/deploy-smoke-summary.json
+
       - name: Validate demo evidence summaries and replay bundles
         shell: bash
         run: |
@@ -692,6 +754,8 @@ jobs:
           react_summary = Path(sorted(Path("artifacts/evidence/demo/react").glob("*__determinism__summary.json"))[-1])
           static_payload = json.loads(static_summary.read_text())
           react_payload = json.loads(react_summary.read_text())
+          deploy_smoke_summary = Path("artifacts/evidence/demo/deploy-smoke/deploy-smoke-summary.json")
+          deploy_smoke_payload = json.loads(deploy_smoke_summary.read_text())
 
           def stable_counts(payload):
               total = len(payload["determinism"])
@@ -712,6 +776,14 @@ jobs:
               "replay_bundles": {
                   "static_manifest": static_payload["replay_bundle"]["manifest_path"],
                   "react_manifest": react_payload["replay_bundle"]["manifest_path"],
+              },
+              "deploy_smoke": {
+                  "summary_path": str(deploy_smoke_summary),
+                  "ok": deploy_smoke_payload["ok"],
+                  "route_integrity_ok": deploy_smoke_payload["route_integrity"]["ok"],
+                  "parity_ok": deploy_smoke_payload["parity"]["ok"],
+                  "check_count": len(deploy_smoke_payload["checks"]),
+                  "passed_checks": sum(1 for item in deploy_smoke_payload["checks"] if item["ok"]),
               },
           }
           out_path = Path("artifacts/evidence/demo/demo-evidence-summary.json")

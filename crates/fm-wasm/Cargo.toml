@@ -1,5 +1,9 @@
 [package]
 name = "fm-wasm"
+description = "Rust-first Mermaid-compatible diagram engine for WebAssembly and browser rendering"
+repository = "https://github.com/Dicklesworthstone/frankenmermaid"
+homepage = "https://github.com/Dicklesworthstone/frankenmermaid"
+keywords = ["mermaid", "diagram", "wasm", "svg", "canvas"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -3,21 +3,17 @@
 use std::sync::{LazyLock, RwLock};
 use std::time::Instant;
 
+#[cfg(any(not(target_arch = "wasm32"), test))]
+use fm_core::capability_matrix;
 use fm_core::{
-    MermaidBudgetLedger, MermaidDiagramIr, MermaidGuardReport, MermaidLensBinding, MermaidLensEdit,
-    MermaidLensEditResult, MermaidLensError, MermaidSourceMapKind, MermaidWasmPressureSignals,
-    Span, apply_lens_edit, build_lens_bindings, capability_matrix,
-    mermaid_layout_guard_observability,
+    MermaidBudgetLedger, MermaidDiagramIr, MermaidGuardReport, MermaidSourceMapKind,
+    MermaidWasmPressureSignals, Span, mermaid_layout_guard_observability,
 };
-#[cfg(target_arch = "wasm32")]
-use fm_layout::IncrementalLayoutEngine;
 use fm_layout::{
     DiagramLayout, LayoutConfig, LayoutGuardrails, TracedLayout,
     build_layout_guard_report_with_pressure, layout_diagram_traced,
     layout_diagram_traced_with_config_and_guardrails, layout_source_map,
 };
-#[cfg(target_arch = "wasm32")]
-use fm_parser::ParseResult;
 use fm_parser::{detect_type_with_confidence, parse};
 use fm_render_canvas::CanvasRenderConfig;
 #[cfg(target_arch = "wasm32")]
@@ -25,7 +21,6 @@ use fm_render_canvas::render_to_canvas_with_layout;
 #[cfg(target_arch = "wasm32")]
 use fm_render_canvas::{
     Canvas2dContext, CanvasRenderResult, LineCap, LineJoin, TextAlign, TextBaseline, TextMetrics,
-    render_to_canvas,
 };
 use fm_render_svg::{
     CustomSvgIcon, NodeIconPosition, SvgRenderConfig, ThemeColors, ThemePreset,
@@ -61,19 +56,6 @@ pub struct SourceSpanRecord {
     id: Option<String>,
     element_id: String,
     span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WasmDiagramLens {
-    bindings: Vec<MermaidLensBinding>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WasmLensEditResponse {
-    result: MermaidLensEditResult,
-    bindings: Vec<MermaidLensBinding>,
 }
 
 #[derive(Debug, Clone)]
@@ -169,43 +151,71 @@ struct PressureConfigOverrides {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DiagramRenderOutput {
-    svg: String,
-    detected_type: String,
-    confidence: f32,
-    warnings: Vec<String>,
-    trace_id: String,
-    decision_id: String,
-    policy_id: String,
-    schema_version: String,
-    guard: MermaidGuardReport,
+    guard: WasmGuardSummary,
     layout: LayoutRuntimeSummary,
-    source_spans: Vec<SourceSpanRecord>,
     canvas: CanvasRenderSummary,
 }
 
 #[cfg(target_arch = "wasm32")]
 impl DiagramRenderOutput {
     fn new(
-        svg: String,
-        parsed: &ParseResult,
         traced_layout: &TracedLayout,
         layout_config: &LayoutConfig,
-        guard: MermaidGuardReport,
+        guard: &MermaidGuardReport,
         canvas: &CanvasRenderResult,
     ) -> Self {
         Self {
-            svg,
-            detected_type: parsed.ir.diagram_type.as_str().to_string(),
-            confidence: parsed.confidence,
-            warnings: parsed.warnings.clone(),
-            trace_id: guard.observability.trace_id.to_string(),
-            decision_id: guard.observability.decision_id.to_string(),
-            policy_id: guard.observability.policy_id.to_string(),
-            schema_version: guard.observability.schema_version.to_string(),
+            guard: WasmGuardSummary::from(guard),
             layout: LayoutRuntimeSummary::new(traced_layout, layout_config),
-            guard,
-            source_spans: collect_source_spans(&parsed.ir, &traced_layout.layout),
             canvas: CanvasRenderSummary::from(canvas),
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone, Serialize)]
+struct WasmGuardSummary {
+    budget_exceeded: bool,
+    route_budget_exceeded: bool,
+    layout_budget_exceeded: bool,
+    route_ops_estimate: usize,
+    layout_iterations_estimate: usize,
+    layout_time_estimate_ms: usize,
+    layout_requested_algorithm: Option<String>,
+    layout_selected_algorithm: Option<String>,
+    guard_reason: Option<String>,
+    pressure: WasmPressureSummary,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl From<&MermaidGuardReport> for WasmGuardSummary {
+    fn from(guard: &MermaidGuardReport) -> Self {
+        Self {
+            budget_exceeded: guard.budget_exceeded,
+            route_budget_exceeded: guard.route_budget_exceeded,
+            layout_budget_exceeded: guard.layout_budget_exceeded,
+            route_ops_estimate: guard.route_ops_estimate,
+            layout_iterations_estimate: guard.layout_iterations_estimate,
+            layout_time_estimate_ms: guard.layout_time_estimate_ms,
+            layout_requested_algorithm: guard.layout_requested_algorithm.clone(),
+            layout_selected_algorithm: guard.layout_selected_algorithm.clone(),
+            guard_reason: guard.guard_reason.clone(),
+            pressure: WasmPressureSummary::from(&guard.pressure),
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone, Serialize)]
+struct WasmPressureSummary {
+    tier: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl From<&fm_core::MermaidPressureReport> for WasmPressureSummary {
+    fn from(pressure: &fm_core::MermaidPressureReport) -> Self {
+        Self {
+            tier: pressure.tier.as_str().to_string(),
         }
     }
 }
@@ -328,41 +338,6 @@ fn collect_source_spans(ir: &MermaidDiagramIr, layout: &DiagramLayout) -> Vec<So
             span: entry.span,
         })
         .collect()
-}
-
-fn build_diagram_lens(input: &str) -> WasmDiagramLens {
-    let parsed = parse(input);
-    let traced_layout = layout_diagram_traced(&parsed.ir);
-    let source_map = layout_source_map(&parsed.ir, &traced_layout.layout);
-    WasmDiagramLens {
-        bindings: build_lens_bindings(input, &source_map),
-    }
-}
-
-fn build_lens_edit_response(
-    input: &str,
-    element_id: &str,
-    replacement: &str,
-) -> Result<WasmLensEditResponse, MermaidLensError> {
-    let parsed = parse(input);
-    let traced_layout = layout_diagram_traced(&parsed.ir);
-    let source_map = layout_source_map(&parsed.ir, &traced_layout.layout);
-    let result = apply_lens_edit(
-        input,
-        &source_map,
-        &MermaidLensEdit {
-            element_id: element_id.to_string(),
-            replacement: replacement.to_string(),
-        },
-    )?;
-
-    let updated_source = result.updated_source.clone();
-    let updated_parsed = parse(&updated_source);
-    let updated_layout = layout_diagram_traced(&updated_parsed.ir);
-    let updated_source_map = layout_source_map(&updated_parsed.ir, &updated_layout.layout);
-    let bindings = build_lens_bindings(&updated_source, &updated_source_map);
-
-    Ok(WasmLensEditResponse { result, bindings })
 }
 
 fn read_runtime_config() -> RuntimeConfig {
@@ -753,7 +728,6 @@ pub fn render(input: &str) -> WasmRenderOutput {
     guard.budget_broker = budget_broker.clone();
     let source_spans = collect_source_spans(&parsed.ir, &traced_layout.layout);
     let mut svg_config = runtime.svg.clone();
-    svg_config.include_source_spans = true;
     apply_budget_svg_simplifications(&mut svg_config, &budget_broker);
     apply_degradation_to_svg(&mut svg_config, &guard.degradation);
     let render_start = Instant::now();
@@ -857,7 +831,6 @@ pub fn render_svg_js(input: &str, config: Option<JsValue>) -> Result<String, JsV
         traced_layout.trace.guard.estimated_layout_time_ms.max(1) as u64,
     );
     guard.observability = observability;
-    svg_config.include_source_spans = true;
     apply_budget_svg_simplifications(&mut svg_config, &budget_broker);
     apply_degradation_to_svg(&mut svg_config, &guard.degradation);
     let render_start = Instant::now();
@@ -892,33 +865,7 @@ pub fn source_spans_js(input: &str) -> Result<JsValue, JsValue> {
     to_js_value(&collect_source_spans(&parsed.ir, &traced_layout.layout))
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = diagramLens))]
-pub fn diagram_lens_js(input: &str) -> Result<JsValue, JsValue> {
-    to_js_value(&build_diagram_lens(input))
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = applyLensEdit))]
-pub fn apply_lens_edit_js(
-    input: &str,
-    element_id: &str,
-    replacement: &str,
-) -> Result<JsValue, JsValue> {
-    let response = build_lens_edit_response(input, element_id, replacement)
-        .map_err(|err| js_error(err.to_string()))?;
-    to_js_value(&response)
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = describeDiagram))]
-pub fn describe_diagram_js(input: &str) -> Result<String, JsValue> {
-    let parsed = parse(input);
-    let traced_layout = layout_diagram_traced(&parsed.ir);
-    Ok(describe_diagram_with_layout(
-        &parsed.ir,
-        Some(&traced_layout.layout),
-    ))
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = capabilityMatrix))]
+#[cfg(any(not(target_arch = "wasm32"), test))]
 pub fn capability_matrix_js() -> Result<JsValue, JsValue> {
     to_js_value(&capability_matrix())
 }
@@ -1130,7 +1077,6 @@ pub struct Diagram {
     svg_config: SvgRenderConfig,
     canvas_config: CanvasRenderConfig,
     pressure_config: MermaidWasmPressureSignals,
-    layout_engine: IncrementalLayoutEngine,
     destroyed: bool,
 }
 
@@ -1180,7 +1126,6 @@ impl Diagram {
             svg_config,
             canvas_config,
             pressure_config,
-            layout_engine: IncrementalLayoutEngine::default(),
             destroyed: false,
         })
     }
@@ -1223,14 +1168,12 @@ impl Diagram {
             font_metrics: Some(next_svg.font_metrics()),
             ..Default::default()
         };
-        let traced_layout = self
-            .layout_engine
-            .layout_diagram_traced_with_config_and_guardrails(
-                &parsed.ir,
-                fm_layout::LayoutAlgorithm::Auto,
-                layout_config,
-                layout_guardrails,
-            );
+        let traced_layout = layout_diagram_traced_with_config_and_guardrails(
+            &parsed.ir,
+            fm_layout::LayoutAlgorithm::Auto,
+            layout_config.clone(),
+            layout_guardrails,
+        );
         budget_broker.record_layout(
             layout_start
                 .elapsed()
@@ -1247,13 +1190,7 @@ impl Diagram {
             traced_layout.trace.guard.estimated_layout_time_ms.max(1) as u64,
         );
         guard.observability = observability;
-        let mut render_svg_config = next_svg.clone();
-        render_svg_config.include_source_spans = true;
-        apply_budget_svg_simplifications(&mut render_svg_config, &budget_broker);
-        apply_degradation_to_svg(&mut render_svg_config, &guard.degradation);
         let render_start = Instant::now();
-        let svg = render_svg_with_layout(&parsed.ir, &traced_layout.layout, &render_svg_config);
-
         let mut web_canvas = WebCanvas2dContext::new(self.canvas.clone(), self.context.clone());
         let canvas_result = render_to_canvas_with_layout(
             &parsed.ir,
@@ -1274,14 +1211,8 @@ impl Diagram {
         self.canvas_config = next_canvas;
         self.pressure_config = next_pressure;
 
-        let output = DiagramRenderOutput::new(
-            svg,
-            &parsed,
-            &traced_layout,
-            &layout_config,
-            guard,
-            &canvas_result,
-        );
+        let output =
+            DiagramRenderOutput::new(&traced_layout, &layout_config, &guard, &canvas_result);
         to_js_value(&output)
     }
 

@@ -5,8 +5,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CRATE_DIR="$ROOT_DIR/crates/fm-wasm"
 OUT_DIR="$ROOT_DIR/pkg"
 OUT_NAME="frankenmermaid"
+PACKAGE_NAME="@frankenmermaid/core"
+PACKAGE_DESCRIPTION="Rust-first Mermaid-compatible diagram engine for WebAssembly and browser rendering."
+PACKAGE_REPOSITORY_URL="git+https://github.com/Dicklesworthstone/frankenmermaid.git"
+PACKAGE_HOMEPAGE="https://github.com/Dicklesworthstone/frankenmermaid#readme"
+PACKAGE_BUGS_URL="https://github.com/Dicklesworthstone/frankenmermaid/issues"
+CAPABILITY_MATRIX_JSON="$ROOT_DIR/evidence/capability_matrix.json"
 WASM_PATH="$OUT_DIR/${OUT_NAME}_bg.wasm"
 TARGET_FEATURES="+bulk-memory,+mutable-globals,+nontrapping-fptoint,+sign-ext,+reference-types,+multivalue"
+RUST_SIZE_FLAGS="-Zlocation-detail=none -Zfmt-debug=none"
 MAX_GZIP_BYTES=$((500 * 1024))
 
 if ! command -v wasm-pack >/dev/null 2>&1; then
@@ -26,7 +33,7 @@ echo "==> Building fm-wasm with wasm-pack"
 mkdir -p "$OUT_DIR"
 (
   cd "$CRATE_DIR"
-  RUSTFLAGS="-C target-feature=${TARGET_FEATURES}" \
+  RUSTFLAGS="-C target-feature=${TARGET_FEATURES} ${RUST_SIZE_FLAGS}" \
     wasm-pack build \
       --release \
       --target web \
@@ -41,6 +48,65 @@ fi
 
 echo "==> Optimizing wasm with wasm-opt"
 wasm-opt -Oz --all-features --converge "$WASM_PATH" -o "$WASM_PATH"
+
+echo "==> Syncing npm package metadata"
+cp "$ROOT_DIR/README.md" "$OUT_DIR/README.md"
+PACKAGE_JSON="$OUT_DIR/package.json" \
+PACKAGE_NAME="$PACKAGE_NAME" \
+PACKAGE_DESCRIPTION="$PACKAGE_DESCRIPTION" \
+PACKAGE_REPOSITORY_URL="$PACKAGE_REPOSITORY_URL" \
+PACKAGE_HOMEPAGE="$PACKAGE_HOMEPAGE" \
+PACKAGE_BUGS_URL="$PACKAGE_BUGS_URL" \
+PACKAGE_JS="$OUT_DIR/${OUT_NAME}.js" \
+PACKAGE_DTS="$OUT_DIR/${OUT_NAME}.d.ts" \
+CAPABILITY_MATRIX_JSON="$CAPABILITY_MATRIX_JSON" \
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+package_json = Path(os.environ["PACKAGE_JSON"])
+payload = json.loads(package_json.read_text())
+payload["name"] = os.environ["PACKAGE_NAME"]
+payload["description"] = os.environ["PACKAGE_DESCRIPTION"]
+payload["repository"] = {
+    "type": "git",
+    "url": os.environ["PACKAGE_REPOSITORY_URL"],
+}
+payload["homepage"] = os.environ["PACKAGE_HOMEPAGE"]
+payload["bugs"] = {"url": os.environ["PACKAGE_BUGS_URL"]}
+payload["keywords"] = ["mermaid", "diagram", "wasm", "svg", "canvas"]
+payload["files"] = [
+    "README.md",
+    "frankenmermaid_bg.wasm",
+    "frankenmermaid.js",
+    "frankenmermaid.d.ts",
+    "frankenmermaid_bg.wasm.d.ts",
+]
+package_json.write_text(json.dumps(payload, indent=2) + "\n")
+
+package_js = Path(os.environ["PACKAGE_JS"])
+package_dts = Path(os.environ["PACKAGE_DTS"])
+capability_matrix = json.loads(Path(os.environ["CAPABILITY_MATRIX_JSON"]).read_text())
+capability_matrix_json = json.dumps(capability_matrix, separators=(",", ":"))
+package_js.write_text(
+    package_js.read_text()
+    + "\n\nconst CAPABILITY_MATRIX = "
+    + capability_matrix_json
+    + ";\n"
+    + "export function capabilityMatrix() {\n"
+    + "  return CAPABILITY_MATRIX;\n"
+    + "}\n"
+)
+package_dts.write_text(
+    package_dts.read_text()
+    + "\n"
+    + "/**\n"
+    + " * @returns {any}\n"
+    + " */\n"
+    + "export function capabilityMatrix(): any;\n"
+)
+PY
 
 RAW_BYTES="$(wc -c < "$WASM_PATH")"
 GZIP_BYTES="$(gzip -c "$WASM_PATH" | wc -c)"
