@@ -219,6 +219,12 @@ pub struct LayoutRuntimeSummary {
     reversed_edge_total_length: f32,
     total_edge_length: f32,
     phase_iterations: usize,
+    /// Whether this layout used the incremental fast path.
+    incremental: bool,
+    /// Number of nodes that were recomputed (0 = full layout or cache hit).
+    recomputed_nodes: usize,
+    /// Incremental layout duration in microseconds.
+    recompute_duration_us: u64,
 }
 
 impl LayoutRuntimeSummary {
@@ -236,6 +242,13 @@ impl LayoutRuntimeSummary {
             reversed_edge_total_length: layout.stats.reversed_edge_total_length,
             total_edge_length: layout.stats.total_edge_length,
             phase_iterations: layout.stats.phase_iterations,
+            incremental: traced_layout
+                .trace
+                .incremental
+                .query_type
+                .contains("incremental"),
+            recomputed_nodes: traced_layout.trace.incremental.recomputed_nodes,
+            recompute_duration_us: traced_layout.trace.incremental.recompute_duration_us,
         }
     }
 }
@@ -960,6 +973,7 @@ pub struct Diagram {
     svg_config: SvgRenderConfig,
     canvas_config: CanvasRenderConfig,
     pressure_config: MermaidWasmPressureSignals,
+    layout_engine: fm_layout::IncrementalLayoutEngine,
     destroyed: bool,
 }
 
@@ -1009,6 +1023,7 @@ impl Diagram {
             svg_config,
             canvas_config,
             pressure_config,
+            layout_engine: fm_layout::IncrementalLayoutEngine::default(),
             destroyed: false,
         })
     }
@@ -1051,12 +1066,14 @@ impl Diagram {
             font_metrics: Some(next_svg.font_metrics()),
             ..Default::default()
         };
-        let traced_layout = layout_diagram_traced_with_config_and_guardrails(
-            &parsed.ir,
-            fm_layout::LayoutAlgorithm::Auto,
-            layout_config.clone(),
-            layout_guardrails,
-        );
+        let traced_layout = self
+            .layout_engine
+            .layout_diagram_traced_with_config_and_guardrails(
+                &parsed.ir,
+                fm_layout::LayoutAlgorithm::Auto,
+                layout_config.clone(),
+                layout_guardrails,
+            );
         budget_broker.record_layout(
             layout_start
                 .elapsed()
