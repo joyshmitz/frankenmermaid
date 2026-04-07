@@ -3,7 +3,7 @@
   "project": "frankenmermaid",
   "status_counts": {
     "experimental": 1,
-    "implemented": 30,
+    "implemented": 31,
     "partial": 4
   },
   "claims": [
@@ -627,6 +627,34 @@
       "id": "diagram-type/packet-beta",
       "category": "diagram_type",
       "title": "Support packet-beta diagrams",
+      "status": "implemented",
+      "advertised_in": [
+        "README.md#supported-diagram-types"
+      ],
+      "code_paths": [
+        "crates/fm-core/src/lib.rs::DiagramType",
+        "crates/fm-parser/src/lib.rs::detect_type_with_confidence"
+      ],
+      "evidence": [
+        {
+          "kind": "code_path",
+          "reference": "crates/fm-core/src/lib.rs::DiagramType::support_level",
+          "note": "Source-of-truth support taxonomy"
+        },
+        {
+          "kind": "test",
+          "reference": "crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations",
+          "note": "Verifies advertised support level mapping"
+        }
+      ],
+      "notes": [
+        "README advertises this family; current code marks it as full capability"
+      ]
+    },
+    {
+      "id": "diagram-type/kanban",
+      "category": "diagram_type",
+      "title": "Support kanban diagrams",
       "status": "implemented",
       "advertised_in": [
         "README.md#supported-diagram-types"

@@ -89,18 +89,120 @@ package_js = Path(os.environ["PACKAGE_JS"])
 package_dts = Path(os.environ["PACKAGE_DTS"])
 capability_matrix = json.loads(Path(os.environ["CAPABILITY_MATRIX_JSON"]).read_text())
 capability_matrix_json = json.dumps(capability_matrix, separators=(",", ":"))
+source_spans_helper = """
+const CAPABILITY_MATRIX = __CAPABILITY_MATRIX__;
+
+function hasKnownSpan(span) {
+  if (!span || !span.start || !span.end) {
+    return false;
+  }
+
+  return Boolean(
+    span.start.line || span.start.column || span.start.byte ||
+    span.end.line || span.end.column || span.end.byte
+  );
+}
+
+function sanitizeFragment(raw) {
+  let out = "";
+  let lastWasDash = false;
+
+  for (const ch of String(raw ?? "")) {
+    if ((ch >= "0" && ch <= "9") || (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z")) {
+      out += ch.toLowerCase();
+      lastWasDash = false;
+    } else if (!lastWasDash && out.length > 0) {
+      out += "-";
+      lastWasDash = true;
+    }
+  }
+
+  return out.replace(/^-+|-+$/g, "");
+}
+
+function nodeElementId(nodeId, index) {
+  const fragment = sanitizeFragment(nodeId);
+  return fragment ? `fm-node-${fragment}-${index}` : `fm-node-${index}`;
+}
+
+function stringifySourceId(value) {
+  if (value == null) {
+    return undefined;
+  }
+  if (typeof value === "number" || typeof value === "string") {
+    return String(value);
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    return String(value[0]);
+  }
+  if (typeof value === "object" && 0 in value) {
+    return String(value[0]);
+  }
+  return String(value);
+}
+
+export function sourceSpans(input) {
+  const parsed = parse(input);
+  const ir = parsed && parsed.ir ? parsed.ir : {};
+  const records = [];
+  const nodes = Array.isArray(ir.nodes) ? ir.nodes : [];
+  const edges = Array.isArray(ir.edges) ? ir.edges : [];
+  const clusters = Array.isArray(ir.clusters) ? ir.clusters : [];
+
+  nodes.forEach((node, index) => {
+    const span = node?.span_primary ?? node?.spanPrimary;
+    if (!hasKnownSpan(span)) {
+      return;
+    }
+    const sourceId = typeof node?.id === "string" && node.id.length > 0 ? node.id : undefined;
+    records.push({
+      kind: "node",
+      index,
+      id: sourceId,
+      elementId: nodeElementId(sourceId ?? "", index),
+      span,
+    });
+  });
+
+  edges.forEach((edge, index) => {
+    if (!hasKnownSpan(edge?.span)) {
+      return;
+    }
+    records.push({
+      kind: "edge",
+      index,
+      elementId: `fm-edge-${index}`,
+      span: edge.span,
+    });
+  });
+
+  clusters.forEach((cluster, index) => {
+    if (!hasKnownSpan(cluster?.span)) {
+      return;
+    }
+    records.push({
+      kind: "cluster",
+      index,
+      id: stringifySourceId(cluster?.id),
+      elementId: `fm-cluster-${index}`,
+      span: cluster.span,
+    });
+  });
+
+  return records;
+}
+
+export function capabilityMatrix() {
+  return CAPABILITY_MATRIX;
+}
+""".replace("__CAPABILITY_MATRIX__", capability_matrix_json)
 package_js.write_text(
-    package_js.read_text()
-    + "\n\nconst CAPABILITY_MATRIX = "
-    + capability_matrix_json
-    + ";\n"
-    + "export function capabilityMatrix() {\n"
-    + "  return CAPABILITY_MATRIX;\n"
-    + "}\n"
+    package_js.read_text() + "\n\n" + source_spans_helper + "\n"
 )
 package_dts.write_text(
     package_dts.read_text()
     + "\n"
+    + "export function sourceSpans(input: string): any[];\n"
     + "/**\n"
     + " * @returns {any}\n"
     + " */\n"

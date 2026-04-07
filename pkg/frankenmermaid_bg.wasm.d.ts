@@ -11,7 +11,6 @@ export const diagram_setTheme: (a: number, b: number, c: number, d: number) => v
 export const init: (a: number, b: number) => void;
 export const parse: (a: number, b: number, c: number) => void;
 export const renderSvg: (a: number, b: number, c: number, d: number) => void;
-export const sourceSpans: (a: number, b: number, c: number) => void;
 export const __wbindgen_export: (a: number, b: number) => number;
 export const __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_export3: (a: number) => void;

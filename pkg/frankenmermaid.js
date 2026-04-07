@@ -191,28 +191,6 @@ export function renderSvg(input, config) {
     }
 }
 
-/**
- * @param {string} input
- * @returns {any}
- */
-export function sourceSpans(input) {
-    try {
-        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(input, wasm.__wbindgen_export, wasm.__wbindgen_export2);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.sourceSpans(retptr, ptr0, len0);
-        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-        if (r2) {
-            throw takeObject(r1);
-        }
-        return takeObject(r0);
-    } finally {
-        wasm.__wbindgen_add_to_stack_pointer(16);
-    }
-}
-
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -238,10 +216,6 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_in_41dbb8413020e076: function(arg0, arg1) {
             const ret = getObject(arg0) in getObject(arg1);
-            return ret;
-        },
-        __wbg___wbindgen_is_function_3c846841762788c1: function(arg0) {
-            const ret = typeof(getObject(arg0)) === 'function';
             return ret;
         },
         __wbg___wbindgen_is_null_0b605fc6b167c56f: function(arg0) {
@@ -297,23 +271,11 @@ function __wbg_get_imports() {
         __wbg_bezierCurveTo_ee956cad5cea25b2: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6) {
             getObject(arg0).bezierCurveTo(arg1, arg2, arg3, arg4, arg5, arg6);
         },
-        __wbg_call_e133b57c9155d22c: function() { return handleError(function (arg0, arg1) {
-            const ret = getObject(arg0).call(getObject(arg1));
-            return addHeapObject(ret);
-        }, arguments); },
         __wbg_clearRect_ea4f3d34d76f4bc5: function(arg0, arg1, arg2, arg3, arg4) {
             getObject(arg0).clearRect(arg1, arg2, arg3, arg4);
         },
         __wbg_closePath_f96bcae0fc7087a9: function(arg0) {
             getObject(arg0).closePath();
-        },
-        __wbg_done_08ce71ee07e3bd17: function(arg0) {
-            const ret = getObject(arg0).done;
-            return ret;
-        },
-        __wbg_entries_e8a20ff8c9757101: function(arg0) {
-            const ret = Object.entries(getObject(arg0));
-            return addHeapObject(ret);
         },
         __wbg_fillRect_4e5596ca954226e7: function(arg0, arg1, arg2, arg3, arg4) {
             getObject(arg0).fillRect(arg1, arg2, arg3, arg4);
@@ -328,18 +290,6 @@ function __wbg_get_imports() {
             const ret = getObject(arg0).getContext(getStringFromWasm0(arg1, arg2));
             return isLikeNone(ret) ? 0 : addHeapObject(ret);
         }, arguments); },
-        __wbg_get_326e41e095fb2575: function() { return handleError(function (arg0, arg1) {
-            const ret = Reflect.get(getObject(arg0), getObject(arg1));
-            return addHeapObject(ret);
-        }, arguments); },
-        __wbg_get_a8ee5c45dabc1b3b: function(arg0, arg1) {
-            const ret = getObject(arg0)[arg1 >>> 0];
-            return addHeapObject(ret);
-        },
-        __wbg_get_unchecked_329cfe50afab7352: function(arg0, arg1) {
-            const ret = getObject(arg0)[arg1 >>> 0];
-            return addHeapObject(ret);
-        },
         __wbg_get_with_ref_key_6412cf3094599694: function(arg0, arg1) {
             const ret = getObject(arg0)[getObject(arg1)];
             return addHeapObject(ret);
@@ -382,14 +332,6 @@ function __wbg_get_imports() {
             const ret = Number.isSafeInteger(getObject(arg0));
             return ret;
         },
-        __wbg_iterator_d8f549ec8fb061b1: function() {
-            const ret = Symbol.iterator;
-            return addHeapObject(ret);
-        },
-        __wbg_length_b3416cf66a5452c8: function(arg0) {
-            const ret = getObject(arg0).length;
-            return ret;
-        },
         __wbg_length_ea16607d7b61445b: function(arg0) {
             const ret = getObject(arg0).length;
             return ret;
@@ -418,14 +360,6 @@ function __wbg_get_imports() {
         },
         __wbg_new_ab79df5bd7c26067: function() {
             const ret = new Object();
-            return addHeapObject(ret);
-        },
-        __wbg_next_11b99ee6237339e3: function() { return handleError(function (arg0) {
-            const ret = getObject(arg0).next();
-            return addHeapObject(ret);
-        }, arguments); },
-        __wbg_next_e01a967809d1aa68: function(arg0) {
-            const ret = getObject(arg0).next;
             return addHeapObject(ret);
         },
         __wbg_prototypesetcall_d62e5099504357e6: function(arg0, arg1, arg2) {
@@ -490,10 +424,6 @@ function __wbg_get_imports() {
         __wbg_translate_d7de7bdfdbc1ee9d: function() { return handleError(function (arg0, arg1, arg2) {
             getObject(arg0).translate(arg1, arg2);
         }, arguments); },
-        __wbg_value_21fc78aab0322612: function(arg0) {
-            const ret = getObject(arg0).value;
-            return addHeapObject(ret);
-        },
         __wbg_width_4d6fc7fecd877217: function(arg0) {
             const ret = getObject(arg0).width;
             return ret;
@@ -768,7 +698,110 @@ async function __wbg_init(module_or_path) {
 export { initSync, __wbg_init as default };
 
 
+
 const CAPABILITY_MATRIX = {"schema_version":"1.0.0","project":"frankenmermaid","status_counts":{"experimental":1,"implemented":30,"partial":4},"claims":[{"id":"diagram-type/flowchart","category":"diagram_type","title":"Support flowchart diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/sequence","category":"diagram_type","title":"Support sequence diagrams","status":"partial","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as partial capability"]},{"id":"diagram-type/class","category":"diagram_type","title":"Support class diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/state","category":"diagram_type","title":"Support state diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/er","category":"diagram_type","title":"Support er diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/C4Context","category":"diagram_type","title":"Support C4Context diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/C4Container","category":"diagram_type","title":"Support C4Container diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/C4Component","category":"diagram_type","title":"Support C4Component diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/C4Dynamic","category":"diagram_type","title":"Support C4Dynamic diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/C4Deployment","category":"diagram_type","title":"Support C4Deployment diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/architecture-beta","category":"diagram_type","title":"Support architecture-beta diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/block-beta","category":"diagram_type","title":"Support block-beta diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/gantt","category":"diagram_type","title":"Support gantt diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/timeline","category":"diagram_type","title":"Support timeline diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/journey","category":"diagram_type","title":"Support journey diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/gitGraph","category":"diagram_type","title":"Support gitGraph diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/sankey","category":"diagram_type","title":"Support sankey diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/mindmap","category":"diagram_type","title":"Support mindmap diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/pie","category":"diagram_type","title":"Support pie diagrams","status":"partial","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as partial capability"]},{"id":"diagram-type/quadrantChart","category":"diagram_type","title":"Support quadrantChart diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/xyChart","category":"diagram_type","title":"Support xyChart diagrams","status":"partial","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as basic capability"]},{"id":"diagram-type/requirementDiagram","category":"diagram_type","title":"Support requirementDiagram diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"diagram-type/packet-beta","category":"diagram_type","title":"Support packet-beta diagrams","status":"implemented","advertised_in":["README.md#supported-diagram-types"],"code_paths":["crates/fm-core/src/lib.rs::DiagramType","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::DiagramType::support_level","note":"Source-of-truth support taxonomy"},{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::diagram_type_support_contract_matches_surface_expectations","note":"Verifies advertised support level mapping"}],"notes":["README advertises this family; current code marks it as full capability"]},{"id":"surface/cli-detect","category":"surface","title":"CLI detect command","status":"implemented","advertised_in":["README.md#quick-example","README.md#command-reference"],"code_paths":["crates/fm-cli/src/main.rs::Command::Detect","crates/fm-parser/src/lib.rs::detect_type_with_confidence"],"evidence":[{"kind":"test","reference":"crates/fm-parser/src/lib.rs::tests::detects_flowchart_keyword","note":"Smoke coverage for type detection"},{"kind":"code_path","reference":"crates/fm-cli/src/main.rs::cmd_detect","note":null}],"notes":[]},{"id":"surface/cli-parse","category":"surface","title":"CLI parse command with IR JSON evidence","status":"implemented","advertised_in":["README.md#quick-example","README.md#command-reference"],"code_paths":["crates/fm-cli/src/main.rs::Command::Parse","crates/fm-parser/src/lib.rs::parse_evidence_json"],"evidence":[{"kind":"test","reference":"crates/fm-parser/src/lib.rs::tests::parse_flowchart_extracts_nodes_edges_and_direction","note":"Validates parse output contains structural IR"}],"notes":[]},{"id":"surface/cli-render-svg","category":"surface","title":"CLI SVG rendering","status":"implemented","advertised_in":["README.md#quick-example","README.md#command-reference"],"code_paths":["crates/fm-cli/src/main.rs::Command::Render","crates/fm-render-svg/src/lib.rs::render_svg_with_layout"],"evidence":[{"kind":"test","reference":"crates/fm-render-svg/src/lib.rs::tests::prop_svg_render_is_total_and_counts_match","note":"SVG renderer smoke coverage"}],"notes":[]},{"id":"surface/cli-render-term","category":"surface","title":"CLI terminal rendering","status":"implemented","advertised_in":["README.md#quick-example","README.md#command-reference"],"code_paths":["crates/fm-cli/src/main.rs::Command::Render","crates/fm-render-term/src/lib.rs::render_term_with_config"],"evidence":[{"kind":"test","reference":"crates/fm-render-term/src/lib.rs::tests::render_term_produces_output","note":"Terminal renderer smoke coverage"}],"notes":[]},{"id":"surface/cli-validate","category":"surface","title":"CLI validate command with structured diagnostics","status":"implemented","advertised_in":["README.md#quick-example","README.md#command-reference"],"code_paths":["crates/fm-cli/src/main.rs::Command::Validate","crates/fm-core/src/lib.rs::StructuredDiagnostic"],"evidence":[{"kind":"test","reference":"crates/fm-cli/src/main.rs::tests::collect_validation_diagnostics_includes_parse_warnings","note":"Validate path emits structured diagnostics"}],"notes":[]},{"id":"surface/cli-capabilities","category":"surface","title":"CLI capability matrix command","status":"implemented","advertised_in":["README.md#command-reference","README.md#runtime-capability-metadata"],"code_paths":["crates/fm-cli/src/main.rs::Command::Capabilities","crates/fm-cli/src/main.rs::cmd_capabilities","crates/fm-core/src/lib.rs::capability_matrix"],"evidence":[{"kind":"test","reference":"crates/fm-core/src/lib.rs::tests::capability_matrix_json_matches_checked_in_artifact","note":"CLI command serializes the checked-in capability artifact"},{"kind":"code_path","reference":"crates/fm-cli/src/main.rs::cmd_capabilities","note":null}],"notes":[]},{"id":"surface/wasm-svg","category":"surface","title":"WASM API renders SVG","status":"implemented","advertised_in":["README.md#javascript--wasm-api","README.md#technical-architecture"],"code_paths":["crates/fm-wasm/src/lib.rs::render","crates/fm-wasm/src/lib.rs::render_svg_js","crates/fm-wasm/src/lib.rs::Diagram::render"],"evidence":[{"kind":"test","reference":"crates/fm-wasm/src/lib.rs::tests::render_returns_svg_and_type","note":"WASM facade smoke coverage"}],"notes":[]},{"id":"surface/wasm-capabilities","category":"surface","title":"WASM API exposes capability matrix metadata","status":"implemented","advertised_in":["README.md#javascript--wasm-api","README.md#runtime-capability-metadata"],"code_paths":["crates/fm-wasm/src/lib.rs::capability_matrix_js","crates/fm-core/src/lib.rs::capability_matrix"],"evidence":[{"kind":"test","reference":"crates/fm-wasm/src/lib.rs::tests::capability_matrix_js_returns_matrix_payload","note":"WASM surface returns the shared capability matrix"}],"notes":[]},{"id":"surface/canvas","category":"surface","title":"Canvas rendering backend","status":"implemented","advertised_in":["README.md#why-use-frankenmermaid","README.md#technical-architecture"],"code_paths":["crates/fm-render-canvas/src/lib.rs::render_to_canvas","crates/fm-wasm/src/lib.rs::Diagram::render"],"evidence":[{"kind":"test","reference":"crates/fm-render-canvas/src/lib.rs::tests::render_with_mock_context","note":"Canvas backend exercises draw pipeline"}],"notes":[]},{"id":"layout/deterministic","category":"layout","title":"Deterministic layout output","status":"implemented","advertised_in":["README.md#design-philosophy","README.md#faq"],"code_paths":["crates/fm-layout/src/lib.rs::layout_diagram_traced","crates/fm-layout/src/lib.rs::crossing_refinement"],"evidence":[{"kind":"test","reference":"crates/fm-layout/src/lib.rs::tests::traced_layout_is_deterministic","note":"Checks full traced layout equality across runs"}],"notes":[]},{"id":"parser/recovery","category":"parser","title":"Best-effort parse with warnings instead of hard failure","status":"partial","advertised_in":["README.md#tl-dr","README.md#design-philosophy"],"code_paths":["crates/fm-parser/src/lib.rs::parse","crates/fm-core/src/lib.rs::MermaidWarning"],"evidence":[{"kind":"test","reference":"crates/fm-parser/src/lib.rs::tests::empty_input_returns_warning","note":"Current coverage proves warning-based fallback for empty input"}],"notes":["Recovery exists, but README claims are broader than current automated evidence"]},{"id":"runtime/guard-report","category":"runtime","title":"Guard and degradation report types exist in shared IR","status":"experimental","advertised_in":["AGENTS.md#key-design-decisions","README.md#technical-architecture"],"code_paths":["crates/fm-core/src/lib.rs::MermaidGuardReport","crates/fm-core/src/lib.rs::MermaidDegradationPlan"],"evidence":[{"kind":"code_path","reference":"crates/fm-core/src/lib.rs::MermaidDiagramMeta","note":"Types are threaded into IR metadata but not yet fully activated"}],"notes":["Data model exists; cross-pipeline activation is still an open backlog item"]}]};
+
+function hasKnownSpan(span) {
+  if (!span || !span.start || !span.end) {
+    return false;
+  }
+
+  return Boolean(
+    span.start.line || span.start.column || span.start.byte ||
+    span.end.line || span.end.column || span.end.byte
+  );
+}
+
+function sanitizeFragment(raw) {
+  let out = "";
+  let lastWasDash = false;
+
+  for (const ch of String(raw ?? "")) {
+    if ((ch >= "0" && ch <= "9") || (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z")) {
+      out += ch.toLowerCase();
+      lastWasDash = false;
+    } else if (!lastWasDash && out.length > 0) {
+      out += "-";
+      lastWasDash = true;
+    }
+  }
+
+  return out.replace(/^-+|-+$/g, "");
+}
+
+function nodeElementId(nodeId, index) {
+  const fragment = sanitizeFragment(nodeId);
+  return fragment ? `fm-node-${fragment}-${index}` : `fm-node-${index}`;
+}
+
+function stringifySourceId(value) {
+  if (value == null) {
+    return undefined;
+  }
+  if (typeof value === "number" || typeof value === "string") {
+    return String(value);
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    return String(value[0]);
+  }
+  if (typeof value === "object" && 0 in value) {
+    return String(value[0]);
+  }
+  return String(value);
+}
+
+export function sourceSpans(input) {
+  const parsed = parse(input);
+  const ir = parsed && parsed.ir ? parsed.ir : {};
+  const records = [];
+  const nodes = Array.isArray(ir.nodes) ? ir.nodes : [];
+  const edges = Array.isArray(ir.edges) ? ir.edges : [];
+  const clusters = Array.isArray(ir.clusters) ? ir.clusters : [];
+
+  nodes.forEach((node, index) => {
+    const span = node?.span_primary ?? node?.spanPrimary;
+    if (!hasKnownSpan(span)) {
+      return;
+    }
+    const sourceId = typeof node?.id === "string" && node.id.length > 0 ? node.id : undefined;
+    records.push({
+      kind: "node",
+      index,
+      id: sourceId,
+      elementId: nodeElementId(sourceId ?? "", index),
+      span,
+    });
+  });
+
+  edges.forEach((edge, index) => {
+    if (!hasKnownSpan(edge?.span)) {
+      return;
+    }
+    records.push({
+      kind: "edge",
+      index,
+      elementId: `fm-edge-${index}`,
+      span: edge.span,
+    });
+  });
+
+  clusters.forEach((cluster, index) => {
+    if (!hasKnownSpan(cluster?.span)) {
+      return;
+    }
+    records.push({
+      kind: "cluster",
+      index,
+      id: stringifySourceId(cluster?.id),
+      elementId: `fm-cluster-${index}`,
+      span: cluster.span,
+    });
+  });
+
+  return records;
+}
+
 export function capabilityMatrix() {
   return CAPABILITY_MATRIX;
 }
+

@@ -19,8 +19,6 @@ export function parse(input: string): any;
 
 export function renderSvg(input: string, config?: any | null): string;
 
-export function sourceSpans(input: string): any;
-
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -35,7 +33,6 @@ export interface InitOutput {
     readonly init: (a: number, b: number) => void;
     readonly parse: (a: number, b: number, c: number) => void;
     readonly renderSvg: (a: number, b: number, c: number, d: number) => void;
-    readonly sourceSpans: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;
@@ -65,6 +62,7 @@ export function initSync(module: { module: SyncInitInput } | SyncInitInput): Ini
  */
 export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;
 
+export function sourceSpans(input: string): any[];
 /**
  * @returns {any}
  */

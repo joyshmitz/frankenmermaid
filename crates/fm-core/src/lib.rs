@@ -929,6 +929,7 @@ const fn documented_diagram_types() -> &'static [DiagramType] {
         DiagramType::XyChart,
         DiagramType::Requirement,
         DiagramType::PacketBeta,
+        DiagramType::Kanban,
     ];
     DOCUMENTED
 }

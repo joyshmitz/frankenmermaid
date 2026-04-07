@@ -157,12 +157,6 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/frankenmermaid/m
 npm install @frankenmermaid/core
 ```
 
-### Rust (Cargo)
-
-```bash
-cargo install frankenmermaid
-```
-
 ### From Source
 
 ```bash
@@ -173,6 +167,8 @@ cargo build --release --workspace
 ```
 
 **Note:** Requires Rust nightly (see `rust-toolchain.toml`). The project uses Rust 2024 edition features.
+
+`frankenmermaid` is not published on crates.io yet, so `cargo install frankenmermaid` is not a working install path today. Until crates.io publishing is prepared across the workspace crates, use the installer above or build `fm-cli` from source.
 
 ### Optional FNX Integration
 
