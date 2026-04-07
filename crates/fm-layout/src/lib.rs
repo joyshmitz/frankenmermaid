@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use std::f32::consts::PI;
 use std::mem::size_of;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use fm_core::{
@@ -539,7 +540,7 @@ struct CachedNodeSize {
 #[derive(Debug, Clone, PartialEq)]
 struct CachedDependencyGraph {
     key: u64,
-    graph: LayoutDependencyGraph,
+    graph: Arc<LayoutDependencyGraph>,
     ir: MermaidDiagramIr,
 }
 
@@ -1332,7 +1333,7 @@ fn track_dependency_graph_query(ir: &MermaidDiagramIr) {
         );
         state.dependency_graph_cache = Some(CachedDependencyGraph {
             key: topology_key,
-            graph,
+            graph: Arc::new(graph),
             ir: ir.clone(),
         });
         state.record_query(summary);
@@ -2912,14 +2913,31 @@ impl IncrementalLayoutEngine {
 
         track_dependency_graph_query(ir);
         let incremental_start = std::time::Instant::now();
-        let current_graph =
-            if dependency_graph_cache_key(&cached_graph.ir) == dependency_graph_cache_key(ir) {
-                cached_graph.graph.clone()
-            } else {
-                LayoutDependencyGraph::from_ir(ir)
-            };
-        let dirty_node_indexes =
-            dirty_node_indexes_for_edits(&cached_graph.graph, &current_graph, &cached_graph.ir, ir);
+
+        // Fast path: if all edits are node-level changes (labels, styles) with no
+        // topology changes, we can skip dependency graph reconstruction entirely
+        // and derive the dirty set directly from the edits.
+        let all_node_changes = edits.iter().all(|e| matches!(e, LayoutEdit::NodeChanged { .. }));
+        let (current_graph, dirty_node_indexes) = if all_node_changes {
+            let dirty: BTreeSet<usize> = edits
+                .iter()
+                .filter_map(|e| match e {
+                    LayoutEdit::NodeChanged { node_index } => Some(*node_index),
+                    _ => None,
+                })
+                .collect();
+            (Arc::clone(&cached_graph.graph), dirty)
+        } else {
+            let graph =
+                if dependency_graph_cache_key(&cached_graph.ir) == dependency_graph_cache_key(ir) {
+                    Arc::clone(&cached_graph.graph)
+                } else {
+                    Arc::new(LayoutDependencyGraph::from_ir(ir))
+                };
+            let dirty =
+                dirty_node_indexes_for_edits(&cached_graph.graph, &graph, &cached_graph.ir, ir);
+            (graph, dirty)
+        };
         if dirty_node_indexes.is_empty() {
             return None;
         }
@@ -2983,8 +3001,14 @@ impl IncrementalLayoutEngine {
                 .into_iter()
                 .map(|(node_index, bounds, rank, order)| (node_index, (bounds, rank, order)))
                 .collect();
-            let (dx, dy) = incremental_overlap_alignment(&dirty_member_set, &local_entries, &nodes)
-                .unwrap_or((dx, dy));
+            let (dx, dy) = if dirty_members.len() <= 3 {
+                // For very small dirty sets, centroid anchoring is sufficient
+                // and avoids the expensive overlap alignment computation.
+                (dx, dy)
+            } else {
+                incremental_overlap_alignment(&dirty_member_set, &local_entries, &nodes)
+                    .unwrap_or((dx, dy))
+            };
             for node_index in dirty_members {
                 let Some((bounds, rank, order)) = local_entries.get(&node_index).cloned() else {
                     continue;

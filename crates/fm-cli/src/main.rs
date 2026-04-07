@@ -1119,13 +1119,15 @@ fn build_layout_config(
     config_file: &FrankenmermaidConfigFile,
     font_size: Option<f32>,
 ) -> Result<LayoutConfig> {
-    let mut config = LayoutConfig::default();
-    config.font_metrics = normalize_positive_font_size(font_size).map(|size| {
-        fm_core::FontMetrics::new(fm_core::FontMetricsConfig {
-            font_size: size,
-            ..Default::default()
-        })
-    });
+    let mut config = LayoutConfig {
+        font_metrics: normalize_positive_font_size(font_size).map(|size| {
+            fm_core::FontMetrics::new(fm_core::FontMetricsConfig {
+                font_size: size,
+                ..Default::default()
+            })
+        }),
+        ..Default::default()
+    };
 
     if let Some(cycle_strategy) = config_file.layout.cycle_strategy.as_deref() {
         config.cycle_strategy = CycleStrategy::parse(cycle_strategy).ok_or_else(|| {

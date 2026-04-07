@@ -729,7 +729,7 @@ pub fn apply_lens_edit_js(
         replacement: replacement.to_string(),
     };
     let result = fm_core::apply_lens_edit(input, &parsed.ir.source_map(), &edit)
-        .map_err(|e| js_error(&e.to_string()))?;
+        .map_err(|e| js_error(e.to_string()))?;
     to_js_value(&result)
 }
 
