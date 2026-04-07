@@ -11,4 +11,5 @@ fm-layout.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+fm-parser.workspace = true
 proptest = "1.6.0"

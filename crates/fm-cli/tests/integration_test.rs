@@ -999,6 +999,33 @@ fn render_json_metadata(input: &str) -> (serde_json::Value, String) {
     (json, artifact)
 }
 
+#[cfg(feature = "png")]
+fn assert_png_artifact(bytes: &[u8]) -> (u32, u32) {
+    const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    assert!(
+        bytes.len() >= 24,
+        "png artifact should include signature and IHDR chunk"
+    );
+    assert_eq!(
+        &bytes[..8],
+        PNG_SIGNATURE.as_slice(),
+        "invalid png signature"
+    );
+    assert_eq!(
+        &bytes[12..16],
+        b"IHDR",
+        "png should start with an IHDR chunk"
+    );
+
+    let width = u32::from_be_bytes(bytes[16..20].try_into().expect("ihdr width bytes"));
+    let height = u32::from_be_bytes(bytes[20..24].try_into().expect("ihdr height bytes"));
+    assert!(width > 0, "png width must be positive");
+    assert!(height > 0, "png height must be positive");
+
+    (width, height)
+}
+
 #[test]
 fn validate_pretty_outputs_structured_diagnostics_payload() {
     let input = "flowchart LR\nA-->B\nB-->A\n";
@@ -1187,6 +1214,157 @@ fn render_svg_can_disable_embedded_source_spans() {
 
     let artifact = std::fs::read_to_string(&output_path).expect("failed to read rendered svg");
     assert!(!artifact.contains("data-fm-source-span="));
+}
+
+#[cfg(feature = "png")]
+#[test]
+fn png_render_flowchart_writes_valid_artifact_and_metadata() {
+    let output_file = NamedTempFile::new().expect("temp render output file");
+    let output_path = output_file
+        .path()
+        .to_str()
+        .expect("temp path must be valid utf-8")
+        .to_string();
+
+    let output = run_cli(
+        &[
+            "render",
+            "-",
+            "--format",
+            "png",
+            "--json",
+            "--output",
+            &output_path,
+        ],
+        "flowchart LR\nA-->B-->C\n",
+    );
+    assert!(
+        output.status.success(),
+        "png render should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("render --json must print metadata JSON to stdout");
+    let bytes = std::fs::read(&output_path).expect("failed to read rendered png");
+    let (width, height) = assert_png_artifact(&bytes);
+
+    assert_eq!(json["format"], "png");
+    assert_eq!(json["diagram_type"], "flowchart");
+    assert_eq!(json["width"].as_u64(), Some(u64::from(width)));
+    assert_eq!(json["height"].as_u64(), Some(u64::from(height)));
+    assert_eq!(json["output_bytes"].as_u64(), Some(bytes.len() as u64));
+    assert!(
+        bytes.len() > 1024,
+        "png output should be meaningfully non-empty"
+    );
+    assert!(
+        (101..10_000).contains(&width),
+        "png width should be in a reasonable smoke-test range"
+    );
+    assert!(
+        (101..10_000).contains(&height),
+        "png height should be in a reasonable smoke-test range"
+    );
+
+    let telemetry = serde_json::json!({
+        "scenario_id": "png_flowchart_smoke",
+        "surface": "cli",
+        "renderer": "png",
+        "theme": "default",
+        "output_bytes": bytes.len(),
+        "width": width,
+        "height": height,
+        "parse_ms": json["parse_time_ms"],
+        "layout_ms": json["layout_time_ms"],
+        "render_ms": json["render_time_ms"],
+        "pass_fail_reason": "valid_png_artifact",
+    });
+    println!("{telemetry}");
+}
+
+#[cfg(feature = "png")]
+#[test]
+fn png_render_sequence_diagram_smoke() {
+    let output_file = NamedTempFile::new().expect("temp render output file");
+    let output_path = output_file
+        .path()
+        .to_str()
+        .expect("temp path must be valid utf-8")
+        .to_string();
+
+    let output = run_cli(
+        &["render", "-", "--format", "png", "--output", &output_path],
+        "sequenceDiagram\nAlice->>Bob: hello\nBob-->>Alice: hi\n",
+    );
+    assert!(
+        output.status.success(),
+        "sequence png render should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let bytes = std::fs::read(&output_path).expect("failed to read rendered png");
+    let (width, height) = assert_png_artifact(&bytes);
+    assert!(bytes.len() > 1024, "sequence png should be non-trivial");
+    assert!(
+        (101..10_000).contains(&width) && (101..10_000).contains(&height),
+        "sequence png dimensions should be reasonable"
+    );
+}
+
+#[cfg(feature = "png")]
+#[test]
+fn png_render_theme_changes_output_bytes() {
+    let default_output = NamedTempFile::new().expect("temp default png");
+    let dark_output = NamedTempFile::new().expect("temp dark png");
+    let default_path = default_output
+        .path()
+        .to_str()
+        .expect("temp path must be valid utf-8")
+        .to_string();
+    let dark_path = dark_output
+        .path()
+        .to_str()
+        .expect("temp path must be valid utf-8")
+        .to_string();
+    let input = "flowchart LR\nA[Start]-->B[Finish]\n";
+
+    let default_render = run_cli(
+        &["render", "-", "--format", "png", "--output", &default_path],
+        input,
+    );
+    assert!(
+        default_render.status.success(),
+        "default theme png render should succeed; stderr={}",
+        String::from_utf8_lossy(&default_render.stderr)
+    );
+
+    let dark_render = run_cli(
+        &[
+            "render", "-", "--format", "png", "--theme", "dark", "--output", &dark_path,
+        ],
+        input,
+    );
+    assert!(
+        dark_render.status.success(),
+        "dark theme png render should succeed; stderr={}",
+        String::from_utf8_lossy(&dark_render.stderr)
+    );
+
+    let default_bytes = std::fs::read(&default_path).expect("read default png");
+    let dark_bytes = std::fs::read(&dark_path).expect("read dark png");
+    let default_dims = assert_png_artifact(&default_bytes);
+    let dark_dims = assert_png_artifact(&dark_bytes);
+
+    assert_eq!(
+        default_dims, dark_dims,
+        "theme should not change raster dimensions for the same diagram"
+    );
+    assert_ne!(
+        default_bytes, dark_bytes,
+        "default and dark themes should produce different png bytes"
+    );
 }
 
 #[test]

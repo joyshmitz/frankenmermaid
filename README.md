@@ -133,9 +133,9 @@ fm-cli render diagrams/process.mmd --format svg --theme dark --output out/proces
 | `gitGraph` | Implemented |
 | `sankey` | Implemented |
 | `mindmap` | Implemented |
-| `pie` | Partial |
+| `pie` | Implemented |
 | `quadrantChart` | Implemented |
-| `xyChart` | Partial |
+| `xyChart` | Implemented |
 | `requirementDiagram` | Implemented |
 | `packet-beta` | Implemented |
 | `kanban` | Implemented |
@@ -235,7 +235,12 @@ dependencies into this repo.
    fm-cli validate demo.mmd
    ```
 
-6. **Use from JavaScript**:
+6. **Edit interactively** with live preview:
+   ```bash
+   fm-cli interactive demo.mmd
+   ```
+
+7. **Use from JavaScript**:
    ```ts
    import { init, renderSvg } from '@frankenmermaid/core';
    await init();
@@ -338,6 +343,17 @@ Local playground with live reload.
 fm-cli serve --host 127.0.0.1 --port 4173 --open
 ```
 
+### `fm-cli interactive`
+
+Launch a split-pane terminal editor with live diagram preview.
+
+```bash
+fm-cli interactive input.mmd
+fm-cli interactive input.mmd --theme dark
+```
+
+Keyboard shortcuts: **Ctrl+Q** to quit, **Ctrl+S** to save. Requires a terminal (not available in CI or piped contexts).
+
 ## JavaScript / WASM API
 
 ```ts
@@ -435,15 +451,15 @@ A --> B
 
 | Crate | Lines | Responsibility |
 |-------|-------|----------------|
-| `fm-core` | ~4,000 | Shared IR types, config, errors, diagnostics, 20+ node shapes |
-| `fm-parser` | ~8,700 | 24-type detection + parsing + error recovery + DOT bridge |
-| `fm-layout` | ~8,400 | 15 layout algorithms, 4 cycle strategies, crossing minimization |
-| `fm-render-svg` | ~7,000 | Accessible, themeable SVG with gradients/shadows/glows |
-| `fm-render-term` | ~4,400 | Terminal renderer + diff engine + minimap + 4 fidelity modes |
-| `fm-render-canvas` | ~2,500 | Canvas2D web rendering with trait-based abstraction |
-| `fm-wasm` | ~850 | wasm-bindgen API and TypeScript bindings |
-| `fm-cli` | ~1,800 | CLI surface: render, parse, detect, validate, diff, watch, serve |
-| **Total** | **~37,900** | |
+| `fm-core` | ~12,300 | Shared IR types, config, errors, diagnostics, 20+ node shapes |
+| `fm-parser` | ~16,400 | 24-type detection + parsing + error recovery + DOT bridge |
+| `fm-layout` | ~24,400 | 15 layout algorithms, 4 cycle strategies, crossing minimization |
+| `fm-render-svg` | ~13,100 | Accessible, themeable SVG with gradients/shadows/glows |
+| `fm-render-term` | ~6,400 | Terminal renderer + diff engine + minimap + 4 fidelity modes |
+| `fm-render-canvas` | ~3,500 | Canvas2D web rendering with trait-based abstraction |
+| `fm-wasm` | ~1,500 | wasm-bindgen API and TypeScript bindings |
+| `fm-cli` | ~7,300 | CLI surface: render, parse, detect, validate, diff, watch, serve, interactive |
+| **Total** | **~84,900** | |
 
 ### Pipeline
 
@@ -1623,6 +1639,48 @@ cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 cargo test --workspace
+```
+
+## Deployment and Rollback
+
+### Demo Surfaces
+
+The project has two deployment targets:
+
+1. **GitHub Pages** (`dicklesworthstone.github.io/frankenmermaid/`): Deployed automatically on push to `main` via `.github/workflows/pages.yml`. Includes the showcase HTML, WASM binary, and web/web_react host pages.
+
+2. **Cloudflare Pages**: Deployed via the CI pipeline with staged smoke checks in `.github/workflows/ci.yml`.
+
+### Post-Deploy Verification
+
+Both deployment paths include automated smoke checks:
+- GitHub Pages: verifies HTTP 200 for root page and WASM artifact after deploy
+- Cloudflare: runs `scripts/cloudflare_pages_ops.py smoke-check` before promoting
+
+### Rollback Procedures
+
+**GitHub Pages rollback:**
+```bash
+# Revert to the previous deployment by re-running the workflow on a known-good commit
+gh workflow run "Deploy GitHub Pages" --ref <known-good-commit-sha>
+
+# Or revert the commit and push
+git revert HEAD
+git push origin main
+```
+
+**Cloudflare Pages rollback:**
+```bash
+# Roll back to previous deployment via Cloudflare dashboard or CLI
+# Cloudflare Pages keeps all deployment versions; select the previous one in the dashboard
+```
+
+**WASM package rollback:**
+```bash
+# Rebuild from a known-good commit
+git checkout <known-good-sha>
+bash build-wasm.sh
+# Re-publish to npm if needed
 ```
 
 ## Troubleshooting

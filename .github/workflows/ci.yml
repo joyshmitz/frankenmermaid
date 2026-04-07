@@ -165,6 +165,25 @@ jobs:
             exit 1
           fi
 
+  png-smoke:
+    name: PNG Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check fm-cli png feature
+        run: cargo check -p fm-cli --features png
+
+      - name: Run png smoke tests
+        run: cargo test -p fm-cli --features png png_ -- --nocapture
+
   golden-checksum-guard:
     name: Golden Checksum Guard
     needs: quality-gate-config

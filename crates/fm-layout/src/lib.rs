@@ -1781,6 +1781,10 @@ pub struct DiagramLayout {
     pub bounds: LayoutRect,
     pub stats: LayoutStats,
     pub extensions: LayoutExtensions,
+    /// Rectangular regions that changed in this layout relative to the previous
+    /// layout (populated by incremental layout, empty for full recomputes).
+    /// Renderers can use this to skip re-drawing unchanged portions.
+    pub dirty_regions: Vec<LayoutRect>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2914,38 +2918,40 @@ impl IncrementalLayoutEngine {
         track_dependency_graph_query(ir);
         let incremental_start = std::time::Instant::now();
 
-        // Fast path: if all edits are node-level changes (labels, styles) with no
-        // topology changes, we can skip dependency graph reconstruction entirely
-        // and derive the dirty set directly from the edits.
-        let all_node_changes = edits.iter().all(|e| matches!(e, LayoutEdit::NodeChanged { .. }));
-        let (current_graph, dirty_node_indexes) = if all_node_changes {
-            let dirty: BTreeSet<usize> = edits
+        // Fast path: for label/style-only edits, reuse the cached dependency graph
+        // (topology unchanged) and derive dirty set directly from edits, avoiding
+        // the expensive dirty_node_indexes_for_edits walk.
+        let all_node_changes = edits
+            .iter()
+            .all(|e| matches!(e, LayoutEdit::NodeChanged { .. }));
+        let current_graph = if all_node_changes
+            || dependency_graph_cache_key(&cached_graph.ir) == dependency_graph_cache_key(ir)
+        {
+            Arc::clone(&cached_graph.graph)
+        } else {
+            Arc::new(LayoutDependencyGraph::from_ir(ir))
+        };
+        let dirty_node_indexes = if all_node_changes {
+            edits
                 .iter()
                 .filter_map(|e| match e {
                     LayoutEdit::NodeChanged { node_index } => Some(*node_index),
                     _ => None,
                 })
-                .collect();
-            (Arc::clone(&cached_graph.graph), dirty)
+                .collect()
         } else {
-            let graph =
-                if dependency_graph_cache_key(&cached_graph.ir) == dependency_graph_cache_key(ir) {
-                    Arc::clone(&cached_graph.graph)
-                } else {
-                    Arc::new(LayoutDependencyGraph::from_ir(ir))
-                };
-            let dirty =
-                dirty_node_indexes_for_edits(&cached_graph.graph, &graph, &cached_graph.ir, ir);
-            (graph, dirty)
+            dirty_node_indexes_for_edits(&cached_graph.graph, &current_graph, &cached_graph.ir, ir)
         };
         if dirty_node_indexes.is_empty() {
             return None;
         }
 
         let mut dirty = DirtySet::default();
+        let mut recomputed_node_count = 0usize;
         for (region_id, region) in current_graph.regions() {
             if !region.node_indexes.is_disjoint(&dirty_node_indexes) {
                 dirty.insert(*region_id);
+                recomputed_node_count += region.node_indexes.len();
             }
         }
         if dirty.is_empty() {
@@ -3078,6 +3084,25 @@ impl IncrementalLayoutEngine {
             phase_iterations: trace.snapshots.len(),
         };
 
+        let dirty_regions: Vec<LayoutRect> = dirty
+            .regions
+            .iter()
+            .filter_map(|region_id| {
+                current_graph.regions().get(region_id).map(|region| {
+                    layout_bounds_for_members(
+                        &region.node_indexes.iter().copied().collect::<Vec<_>>(),
+                        &nodes,
+                    )
+                    .unwrap_or(LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 0.0,
+                        height: 0.0,
+                    })
+                })
+            })
+            .collect();
+
         Some(TracedLayout {
             layout: DiagramLayout {
                 nodes,
@@ -3090,12 +3115,13 @@ impl IncrementalLayoutEngine {
                     cluster_dividers,
                     ..LayoutExtensions::default()
                 },
+                dirty_regions,
             },
             trace: LayoutTrace {
                 incremental: IncrementalRecomputeTrace {
                     query_type: "layout_incremental_subgraph_relayout",
                     cache_hit: false,
-                    recomputed_nodes: dirty_node_indexes.len(),
+                    recomputed_nodes: recomputed_node_count,
                     total_nodes: ir.nodes.len(),
                     recompute_duration_us: saturating_elapsed_micros(incremental_start.elapsed()),
                 },
@@ -3903,6 +3929,7 @@ fn layout_diagram_sugiyama_traced_with_config(
                 cluster_dividers,
                 ..LayoutExtensions::default()
             },
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -3941,6 +3968,7 @@ pub fn layout_diagram_force_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 },
                 stats: LayoutStats::default(),
                 extensions: LayoutExtensions::default(),
+                dirty_regions: Vec::new(),
             },
             trace,
         };
@@ -4039,6 +4067,7 @@ pub fn layout_diagram_force_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             bounds,
             stats,
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -4073,6 +4102,7 @@ pub fn layout_diagram_tree_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 },
                 stats: LayoutStats::default(),
                 extensions: LayoutExtensions::default(),
+                dirty_regions: Vec::new(),
             },
             trace,
         };
@@ -4182,6 +4212,7 @@ pub fn layout_diagram_tree_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             bounds,
             stats,
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -4216,6 +4247,7 @@ pub fn layout_diagram_radial_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 },
                 stats: LayoutStats::default(),
                 extensions: LayoutExtensions::default(),
+                dirty_regions: Vec::new(),
             },
             trace,
         };
@@ -4344,6 +4376,7 @@ pub fn layout_diagram_radial_traced(ir: &MermaidDiagramIr) -> TracedLayout {
             bounds,
             stats,
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -4526,6 +4559,7 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 },
                 stats: LayoutStats::default(),
                 extensions: LayoutExtensions::default(),
+                dirty_regions: Vec::new(),
             },
             trace,
         };
@@ -4993,6 +5027,7 @@ pub fn layout_diagram_sequence_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 sequence_lifecycle_markers: lifecycle_markers,
                 sequence_mirror_headers,
             },
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -5496,6 +5531,7 @@ pub fn layout_diagram_xychart_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 phase_iterations: trace.snapshots.len(),
             },
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -5678,6 +5714,7 @@ fn layout_diagram_xychart_from_meta(
                 phase_iterations: trace.snapshots.len(),
             },
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -6203,6 +6240,7 @@ fn layout_diagram_pie_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 ..LayoutStats::default()
             },
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -6290,6 +6328,7 @@ fn layout_diagram_quadrant_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 ..LayoutStats::default()
             },
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -6318,6 +6357,7 @@ fn layout_diagram_gitgraph_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 },
                 stats: LayoutStats::default(),
                 extensions: LayoutExtensions::default(),
+                dirty_regions: Vec::new(),
             },
             trace,
         };
@@ -6396,6 +6436,7 @@ fn layout_diagram_gitgraph_traced(ir: &MermaidDiagramIr) -> TracedLayout {
                 ..LayoutStats::default()
             },
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }
@@ -6675,6 +6716,7 @@ fn finalize_specialized_layout(
             bounds,
             stats,
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         },
         trace,
     }

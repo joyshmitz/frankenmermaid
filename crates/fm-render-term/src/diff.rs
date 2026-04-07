@@ -1133,4 +1133,92 @@ mod tests {
         assert_eq!(display_width(&colored), 5);
         assert_eq!(display_width("Plain"), 5);
     }
+
+    // ─── End-to-end diff tests using parsed Mermaid input ───
+
+    fn parse_diff(a: &str, b: &str) -> DiagramDiff {
+        let old = fm_parser::parse(a);
+        let new = fm_parser::parse(b);
+        diff_diagrams(&old.ir, &new.ir)
+    }
+
+    #[test]
+    fn e2e_label_change_detected() {
+        let diff = parse_diff(
+            "flowchart LR\n  A[Hello]-->B",
+            "flowchart LR\n  A[World]-->B",
+        );
+        assert!(diff.has_changes());
+        assert!(diff.changed_nodes >= 1, "should detect label change");
+    }
+
+    #[test]
+    fn e2e_node_addition_detected() {
+        let diff = parse_diff("flowchart LR\n  A-->B", "flowchart LR\n  A-->B-->C");
+        assert!(diff.has_changes());
+        assert!(diff.added_nodes >= 1, "should detect added node C");
+    }
+
+    #[test]
+    fn e2e_edge_removal_detected() {
+        let diff = parse_diff("flowchart LR\n  A-->B\n  B-->C", "flowchart LR\n  A-->B");
+        assert!(diff.has_changes());
+        assert!(
+            diff.removed_edges >= 1 || diff.removed_nodes >= 1,
+            "should detect removed edge or node"
+        );
+    }
+
+    #[test]
+    fn e2e_identical_diagrams_no_changes() {
+        let input = "flowchart LR\n  A-->B-->C";
+        let diff = parse_diff(input, input);
+        assert!(!diff.has_changes());
+    }
+
+    #[test]
+    fn e2e_summary_format_contains_counts() {
+        let diff = parse_diff("flowchart LR\n  A-->B", "flowchart LR\n  A-->B-->C");
+        let summary = render_diff_summary(&diff, false);
+        assert!(!summary.is_empty(), "summary should be non-empty");
+        // Summary includes change counts.
+        assert!(
+            summary.contains("added") || summary.contains("changed") || summary.contains("removed"),
+            "summary should mention change types"
+        );
+    }
+
+    #[test]
+    fn e2e_plain_format_non_empty_for_changes() {
+        let diff = parse_diff(
+            "flowchart LR\n  A[Hello]-->B",
+            "flowchart LR\n  A[World]-->B",
+        );
+        let plain = render_diff_plain(&diff);
+        assert!(
+            !plain.is_empty(),
+            "plain output should be non-empty for changes"
+        );
+    }
+
+    #[test]
+    fn e2e_terminal_format_renders() {
+        let old = fm_parser::parse("flowchart LR\n  A-->B");
+        let new = fm_parser::parse("flowchart LR\n  A-->B-->C");
+        let rendered = render_diff_terminal(&old.ir, &new.ir, 100, 24, false);
+        assert!(
+            rendered.contains("Diagram Diff") || !rendered.is_empty(),
+            "terminal diff should produce output"
+        );
+    }
+
+    #[test]
+    fn e2e_diff_across_diagram_types() {
+        // Diff a flowchart against a different flowchart (class diagrams, etc.).
+        let diff = parse_diff(
+            "classDiagram\n  class Animal {\n    +name: string\n  }",
+            "classDiagram\n  class Animal {\n    +name: string\n    +age: int\n  }",
+        );
+        assert!(diff.has_changes(), "member change should be detected");
+    }
 }

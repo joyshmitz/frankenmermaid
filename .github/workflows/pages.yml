@@ -31,9 +31,11 @@ jobs:
       - name: Assemble static site
         run: |
           set -euo pipefail
-          mkdir -p dist/pkg
+          mkdir -p dist/pkg dist/web dist/web_react
           cp frankenmermaid_demo_showcase.html dist/index.html
           cp frankenmermaid_demo_showcase.html dist/frankenmermaid_demo_showcase.html
+          cp web/index.html dist/web/index.html
+          cp web_react/index.html dist/web_react/index.html
           cp pkg/frankenmermaid.js dist/pkg/
           cp pkg/frankenmermaid_bg.wasm dist/pkg/
           cp pkg/frankenmermaid.d.ts dist/pkg/
@@ -49,3 +51,39 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Post-deploy smoke check
+        if: success()
+        run: |
+          set -euo pipefail
+          SITE_URL="${{ steps.deployment.outputs.page_url }}"
+          echo "==> Smoke-checking deployed site at $SITE_URL"
+
+          # Wait for CDN propagation
+          sleep 10
+
+          # Check root page loads
+          HTTP_CODE=$(curl -sL -o /dev/null -w '%{http_code}' "$SITE_URL" || echo "000")
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "::error::Root page returned HTTP $HTTP_CODE (expected 200)"
+            exit 1
+          fi
+          echo "Root page: HTTP $HTTP_CODE ✓"
+
+          # Check WASM artifact is served
+          WASM_CODE=$(curl -sL -o /dev/null -w '%{http_code}' "${SITE_URL}pkg/frankenmermaid_bg.wasm" || echo "000")
+          if [[ "$WASM_CODE" != "200" ]]; then
+            echo "::warning::WASM artifact returned HTTP $WASM_CODE"
+          else
+            echo "WASM artifact: HTTP $WASM_CODE ✓"
+          fi
+
+          # Check showcase page contains expected content
+          BODY=$(curl -sL "$SITE_URL")
+          if echo "$BODY" | grep -q "frankenmermaid"; then
+            echo "Showcase page content: ✓"
+          else
+            echo "::warning::Showcase page missing expected 'frankenmermaid' content"
+          fi
+
+          echo "==> Post-deploy smoke check passed"

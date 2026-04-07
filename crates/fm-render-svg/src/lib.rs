@@ -6736,6 +6736,7 @@ mod tests {
             },
             stats: Default::default(),
             extensions: Default::default(),
+            dirty_regions: Vec::new(),
         };
 
         let svg = render_svg_with_layout(&ir, &layout, &SvgRenderConfig::default());
@@ -6849,6 +6850,7 @@ mod tests {
                 }],
                 ..Default::default()
             },
+            dirty_regions: Vec::new(),
         };
 
         let svg = render_svg_with_layout(
@@ -6889,6 +6891,7 @@ mod tests {
                 }],
                 ..Default::default()
             },
+            dirty_regions: Vec::new(),
         };
 
         let svg = render_svg_with_layout(
@@ -6925,6 +6928,7 @@ mod tests {
             },
             stats: Default::default(),
             extensions: Default::default(),
+            dirty_regions: Vec::new(),
         };
 
         let svg = render_svg_with_layout(
@@ -7414,6 +7418,7 @@ mod tests {
                 }],
                 ..Default::default()
             },
+            dirty_regions: Vec::new(),
         };
 
         let svg = render_svg_with_layout(
@@ -8245,6 +8250,7 @@ mod tests {
                 }],
                 ..Default::default()
             },
+            dirty_regions: Vec::new(),
         };
 
         let svg = render_svg_with_layout(
@@ -8286,11 +8292,7 @@ mod tests {
         );
 
         let traced = fm_layout::layout_diagram_traced(&parsed.ir);
-        let svg = render_svg_with_layout(
-            &parsed.ir,
-            &traced.layout,
-            &SvgRenderConfig::default(),
-        );
+        let svg = render_svg_with_layout(&parsed.ir, &traced.layout, &SvgRenderConfig::default());
 
         assert!(
             svg.starts_with("<svg") || svg.starts_with("<?xml"),
@@ -8315,11 +8317,7 @@ mod tests {
 
     #[test]
     fn smoke_sequence() {
-        smoke_test_diagram(
-            "sequenceDiagram\n  Alice->>Bob: hello",
-            "sequence",
-            2,
-        );
+        smoke_test_diagram("sequenceDiagram\n  Alice->>Bob: hello", "sequence", 2);
     }
 
     #[test]
@@ -8342,11 +8340,7 @@ mod tests {
 
     #[test]
     fn smoke_er() {
-        smoke_test_diagram(
-            "erDiagram\n  CUSTOMER ||--o{ ORDER : places",
-            "er",
-            1,
-        );
+        smoke_test_diagram("erDiagram\n  CUSTOMER ||--o{ ORDER : places", "er", 1);
     }
 
     #[test]
@@ -8369,11 +8363,7 @@ mod tests {
 
     #[test]
     fn smoke_gitgraph() {
-        smoke_test_diagram(
-            "gitGraph\n  commit\n  branch dev\n  commit",
-            "gitgraph",
-            0,
-        );
+        smoke_test_diagram("gitGraph\n  commit\n  branch dev\n  commit", "gitgraph", 0);
     }
 
     #[test]
@@ -8432,11 +8422,7 @@ mod tests {
 
     #[test]
     fn smoke_block_beta() {
-        smoke_test_diagram(
-            "block-beta\n  columns 2\n  A B\n  C D",
-            "block-beta",
-            1,
-        );
+        smoke_test_diagram("block-beta\n  columns 2\n  A B\n  C D", "block-beta", 1);
     }
 
     #[test]
@@ -8543,11 +8529,7 @@ mod tests {
         );
         let parsed = fm_parser::parse(input);
         let traced = fm_layout::layout_diagram_traced(&parsed.ir);
-        let svg = render_svg_with_layout(
-            &parsed.ir,
-            &traced.layout,
-            &SvgRenderConfig::default(),
-        );
+        let svg = render_svg_with_layout(&parsed.ir, &traced.layout, &SvgRenderConfig::default());
         assert!(svg.contains("<svg"), "DOT bridge should produce SVG");
     }
 
@@ -8575,5 +8557,59 @@ mod tests {
             !parsed.ir.nodes.is_empty() || !parsed.ir.edges.is_empty(),
             "error recovery should still produce IR"
         );
+    }
+
+    // ─── Pie and XyChart rendering quality tests ───
+
+    #[test]
+    fn pie_chart_renders_wedge_paths_and_legend() {
+        let svg = render_sequence_e2e(
+            "pie title Pets\n  \"Dogs\" : 70\n  \"Cats\" : 20\n  \"Birds\" : 10",
+        );
+        // Wedges are SVG path elements.
+        assert!(svg.contains("<path"), "pie should render wedge paths");
+        // Legend with slice labels.
+        assert!(
+            svg.contains("Dogs") && svg.contains("Cats") && svg.contains("Birds"),
+            "pie should render all slice labels"
+        );
+    }
+
+    #[test]
+    fn pie_chart_renders_title() {
+        let svg =
+            render_sequence_e2e("pie title My Favorite Pets\n  \"Dogs\" : 60\n  \"Cats\" : 40");
+        assert!(
+            svg.contains("My Favorite Pets"),
+            "pie should render the chart title"
+        );
+    }
+
+    #[test]
+    fn xychart_renders_axes_and_data() {
+        let svg = render_sequence_e2e(
+            "xychart-beta\n  title Sales\n  x-axis [Q1, Q2, Q3, Q4]\n  line [10, 20, 15, 25]",
+        );
+        assert!(svg.contains("Sales"), "xychart should render title");
+        // Axis labels.
+        assert!(svg.contains("Q1"), "xychart should render x-axis labels");
+        // Line data rendered as path or polyline.
+        assert!(
+            svg.contains("<path") || svg.contains("<line") || svg.contains("<polyline"),
+            "xychart should render line data"
+        );
+    }
+
+    #[test]
+    fn xychart_bar_series_renders_rects() {
+        let svg = render_sequence_e2e(
+            "xychart-beta\n  title Revenue\n  x-axis [Jan, Feb, Mar]\n  bar [100, 200, 150]",
+        );
+        // Bar series renders as rectangles.
+        assert!(
+            svg.contains("<rect"),
+            "xychart bar series should render rects"
+        );
+        assert!(svg.contains("Revenue"), "xychart should render title");
     }
 }

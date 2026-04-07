@@ -1827,6 +1827,7 @@ mod tests {
                 }],
                 ..Default::default()
             },
+            dirty_regions: Vec::new(),
         };
         let config = CanvasRenderConfig {
             auto_fit: false,
@@ -1881,6 +1882,7 @@ mod tests {
             },
             stats: LayoutStats::default(),
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         };
         let config = CanvasRenderConfig {
             auto_fit: false,

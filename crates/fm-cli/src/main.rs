@@ -16,6 +16,8 @@
 //! - `watch`: Re-render on file change (requires `watch` feature)
 //! - `serve`: Start local HTTP server with live-reload playground (requires `serve` feature)
 
+#[cfg(feature = "png")]
+use std::collections::BTreeMap;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -1714,7 +1716,9 @@ fn render_format(
                 let mut svg_config =
                     build_svg_render_config(&svg_base_config, theme, font_size, embed_source_spans);
                 svg_config.apply_degradation(&degradation);
+                make_svg_render_config_raster_safe(&mut svg_config);
                 let svg = render_svg_with_layout(ir, render_layout, &svg_config);
+                let svg = resolve_svg_custom_properties_for_rasterization(&svg);
                 let (png, px_width, px_height) = svg_to_png(&svg, width, height)?;
                 Ok((png, Some(px_width), Some(px_height)))
             }
@@ -1817,6 +1821,20 @@ fn build_svg_render_config(
     svg_config
 }
 
+#[cfg(feature = "png")]
+fn make_svg_render_config_raster_safe(config: &mut SvgRenderConfig) {
+    // usvg/resvg only supports a browser-free subset of the CSS emitted for
+    // interactive SVG output. Prefer a static attribute-driven SVG for PNG so
+    // rasterization remains deterministic across theme presets.
+    config.responsive = false;
+    config.embed_theme_css = false;
+    config.animations_enabled = false;
+    config.print_optimized = false;
+    config.shadows = false;
+    config.glow_enabled = false;
+    config.a11y.accessibility_css = false;
+}
+
 fn normalize_positive_font_size(font_size: Option<f32>) -> Option<f32> {
     font_size.filter(|size| size.is_finite() && *size > 0.0)
 }
@@ -1904,6 +1922,83 @@ fn extract_viewbox_dimensions(svg: &str) -> Option<(Option<u32>, Option<u32>)> {
 }
 
 #[cfg(feature = "png")]
+fn resolve_svg_custom_properties_for_rasterization(svg: &str) -> String {
+    let Some(style_start) = svg.find("<style>") else {
+        return svg.to_string();
+    };
+    let style_content_start = style_start + "<style>".len();
+    let Some(style_end_rel) = svg[style_content_start..].find("</style>") else {
+        return svg.to_string();
+    };
+    let style_content_end = style_content_start + style_end_rel;
+    let style_content = &svg[style_content_start..style_content_end];
+    let custom_properties = extract_svg_custom_properties(style_content);
+    if custom_properties.is_empty() {
+        return svg.to_string();
+    }
+
+    let mut resolved = svg.to_string();
+    for _ in 0..8 {
+        let next = substitute_svg_var_calls(&resolved, &custom_properties);
+        if next == resolved {
+            break;
+        }
+        resolved = next;
+    }
+    resolved
+}
+
+#[cfg(feature = "png")]
+fn extract_svg_custom_properties(style_content: &str) -> BTreeMap<String, String> {
+    let mut properties = BTreeMap::new();
+    for line in style_content.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("--fm-") {
+            continue;
+        }
+        let Some((name, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let value = value.trim().trim_end_matches(';').trim();
+        if !value.is_empty() {
+            properties.insert(name.trim().to_string(), value.to_string());
+        }
+    }
+    properties
+}
+
+#[cfg(feature = "png")]
+fn substitute_svg_var_calls(input: &str, custom_properties: &BTreeMap<String, String>) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut cursor = 0;
+
+    while let Some(rel_start) = input[cursor..].find("var(--fm-") {
+        let start = cursor + rel_start;
+        output.push_str(&input[cursor..start]);
+
+        let content_start = start + "var(".len();
+        let Some(rel_end) = input[content_start..].find(')') else {
+            output.push_str(&input[start..]);
+            return output;
+        };
+        let end = content_start + rel_end;
+        let body = &input[content_start..end];
+        let property_name = body.split_once(',').map_or(body, |(name, _)| name).trim();
+
+        if let Some(value) = custom_properties.get(property_name) {
+            output.push_str(value);
+        } else {
+            output.push_str(&input[start..=end]);
+        }
+
+        cursor = end + 1;
+    }
+
+    output.push_str(&input[cursor..]);
+    output
+}
+
+#[cfg(feature = "png")]
 fn svg_to_png(svg: &str, width: Option<u32>, height: Option<u32>) -> Result<(Vec<u8>, u32, u32)> {
     use resvg::tiny_skia;
     use usvg::{Options, Transform, Tree};
@@ -1950,7 +2045,7 @@ fn svg_to_png(svg: &str, width: Option<u32>, height: Option<u32>) -> Result<(Vec
 
 #[cfg(all(test, feature = "png"))]
 mod png_tests {
-    use super::svg_to_png;
+    use super::{resolve_svg_custom_properties_for_rasterization, svg_to_png};
 
     const SIMPLE_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><rect x="0" y="0" width="100" height="50" fill="#f00"/></svg>"##;
 
@@ -1973,6 +2068,34 @@ mod png_tests {
     fn png_dimensions_reject_zero_sized_outputs() {
         let err = svg_to_png(SIMPLE_SVG, Some(0), Some(10)).expect_err("zero width must fail");
         assert!(err.to_string().contains("greater than 0"));
+    }
+
+    #[test]
+    fn png_rasterization_resolves_svg_custom_properties() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><style>:root {
+  --fm-node-fill: #123456;
+  --fm-node-stroke: #abcdef;
+}
+.fm-box { fill: var(--fm-node-fill, #ffffff); stroke: var(--fm-node-stroke, #000000); }</style><rect class="fm-box" fill="var(--fm-node-fill, #ffffff)" stroke="var(--fm-node-stroke, #000000)" x="0" y="0" width="40" height="20"/></svg>"##;
+
+        let resolved = resolve_svg_custom_properties_for_rasterization(svg);
+        assert!(resolved.contains("#123456"));
+        assert!(resolved.contains("#abcdef"));
+        assert!(!resolved.contains("var(--fm-node-fill"));
+        assert!(!resolved.contains("var(--fm-node-stroke"));
+    }
+
+    #[test]
+    fn png_rasterization_resolves_chained_svg_custom_properties() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><style>:root {
+  --fm-cluster-stroke: #654321;
+  --fm-edge-muted: var(--fm-cluster-stroke);
+}
+</style><path stroke="var(--fm-edge-muted, #000000)" d="M0 0 L40 20"/></svg>"##;
+
+        let resolved = resolve_svg_custom_properties_for_rasterization(svg);
+        assert!(resolved.contains("#654321"));
+        assert!(!resolved.contains("var(--fm-edge-muted"));
     }
 }
 
@@ -2852,6 +2975,7 @@ mod render_tests {
             },
             stats: LayoutStats::default(),
             extensions: LayoutExtensions::default(),
+            dirty_regions: Vec::new(),
         };
 
         let filtered = layout_without_back_edges(&layout);
