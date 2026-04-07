@@ -383,7 +383,8 @@ fn extract_dot_attribute_raw(attributes: &str, key: &str) -> Option<String> {
             if c == '=' || c.is_whitespace() || c == '[' || c == ']' || c == ',' {
                 break;
             }
-            current_key.push(chars.next().unwrap());
+            current_key.push(c);
+            chars.next();
         }
 
         while let Some(&c) = chars.peek() {
@@ -438,7 +439,8 @@ fn extract_dot_attribute_raw(attributes: &str, key: &str) -> Option<String> {
                     if html_depth == 0 && (vc.is_whitespace() || vc == ',' || vc == ']') {
                         break;
                     }
-                    current_val.push(chars.next().unwrap());
+                    current_val.push(vc);
+                    chars.next();
                 }
             }
         }
