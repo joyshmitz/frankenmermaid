@@ -18,7 +18,7 @@ use fm_layout::{
     LayoutConfig, LayoutGuardrails, TracedLayout, layout_diagram_traced,
     layout_diagram_traced_with_config_and_guardrails,
 };
-use fm_parser::{detect_type_with_confidence, parse};
+use fm_parser::{apply_parse_lens_edit, build_parse_lens, detect_type_with_confidence, parse};
 use fm_render_canvas::CanvasRenderConfig;
 #[cfg(target_arch = "wasm32")]
 use fm_render_canvas::render_to_canvas_with_layout;
@@ -63,8 +63,62 @@ pub struct SourceSpanRecord {
     span: Span,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+enum WebRendererKind {
+    #[default]
+    #[serde(rename = "canvas2d")]
+    Canvas2d,
+    #[serde(rename = "webgpu")]
+    WebGpu,
+}
+
+impl WebRendererKind {
+    #[cfg(target_arch = "wasm32")]
+    #[must_use]
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Canvas2d => "canvas2d",
+            Self::WebGpu => "webgpu",
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RendererRuntimeSummary {
+    requested: String,
+    actual: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fallback_reason: Option<String>,
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResolvedRenderer {
+    requested: WebRendererKind,
+    actual: WebRendererKind,
+    fallback_reason: Option<&'static str>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl ResolvedRenderer {
+    #[must_use]
+    fn summary(self) -> RendererRuntimeSummary {
+        RendererRuntimeSummary {
+            requested: self.requested.as_str().to_string(),
+            actual: self.actual.as_str().to_string(),
+            fallback_reason: self.fallback_reason.map(str::to_string),
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+const WEBGPU_RENDERER_IMPLEMENTED: bool = false;
+
 #[derive(Debug, Clone)]
 struct RuntimeConfig {
+    renderer: WebRendererKind,
     svg: SvgRenderConfig,
     canvas: CanvasRenderConfig,
     pressure: MermaidWasmPressureSignals,
@@ -75,6 +129,7 @@ impl Default for RuntimeConfig {
         let svg = SvgRenderConfig::default();
         let canvas = align_canvas_typography_with_svg(CanvasRenderConfig::default(), &svg);
         Self {
+            renderer: WebRendererKind::Canvas2d,
             svg,
             canvas,
             pressure: MermaidWasmPressureSignals::default(),
@@ -86,6 +141,7 @@ impl Default for RuntimeConfig {
 #[serde(default, rename_all = "camelCase")]
 struct RuntimeInitConfig {
     theme: Option<String>,
+    renderer: Option<WebRendererKind>,
     svg: SvgConfigOverrides,
     canvas: CanvasConfigOverrides,
     pressure: PressureConfigOverrides,
@@ -125,6 +181,7 @@ struct PressureConfigOverrides {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DiagramRenderOutput {
+    renderer: RendererRuntimeSummary,
     guard: WasmGuardSummary,
     layout: LayoutRuntimeSummary,
     canvas: CanvasRenderSummary,
@@ -135,10 +192,12 @@ impl DiagramRenderOutput {
     fn new(
         traced_layout: &TracedLayout,
         layout_config: &LayoutConfig,
+        renderer: RendererRuntimeSummary,
         guard: WasmGuardSummary,
         canvas: &CanvasRenderResult,
     ) -> Self {
         Self {
+            renderer,
             guard,
             layout: LayoutRuntimeSummary::new(traced_layout, layout_config),
             canvas: CanvasRenderSummary::from(canvas),
@@ -505,6 +564,44 @@ fn requested_theme_preset(overrides: &RuntimeInitConfig) -> Result<Option<ThemeP
         .transpose()
 }
 
+fn merge_renderer_kind(
+    base: WebRendererKind,
+    override_renderer: Option<WebRendererKind>,
+) -> WebRendererKind {
+    override_renderer.unwrap_or(base)
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+#[must_use]
+fn resolve_renderer(
+    requested: WebRendererKind,
+    webgpu_supported: bool,
+    webgpu_implemented: bool,
+) -> ResolvedRenderer {
+    match requested {
+        WebRendererKind::Canvas2d => ResolvedRenderer {
+            requested,
+            actual: WebRendererKind::Canvas2d,
+            fallback_reason: None,
+        },
+        WebRendererKind::WebGpu if !webgpu_supported => ResolvedRenderer {
+            requested,
+            actual: WebRendererKind::Canvas2d,
+            fallback_reason: Some("webgpu_unavailable"),
+        },
+        WebRendererKind::WebGpu if !webgpu_implemented => ResolvedRenderer {
+            requested,
+            actual: WebRendererKind::Canvas2d,
+            fallback_reason: Some("webgpu_not_implemented"),
+        },
+        WebRendererKind::WebGpu => ResolvedRenderer {
+            requested,
+            actual: WebRendererKind::WebGpu,
+            fallback_reason: None,
+        },
+    }
+}
+
 #[cfg(any(target_arch = "wasm32", test))]
 fn canvas_font_size_px(font: &str) -> f64 {
     font.split_whitespace()
@@ -642,6 +739,7 @@ pub fn init(config: Option<JsValue>) -> Result<(), JsValue> {
     );
 
     let next = RuntimeConfig {
+        renderer: merge_renderer_kind(current.renderer, overrides.renderer),
         canvas: align_canvas_typography_with_svg(
             merge_canvas_config(&canvas_base, &overrides.canvas),
             &svg,
@@ -724,9 +822,7 @@ pub fn parse_js(input: &str) -> Result<JsValue, JsValue> {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = diagramLens))]
 pub fn diagram_lens_js(input: &str) -> Result<JsValue, JsValue> {
-    let parsed = parse(input);
-    let bindings = fm_core::build_lens_bindings(input, &parsed.ir.source_map());
-    to_js_value(&bindings)
+    to_js_value(&build_parse_lens(input).bindings)
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = applyLensEdit))]
@@ -735,13 +831,30 @@ pub fn apply_lens_edit_js(
     element_id: &str,
     replacement: &str,
 ) -> Result<JsValue, JsValue> {
-    let parsed = parse(input);
     let edit = fm_core::MermaidLensEdit {
         element_id: element_id.to_string(),
         replacement: replacement.to_string(),
     };
-    let result = fm_core::apply_lens_edit(input, &parsed.ir.source_map(), &edit)
-        .map_err(|e| js_error(e.to_string()))?;
+    let result = apply_parse_lens_edit(input, &edit).map_err(|e| js_error(e.to_string()))?;
+    to_js_value(&result.result)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = parseLens))]
+pub fn parse_lens_js(input: &str) -> Result<JsValue, JsValue> {
+    to_js_value(&build_parse_lens(input))
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = applyParseLensEdit))]
+pub fn apply_parse_lens_edit_js(
+    input: &str,
+    element_id: &str,
+    replacement: &str,
+) -> Result<JsValue, JsValue> {
+    let edit = fm_core::MermaidLensEdit {
+        element_id: element_id.to_string(),
+        replacement: replacement.to_string(),
+    };
+    let result = apply_parse_lens_edit(input, &edit).map_err(|e| js_error(e.to_string()))?;
     to_js_value(&result)
 }
 
@@ -966,10 +1079,23 @@ impl Canvas2dContext for WebCanvas2dContext {
 }
 
 #[cfg(target_arch = "wasm32")]
+fn browser_supports_webgpu() -> bool {
+    let global = js_sys::global();
+    let Ok(navigator) = js_sys::Reflect::get(&global, &JsValue::from_str("navigator")) else {
+        return false;
+    };
+    let Ok(gpu) = js_sys::Reflect::get(&navigator, &JsValue::from_str("gpu")) else {
+        return false;
+    };
+    !(gpu.is_null() || gpu.is_undefined())
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub struct Diagram {
     canvas: web_sys::HtmlCanvasElement,
     context: web_sys::CanvasRenderingContext2d,
+    renderer: WebRendererKind,
     svg_config: SvgRenderConfig,
     canvas_config: CanvasRenderConfig,
     pressure_config: MermaidWasmPressureSignals,
@@ -1016,10 +1142,12 @@ impl Diagram {
             &svg_config,
         );
         let pressure_config = merge_pressure_config(&runtime.pressure, &overrides.pressure);
+        let renderer = merge_renderer_kind(runtime.renderer, overrides.renderer);
 
         Ok(Self {
             canvas,
             context,
+            renderer,
             svg_config,
             canvas_config,
             pressure_config,
@@ -1046,6 +1174,7 @@ impl Diagram {
             merge_canvas_config(&canvas_base, &overrides.canvas),
             &next_svg,
         );
+        let next_renderer = merge_renderer_kind(self.renderer, overrides.renderer);
         let parse_start = Instant::now();
         let parsed = parse(input);
         budget_broker.record_parse(
@@ -1081,15 +1210,30 @@ impl Diagram {
                 .try_into()
                 .unwrap_or(u64::MAX),
         );
+        let renderer = resolve_renderer(
+            next_renderer,
+            browser_supports_webgpu(),
+            WEBGPU_RENDERER_IMPLEMENTED,
+        );
         let guard = WasmGuardSummary::from_layout(&traced_layout, &pressure_report);
         let render_start = Instant::now();
-        let mut web_canvas = WebCanvas2dContext::new(self.canvas.clone(), self.context.clone());
-        let canvas_result = render_to_canvas_with_layout(
-            &parsed.ir,
-            &traced_layout.layout,
-            &mut web_canvas,
-            &next_canvas,
-        );
+        let canvas_result = match renderer.actual {
+            WebRendererKind::Canvas2d => {
+                let mut web_canvas =
+                    WebCanvas2dContext::new(self.canvas.clone(), self.context.clone());
+                render_to_canvas_with_layout(
+                    &parsed.ir,
+                    &traced_layout.layout,
+                    &mut web_canvas,
+                    &next_canvas,
+                )
+            }
+            WebRendererKind::WebGpu => {
+                return Err(js_error(
+                    "internal error: WebGPU renderer was selected without an implementation",
+                ));
+            }
+        };
         budget_broker.record_render(
             render_start
                 .elapsed()
@@ -1098,12 +1242,18 @@ impl Diagram {
                 .unwrap_or(u64::MAX),
         );
 
+        self.renderer = next_renderer;
         self.svg_config = next_svg;
         self.canvas_config = next_canvas;
         self.pressure_config = next_pressure;
 
-        let output =
-            DiagramRenderOutput::new(&traced_layout, &layout_config, guard, &canvas_result);
+        let output = DiagramRenderOutput::new(
+            &traced_layout,
+            &layout_config,
+            renderer.summary(),
+            guard,
+            &canvas_result,
+        );
         to_js_value(&output)
     }
 
@@ -1174,17 +1324,18 @@ impl Diagram {
 mod tests {
     use super::{
         CanvasConfigOverrides, PressureConfigOverrides, RuntimeConfig, RuntimeInitConfig,
-        SvgConfigOverrides, ThemePreset, align_canvas_typography_with_svg,
+        SvgConfigOverrides, ThemePreset, WebRendererKind, align_canvas_typography_with_svg,
         apply_budget_svg_simplifications, apply_canvas_theme_preset, canvas_font_size_px,
-        collect_source_spans, merge_canvas_config, merge_pressure_config, merge_svg_config,
-        read_runtime_config, render, render_svg_js, requested_theme_preset, write_runtime_config,
+        collect_source_spans, merge_canvas_config, merge_pressure_config, merge_renderer_kind,
+        merge_svg_config, read_runtime_config, render, render_svg_js, requested_theme_preset,
+        resolve_renderer, write_runtime_config,
     };
     use fm_core::{
         MermaidLensBinding, MermaidLensEdit, MermaidLensEditResult, MermaidLensError,
-        MermaidPressureTier, MermaidWasmPressureSignals, apply_lens_edit, build_lens_bindings,
+        MermaidPressureTier, MermaidWasmPressureSignals,
     };
     use fm_layout::layout_diagram_traced;
-    use fm_parser::parse;
+    use fm_parser::{apply_parse_lens_edit, build_parse_lens, parse};
     use fm_render_canvas::CanvasRenderConfig;
     use fm_render_svg::{SvgRenderConfig, describe_diagram_with_layout};
 
@@ -1203,9 +1354,8 @@ mod tests {
 
     #[allow(dead_code)]
     fn build_diagram_lens(input: &str) -> WasmDiagramLens {
-        let parsed = parse(input);
         WasmDiagramLens {
-            bindings: build_lens_bindings(input, &parsed.ir.source_map()),
+            bindings: build_parse_lens(input).bindings,
         }
     }
 
@@ -1215,18 +1365,16 @@ mod tests {
         element_id: &str,
         replacement: &str,
     ) -> Result<WasmLensEditResponse, MermaidLensError> {
-        let parsed = parse(input);
-        let result = apply_lens_edit(
+        let result = apply_parse_lens_edit(
             input,
-            &parsed.ir.source_map(),
             &MermaidLensEdit {
                 element_id: element_id.to_string(),
                 replacement: replacement.to_string(),
             },
         )?;
         Ok(WasmLensEditResponse {
-            bindings: build_diagram_lens(&result.updated_source).bindings,
-            result,
+            bindings: result.snapshot.bindings,
+            result: result.result,
         })
     }
 
@@ -1259,6 +1407,14 @@ mod tests {
         assert_eq!(output.layout.edge_count, 1);
         assert!(output.source_spans.iter().any(|span| span.kind == "node"));
         assert!(output.source_spans.iter().any(|span| span.kind == "edge"));
+    }
+
+    #[test]
+    fn build_parse_lens_reports_format_complement_and_bindings() {
+        let lens = build_parse_lens("%% comment\nflowchart LR\nA[Alpha] --> B[Beta]\n");
+
+        assert_eq!(lens.parsed.format_complement.comments.len(), 1);
+        assert!(!lens.bindings.is_empty());
     }
 
     #[test]
@@ -1323,6 +1479,40 @@ mod tests {
 
         let preset = requested_theme_preset(&overrides).expect("theme should parse");
         assert_eq!(preset, Some(ThemePreset::Dark));
+    }
+
+    #[test]
+    fn merge_renderer_kind_prefers_explicit_override() {
+        assert_eq!(
+            merge_renderer_kind(WebRendererKind::Canvas2d, Some(WebRendererKind::WebGpu)),
+            WebRendererKind::WebGpu
+        );
+        assert_eq!(
+            merge_renderer_kind(WebRendererKind::WebGpu, None),
+            WebRendererKind::WebGpu
+        );
+    }
+
+    #[test]
+    fn resolve_renderer_keeps_canvas2d_when_requested() {
+        let resolved = resolve_renderer(WebRendererKind::Canvas2d, false, false);
+        assert_eq!(resolved.requested, WebRendererKind::Canvas2d);
+        assert_eq!(resolved.actual, WebRendererKind::Canvas2d);
+        assert_eq!(resolved.fallback_reason, None);
+    }
+
+    #[test]
+    fn resolve_renderer_falls_back_when_webgpu_is_unavailable() {
+        let resolved = resolve_renderer(WebRendererKind::WebGpu, false, true);
+        assert_eq!(resolved.actual, WebRendererKind::Canvas2d);
+        assert_eq!(resolved.fallback_reason, Some("webgpu_unavailable"));
+    }
+
+    #[test]
+    fn resolve_renderer_falls_back_when_webgpu_is_not_implemented() {
+        let resolved = resolve_renderer(WebRendererKind::WebGpu, true, false);
+        assert_eq!(resolved.actual, WebRendererKind::Canvas2d);
+        assert_eq!(resolved.fallback_reason, Some("webgpu_not_implemented"));
     }
 
     #[test]
