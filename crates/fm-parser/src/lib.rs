@@ -4,7 +4,11 @@ mod dot_parser;
 mod ir_builder;
 mod mermaid_parser;
 
-use fm_core::{DiagramType, MermaidDiagramIr, MermaidParseMode};
+use fm_core::{
+    DiagramType, MermaidDiagramIr, MermaidLensBinding, MermaidLensEdit, MermaidLensEditResult,
+    MermaidLensError, MermaidParseMode, MermaidSourceMap, MermaidTextRange, Position, Span,
+    apply_lens_edit, build_lens_bindings,
+};
 use serde::Serialize;
 use serde_json::json;
 use unicode_segmentation::UnicodeSegmentation;
@@ -90,6 +94,8 @@ pub struct ParseResult {
     pub confidence: f32,
     /// Method used for type detection
     pub detection_method: DetectionMethod,
+    /// Raw-format trivia captured alongside the parsed IR.
+    pub format_complement: MermaidFormatComplement,
 }
 
 impl ParseResult {
@@ -97,6 +103,93 @@ impl ParseResult {
     pub const fn parse_mode(&self) -> MermaidParseMode {
         self.ir.meta.parse_mode
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum MermaidLineEndingStyle {
+    #[default]
+    None,
+    Lf,
+    Crlf,
+    Mixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MermaidWhitespaceKind {
+    Indent,
+    InterToken,
+    Trailing,
+    BlankLine,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidWhitespaceSpan {
+    pub kind: MermaidWhitespaceKind,
+    pub span: Span,
+    pub text_range: MermaidTextRange,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidCommentSpan {
+    pub span: Span,
+    pub text_range: MermaidTextRange,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidDirectiveSpan {
+    pub span: Span,
+    pub text_range: MermaidTextRange,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MermaidQuoteStyle {
+    Single,
+    Double,
+    Backtick,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidQuotedSpan {
+    pub style: MermaidQuoteStyle,
+    pub span: Span,
+    pub text_range: MermaidTextRange,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidFormatComplement {
+    pub line_ending: MermaidLineEndingStyle,
+    pub trailing_newline: bool,
+    pub whitespace: Vec<MermaidWhitespaceSpan>,
+    pub comments: Vec<MermaidCommentSpan>,
+    pub directives: Vec<MermaidDirectiveSpan>,
+    pub quoted_literals: Vec<MermaidQuotedSpan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParseLensSnapshot {
+    pub parsed: ParseResult,
+    pub source_map: MermaidSourceMap,
+    pub bindings: Vec<MermaidLensBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParseLensEditResponse {
+    pub result: MermaidLensEditResult,
+    pub snapshot: ParseLensSnapshot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -496,6 +589,117 @@ pub fn detect_type(input: &str) -> DiagramType {
 }
 
 #[must_use]
+pub fn build_parse_lens(input: &str) -> ParseLensSnapshot {
+    let parsed = parse(input);
+    let source_map = parsed.ir.source_map();
+    let bindings = build_lens_bindings(input, &source_map);
+    ParseLensSnapshot {
+        parsed,
+        source_map,
+        bindings,
+    }
+}
+
+pub fn apply_parse_lens_edit(
+    input: &str,
+    edit: &MermaidLensEdit,
+) -> Result<ParseLensEditResponse, MermaidLensError> {
+    let snapshot = build_parse_lens(input);
+    let result = apply_lens_edit(input, &snapshot.source_map, edit)?;
+    let updated_snapshot = build_parse_lens(&result.updated_source);
+    Ok(ParseLensEditResponse {
+        result,
+        snapshot: updated_snapshot,
+    })
+}
+
+#[must_use]
+pub fn capture_format_complement(input: &str) -> MermaidFormatComplement {
+    let offsets = line_offsets(input);
+    let mut whitespace = Vec::new();
+    let mut comments = Vec::new();
+    let mut directives = Vec::new();
+    let mut quoted_literals = Vec::new();
+
+    let mut offset = 0_usize;
+    for raw_line in input.split_inclusive('\n') {
+        let line_body = raw_line.trim_end_matches(['\r', '\n']);
+        let body_start = offset;
+        let body_end = body_start + line_body.len();
+        let trimmed = line_body.trim();
+
+        let leading_ws_len = line_body.len() - line_body.trim_start_matches([' ', '\t']).len();
+        if leading_ws_len > 0 {
+            push_whitespace_span(
+                input,
+                &mut whitespace,
+                MermaidWhitespaceKind::Indent,
+                body_start,
+                body_start + leading_ws_len,
+                &offsets,
+            );
+        }
+
+        let trailing_ws_len = line_body.len() - line_body.trim_end_matches([' ', '\t']).len();
+        let content_start = body_start + leading_ws_len;
+        let content_end = body_end.saturating_sub(trailing_ws_len);
+        if content_end > content_start {
+            collect_inter_token_whitespace(
+                input,
+                &mut whitespace,
+                &line_body[leading_ws_len..line_body.len().saturating_sub(trailing_ws_len)],
+                content_start,
+                &offsets,
+            );
+        }
+
+        if trailing_ws_len > 0 && body_end >= trailing_ws_len {
+            push_whitespace_span(
+                input,
+                &mut whitespace,
+                MermaidWhitespaceKind::Trailing,
+                body_end - trailing_ws_len,
+                body_end,
+                &offsets,
+            );
+        }
+
+        if trimmed.is_empty() {
+            let blank_end = if body_end > body_start {
+                body_end
+            } else {
+                body_start + raw_line.len()
+            };
+            push_whitespace_span(
+                input,
+                &mut whitespace,
+                MermaidWhitespaceKind::BlankLine,
+                body_start,
+                blank_end,
+                &offsets,
+            );
+        } else if trimmed.starts_with("%%{") && trimmed.ends_with("}%%") {
+            push_directive_span(input, &mut directives, body_start, body_end, &offsets);
+        } else if trimmed.starts_with("%%") {
+            push_comment_span(input, &mut comments, body_start, body_end, &offsets);
+        }
+
+        offset += raw_line.len();
+    }
+
+    collect_quoted_literals(input, &mut quoted_literals, &offsets);
+
+    MermaidFormatComplement {
+        line_ending: detect_line_ending_style(input),
+        trailing_newline: input.ends_with('\n'),
+        whitespace,
+        comments,
+        directives,
+        quoted_literals,
+    }
+}
+
+#[must_use]
 pub fn parse(input: &str) -> ParseResult {
     parse_with_mode_and_config(input, MermaidParseMode::Compat, &ParserConfig::default())
 }
@@ -519,6 +723,7 @@ pub fn parse_with_mode_and_config(
             warnings: vec!["Input was empty; returning empty IR".to_string()],
             confidence: 0.0,
             detection_method: DetectionMethod::Fallback,
+            format_complement: capture_format_complement(input),
         };
     }
 
@@ -534,10 +739,15 @@ pub fn parse_with_mode_and_config(
         result.confidence = detection.confidence;
         result.detection_method = detection.method;
         result.ir.meta.parse_mode = parse_mode;
+        result.format_complement = capture_format_complement(input);
         return result;
     }
 
-    mermaid_parser::parse_mermaid_with_detection_and_config(input, detection, parse_mode, config)
+    let mut result = mermaid_parser::parse_mermaid_with_detection_and_config(
+        input, detection, parse_mode, config,
+    );
+    result.format_complement = capture_format_complement(input);
+    result
 }
 
 #[must_use]
@@ -553,18 +763,255 @@ pub fn parse_evidence_json(parsed: &ParseResult) -> String {
         "diagnostic_count": parsed.ir.diagnostics.len(),
         "warning_count": parsed.warnings.len(),
         "warnings": parsed.warnings.clone(),
+        "format_complement": {
+            "line_ending": parsed.format_complement.line_ending,
+            "trailing_newline": parsed.format_complement.trailing_newline,
+            "whitespace_count": parsed.format_complement.whitespace.len(),
+            "comment_count": parsed.format_complement.comments.len(),
+            "directive_count": parsed.format_complement.directives.len(),
+            "quoted_literal_count": parsed.format_complement.quoted_literals.len(),
+        },
     })
     .to_string()
+}
+
+fn detect_line_ending_style(input: &str) -> MermaidLineEndingStyle {
+    let mut crlf = 0_usize;
+    let mut lf = 0_usize;
+    let bytes = input.as_bytes();
+    let mut index = 0_usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\r' if bytes.get(index + 1) == Some(&b'\n') => {
+                crlf += 1;
+                index += 2;
+            }
+            b'\n' => {
+                lf += 1;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    match (crlf > 0, lf > 0) {
+        (false, false) => MermaidLineEndingStyle::None,
+        (false, true) => MermaidLineEndingStyle::Lf,
+        (true, false) => MermaidLineEndingStyle::Crlf,
+        (true, true) => MermaidLineEndingStyle::Mixed,
+    }
+}
+
+fn collect_inter_token_whitespace(
+    source: &str,
+    whitespace: &mut Vec<MermaidWhitespaceSpan>,
+    line_slice: &str,
+    absolute_offset: usize,
+    offsets: &[usize],
+) {
+    let mut run_start: Option<usize> = None;
+    for (offset, ch) in line_slice.char_indices() {
+        if ch.is_whitespace() {
+            run_start.get_or_insert(offset);
+            continue;
+        }
+        if let Some(start) = run_start.take() {
+            push_whitespace_span(
+                source,
+                whitespace,
+                MermaidWhitespaceKind::InterToken,
+                absolute_offset + start,
+                absolute_offset + offset,
+                offsets,
+            );
+        }
+    }
+}
+
+fn collect_quoted_literals(source: &str, quoted_literals: &mut Vec<MermaidQuotedSpan>, offsets: &[usize]) {
+    let mut active: Option<(MermaidQuoteStyle, usize, char)> = None;
+    let mut escaped = false;
+
+    for (byte_index, ch) in source.char_indices() {
+        if let Some((style, start_byte, terminator)) = active {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if terminator != '`' && ch == '\\' {
+                escaped = true;
+                continue;
+            }
+            if ch == terminator {
+                push_quoted_span(
+                    source,
+                    quoted_literals,
+                    style,
+                    start_byte,
+                    byte_index + ch.len_utf8(),
+                    offsets,
+                );
+                active = None;
+            }
+            continue;
+        }
+
+        let style = match ch {
+            '"' => Some(MermaidQuoteStyle::Double),
+            '\'' => Some(MermaidQuoteStyle::Single),
+            '`' => Some(MermaidQuoteStyle::Backtick),
+            _ => None,
+        };
+        if let Some(style) = style {
+            active = Some((style, byte_index, ch));
+            escaped = false;
+        }
+    }
+}
+
+fn push_whitespace_span(
+    source: &str,
+    whitespace: &mut Vec<MermaidWhitespaceSpan>,
+    kind: MermaidWhitespaceKind,
+    start_byte: usize,
+    end_byte: usize,
+    offsets: &[usize],
+) {
+    if start_byte >= end_byte {
+        return;
+    }
+    let Some(text) = source.get(start_byte..end_byte) else {
+        return;
+    };
+    whitespace.push(MermaidWhitespaceSpan {
+        kind,
+        span: span_for_range(source, start_byte, end_byte, offsets),
+        text_range: MermaidTextRange {
+            start_byte,
+            end_byte,
+        },
+        text: text.to_string(),
+    });
+}
+
+fn push_comment_span(
+    source: &str,
+    comments: &mut Vec<MermaidCommentSpan>,
+    start_byte: usize,
+    end_byte: usize,
+    offsets: &[usize],
+) {
+    if start_byte >= end_byte {
+        return;
+    }
+    let Some(text) = source.get(start_byte..end_byte) else {
+        return;
+    };
+    comments.push(MermaidCommentSpan {
+        span: span_for_range(source, start_byte, end_byte, offsets),
+        text_range: MermaidTextRange {
+            start_byte,
+            end_byte,
+        },
+        text: text.to_string(),
+    });
+}
+
+fn push_directive_span(
+    source: &str,
+    directives: &mut Vec<MermaidDirectiveSpan>,
+    start_byte: usize,
+    end_byte: usize,
+    offsets: &[usize],
+) {
+    if start_byte >= end_byte {
+        return;
+    }
+    let Some(text) = source.get(start_byte..end_byte) else {
+        return;
+    };
+    directives.push(MermaidDirectiveSpan {
+        span: span_for_range(source, start_byte, end_byte, offsets),
+        text_range: MermaidTextRange {
+            start_byte,
+            end_byte,
+        },
+        text: text.to_string(),
+    });
+}
+
+fn push_quoted_span(
+    source: &str,
+    quoted_literals: &mut Vec<MermaidQuotedSpan>,
+    style: MermaidQuoteStyle,
+    start_byte: usize,
+    end_byte: usize,
+    offsets: &[usize],
+) {
+    if start_byte >= end_byte {
+        return;
+    }
+    let Some(text) = source.get(start_byte..end_byte) else {
+        return;
+    };
+    quoted_literals.push(MermaidQuotedSpan {
+        style,
+        span: span_for_range(source, start_byte, end_byte, offsets),
+        text_range: MermaidTextRange {
+            start_byte,
+            end_byte,
+        },
+        text: text.to_string(),
+    });
+}
+
+fn line_offsets(source: &str) -> Vec<usize> {
+    let mut offsets = vec![0];
+    for (i, b) in source.bytes().enumerate() {
+        if b == b'\n' {
+            offsets.push(i + 1);
+        }
+    }
+    offsets
+}
+
+fn span_for_range(source: &str, start_byte: usize, end_byte: usize, offsets: &[usize]) -> Span {
+    let start = position_for_byte(source, start_byte, offsets);
+    if end_byte <= start_byte {
+        return Span::new(start, start);
+    }
+
+    let end_inclusive = source[..end_byte]
+        .char_indices()
+        .last()
+        .map(|(index, _)| index)
+        .unwrap_or(start_byte);
+    Span::new(start, position_for_byte(source, end_inclusive, offsets))
+}
+
+fn position_for_byte(source: &str, byte_index: usize, offsets: &[usize]) -> Position {
+    let clamped = byte_index.min(source.len());
+    let line = offsets.partition_point(|&offset| offset <= clamped);
+    let line_start = offsets[line.saturating_sub(1)];
+    let col = source[line_start..clamped].chars().count() + 1;
+    Position {
+        line,
+        col,
+        byte: clamped,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::fmt::Write;
 
-    use super::{detect_type, parse, parse_with_mode};
+    use super::{
+        MermaidLineEndingStyle, MermaidWhitespaceKind, apply_parse_lens_edit, build_parse_lens,
+        capture_format_complement, detect_type, parse, parse_with_mode,
+    };
     use fm_core::{
         ArrowType, DiagnosticCategory, DiagramType, GraphDirection, IrEndpoint, MermaidDiagramIr,
-        MermaidParseMode,
+        MermaidLensEdit, MermaidParseMode,
     };
     use proptest::prelude::*;
 
@@ -591,6 +1038,111 @@ mod tests {
         let result = parse("");
         assert_eq!(result.ir.diagram_type, DiagramType::Unknown);
         assert_eq!(result.warnings.len(), 1);
+    }
+
+    #[test]
+    fn format_complement_captures_directives_comments_quotes_and_line_endings() {
+        let input = "%%{init: {\"theme\":\"dark\"}}%%\r\n  %% comment\r\nflowchart LR\r\n  A[\"Alpha\"] --> B[`Beta`]  \r\n\r\n";
+        let complement = capture_format_complement(input);
+
+        assert_eq!(complement.line_ending, MermaidLineEndingStyle::Crlf);
+        assert!(complement.trailing_newline);
+        assert_eq!(complement.directives.len(), 1);
+        assert_eq!(complement.comments.len(), 1);
+        assert!(
+            complement
+                .quoted_literals
+                .iter()
+                .any(|quoted| quoted.text == "\"theme\"")
+        );
+        assert!(
+            complement
+                .quoted_literals
+                .iter()
+                .any(|quoted| quoted.text == "\"Alpha\"")
+        );
+        assert!(
+            complement
+                .quoted_literals
+                .iter()
+                .any(|quoted| quoted.text == "`Beta`")
+        );
+        assert!(
+            complement
+                .whitespace
+                .iter()
+                .any(|whitespace| whitespace.kind == MermaidWhitespaceKind::Indent)
+        );
+        assert!(
+            complement
+                .whitespace
+                .iter()
+                .any(|whitespace| whitespace.kind == MermaidWhitespaceKind::Trailing)
+        );
+        assert!(
+            complement
+                .whitespace
+                .iter()
+                .any(|whitespace| whitespace.kind == MermaidWhitespaceKind::BlankLine)
+        );
+    }
+
+    #[test]
+    fn parse_result_exposes_format_complement() {
+        let input =
+            "%%{init: {\"theme\":\"dark\"}}%%\n%% comment\nflowchart LR\nA[Alpha] --> B[Beta]\n";
+        let result = parse(input);
+
+        assert_eq!(result.format_complement.directives.len(), 1);
+        assert_eq!(result.format_complement.comments.len(), 1);
+        assert_eq!(
+            result.format_complement.line_ending,
+            MermaidLineEndingStyle::Lf
+        );
+        assert!(
+            result
+                .format_complement
+                .quoted_literals
+                .iter()
+                .any(|quoted| quoted.text == "\"theme\"")
+        );
+    }
+
+    #[test]
+    fn build_parse_lens_collects_bindings_source_map_and_format_complement() {
+        let input = "%% comment\nflowchart LR\nA[Alpha] --> B[Beta]\n";
+        let lens = build_parse_lens(input);
+
+        assert_eq!(lens.parsed.format_complement.comments.len(), 1);
+        assert_eq!(lens.source_map.entries.len(), 3);
+        assert!(
+            lens.bindings
+                .iter()
+                .any(|binding| binding.snippet.as_deref() == Some("A[Alpha] --> B[Beta]"))
+        );
+    }
+
+    #[test]
+    fn apply_parse_lens_edit_rebuilds_snapshot_after_edit() {
+        let input = "%% comment\nflowchart LR\nA[Alpha] --> B[Beta]\n";
+        let response = apply_parse_lens_edit(
+            input,
+            &MermaidLensEdit {
+                element_id: "fm-edge-0".to_string(),
+                replacement: "A[Alpha] -.-> B[Beta]".to_string(),
+            },
+        )
+        .expect("parse lens edit should succeed");
+
+        assert!(response.result.updated_source.contains("-.->"));
+        assert_eq!(response.snapshot.parsed.format_complement.comments.len(), 1);
+        assert!(
+            response
+                .snapshot
+                .bindings
+                .iter()
+                .any(|binding| binding.snippet.as_deref() == Some("A[Alpha] -.-> B[Beta]"))
+        );
     }
 
     #[test]

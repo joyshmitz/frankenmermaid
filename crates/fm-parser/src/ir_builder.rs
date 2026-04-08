@@ -704,6 +704,7 @@ impl IrBuilder {
             warnings: self.warnings,
             confidence,
             detection_method,
+            format_complement: crate::MermaidFormatComplement::default(),
         }
     }
 
