@@ -1246,7 +1246,12 @@ fn build_base_term_render_config(
 fn load_input(input: &str, max_input_bytes: usize) -> Result<String> {
     if input == "-" {
         let mut buffer = String::new();
-        io::stdin()
+        let mut handle = io::stdin().take(
+            u64::try_from(max_input_bytes)
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+        );
+        handle
             .read_to_string(&mut buffer)
             .context("Failed to read from stdin")?;
         if buffer.len() > max_input_bytes {
@@ -1266,13 +1271,20 @@ fn load_input(input: &str, max_input_bytes: usize) -> Result<String> {
                 metadata.len()
             );
         }
-        let content =
-            std::fs::read_to_string(input).context(format!("Failed to read file: {input}"))?;
+        let file = std::fs::File::open(input).context(format!("Failed to open file: {input}"))?;
+        let mut handle = file.take(
+            u64::try_from(max_input_bytes)
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+        );
+        let mut content = String::new();
+        handle
+            .read_to_string(&mut content)
+            .context(format!("Failed to read file: {input}"))?;
         if content.len() > max_input_bytes {
             anyhow::bail!(
-                "Input file '{}' is {} bytes after UTF-8 decoding, which exceeds core.max_input_bytes={max_input_bytes}",
-                input,
-                content.len()
+                "Input file '{}' exceeds core.max_input_bytes={max_input_bytes} after UTF-8 decoding",
+                input
             );
         }
         Ok(content)

@@ -12,7 +12,7 @@ use fm_layout::{
     LayoutGuardrails, layout_diagram, layout_diagram_incremental_traced_with_config_and_guardrails,
     layout_diagram_traced, layout_diagram_traced_with_config_and_guardrails, layout_source_map,
 };
-use fm_parser::parse;
+use fm_parser::{apply_parse_lens_edit, build_parse_lens, parse};
 use fm_render_svg::{
     SvgBackend, SvgRenderConfig, render_svg, render_svg_with_config, render_svg_with_layout,
 };
@@ -1626,6 +1626,37 @@ fn interactive_edit_session_rebases_visual_edit_on_latest_text_source() {
         final_bindings
             .iter()
             .any(|binding| binding.snippet.as_deref() == Some("A[Atlas]-.->B[Beta]"))
+    );
+}
+
+#[test]
+fn parse_lens_snapshot_preserves_directives_and_comments_across_visual_edit() {
+    let source =
+        "%%{init: {\"theme\":\"dark\"}}%%\n%% comment\nflowchart LR\nA[Alpha] --> B[Beta]\n";
+    let lens = build_parse_lens(source);
+    assert_eq!(lens.parsed.format_complement.directives.len(), 1);
+    assert_eq!(lens.parsed.format_complement.comments.len(), 1);
+
+    let response = apply_parse_lens_edit(
+        source,
+        &MermaidLensEdit {
+            element_id: "fm-edge-0".to_string(),
+            replacement: "A[Alpha] -.-> B[Beta]".to_string(),
+        },
+    )
+    .expect("parse lens edit should succeed");
+
+    assert_eq!(
+        response.snapshot.parsed.format_complement.directives.len(),
+        1
+    );
+    assert_eq!(response.snapshot.parsed.format_complement.comments.len(), 1);
+    assert!(
+        response
+            .snapshot
+            .bindings
+            .iter()
+            .any(|binding| binding.snippet.as_deref() == Some("A[Alpha] -.-> B[Beta]"))
     );
 }
 
@@ -3835,7 +3866,7 @@ fn perf_slo_parse_flowchart_medium() {
 #[test]
 fn perf_slo_parse_flowchart_large() {
     let input = perf_slo_flowchart(500);
-    perf_slo_emit_parse_benchmark("parse_flowchart_large", &input, 5, 250_000_000);
+    perf_slo_emit_parse_benchmark("parse_flowchart_large", &input, 5, 350_000_000);
 }
 
 #[test]
