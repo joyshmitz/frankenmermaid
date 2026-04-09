@@ -1059,7 +1059,7 @@ fn bundle_command(root: &Path, args: BundleArgs) -> Result<()> {
 
     let bundle = ReleaseEvidenceBundle {
         schema_version: BUNDLE_SCHEMA_VERSION,
-        bundle_name: bundle_name.clone(),
+        bundle_name,
         bundle_version,
         release_ref,
         retention_days,
@@ -1119,7 +1119,7 @@ fn verify_bundle_command(root: &Path, args: VerifyBundleArgs) -> Result<()> {
         bundle.files.iter().map(|file| file.kind).collect();
     for required_kind in &args.require_kinds {
         if !present_kinds.contains(required_kind) {
-            bail!("bundle is missing required file kind {:?}", required_kind);
+            bail!("bundle is missing required file kind {required_kind:?}");
         }
     }
 
@@ -1382,7 +1382,7 @@ fn perf_report_command(root: &Path, args: PerfReportArgs) -> Result<()> {
     fs::create_dir_all(&out_dir)
         .with_context(|| format!("failed to create perf out_dir {}", out_dir.display()))?;
     write_json(out_dir.join("summary.json"), &report)?;
-    write_json(out_dir.join("env.json"), &capture_perf_environment()?)?;
+    write_json(out_dir.join("env.json"), &capture_perf_environment())?;
     write_json(
         out_dir.join("corpus_manifest.json"),
         &build_perf_corpus_manifest(&buckets, &input_sha256),
@@ -2382,7 +2382,7 @@ fn combine_gate_statuses(left: PerfGateStatus, right: PerfGateStatus) -> PerfGat
     match (left, right) {
         (Fail, _) | (_, Fail) => Fail,
         (Warn, _) | (_, Warn) => Warn,
-        (Pass, Pass) | (NoBaseline, Pass) | (Pass, NoBaseline) => Pass,
+        (Pass | NoBaseline, Pass) | (Pass, NoBaseline) => Pass,
         (NoBaseline, NoBaseline) => NoBaseline,
     }
 }
@@ -2448,8 +2448,8 @@ fn build_perf_corpus_manifest(
     }
 }
 
-fn capture_perf_environment() -> Result<PerfEnvironmentFingerprint> {
-    Ok(PerfEnvironmentFingerprint {
+fn capture_perf_environment() -> PerfEnvironmentFingerprint {
+    PerfEnvironmentFingerprint {
         rustc_version: shell_command_output("rustc", &["--version"])
             .unwrap_or_else(|| "unknown".to_string()),
         cargo_version: shell_command_output("cargo", &["--version"])
@@ -2461,7 +2461,7 @@ fn capture_perf_environment() -> Result<PerfEnvironmentFingerprint> {
             .map(usize::from)
             .unwrap_or(1),
         cpu_model: cpu_model_name(),
-    })
+    }
 }
 
 fn shell_command_output(program: &str, args: &[&str]) -> Option<String> {
@@ -2535,8 +2535,7 @@ impl Lcg64 {
 fn parse_rfc3339(value: &str, field_name: &str, override_id: &str) -> Result<OffsetDateTime> {
     OffsetDateTime::parse(value, &Rfc3339).with_context(|| {
         format!(
-            "override {} has invalid {} timestamp {}",
-            override_id, field_name, value
+            "override {override_id} has invalid {field_name} timestamp {value}"
         )
     })
 }
@@ -2546,7 +2545,7 @@ fn current_time() -> Result<OffsetDateTime> {
         && !value.trim().is_empty()
     {
         return OffsetDateTime::parse(&value, &Rfc3339)
-            .with_context(|| format!("invalid EVIDENCE_OVERRIDE_NOW timestamp {}", value));
+            .with_context(|| format!("invalid EVIDENCE_OVERRIDE_NOW timestamp {value}"));
     }
     Ok(OffsetDateTime::now_utc())
 }

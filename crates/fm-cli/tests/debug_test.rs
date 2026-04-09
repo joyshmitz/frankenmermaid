@@ -36,11 +36,11 @@ fn labeled_graph_ir(n: usize, edges: &[(usize, usize)]) -> MermaidDiagramIr {
     for i in 0..n {
         let label_id = IrLabelId(ir.labels.len());
         ir.labels.push(IrLabel {
-            text: format!("Node {}", i),
+            text: format!("Node {i}"),
             span: Span::default(),
         });
         ir.nodes.push(IrNode {
-            id: format!("N{}", i),
+            id: format!("N{i}"),
             label: Some(label_id),
             ..IrNode::default()
         });
@@ -90,7 +90,7 @@ fn test_debug_events() {
 
     for line in captured.lock().unwrap().iter() {
         if line.contains("incremental.recompute") {
-            println!("{}", line);
+            println!("{line}");
         }
     }
 }

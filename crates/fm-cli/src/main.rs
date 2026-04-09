@@ -1283,8 +1283,7 @@ fn load_input(input: &str, max_input_bytes: usize) -> Result<String> {
             .context(format!("Failed to read file: {input}"))?;
         if content.len() > max_input_bytes {
             anyhow::bail!(
-                "Input file '{}' exceeds core.max_input_bytes={max_input_bytes} after UTF-8 decoding",
-                input
+                "Input file '{input}' exceeds core.max_input_bytes={max_input_bytes} after UTF-8 decoding"
             );
         }
         Ok(content)
@@ -2921,7 +2920,7 @@ mod render_tests {
     fn term_render_uses_precomputed_layout() {
         let parsed = parse("flowchart LR\nA[Start]-->B[End]");
         let layout = layout_diagram(&parsed.ir);
-        let mut empty_layout = layout.clone();
+        let mut empty_layout = layout;
         empty_layout.nodes.clear();
         empty_layout.edges.clear();
         empty_layout.clusters.clear();
@@ -3210,10 +3209,10 @@ mod config_tests {
         assert!(resolve_show_back_edges(&defaults));
 
         let config: FrankenmermaidConfigFile = toml::from_str(
-            r#"
+            r"
                 [render]
                 show_back_edges = false
-            "#,
+            ",
         )
         .expect("parse config");
         assert!(!resolve_show_back_edges(&config));

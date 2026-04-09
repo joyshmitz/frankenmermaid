@@ -122,12 +122,12 @@ fn explicit_config_controls_svg_effects_and_accessibility() {
     let config_path = write_config(
         &temp,
         "config.toml",
-        r#"
+        r"
             [svg]
             shadows = false
             gradients = false
             accessibility = false
-        "#,
+        ",
     );
 
     let output = run_cli_in_dir(
@@ -153,12 +153,12 @@ fn explicit_config_enables_svg_effects_and_accessibility() {
     let config_path = write_config(
         &temp,
         "config.toml",
-        r#"
+        r"
             [svg]
             shadows = true
             gradients = true
             accessibility = true
-        "#,
+        ",
     );
 
     let output = run_cli_in_dir(
@@ -185,11 +185,11 @@ fn explicit_config_changes_layout_spacing() {
     let config_path = write_config(
         &configured_dir,
         "config.toml",
-        r#"
+        r"
             [layout]
             node_spacing = 160.0
             rank_spacing = 220.0
-        "#,
+        ",
     );
     let input = "flowchart LR\nA-->B-->C\n";
 
@@ -270,10 +270,10 @@ fn explicit_config_enables_terminal_minimap() {
     let config_path = write_config(
         &configured_dir,
         "config.toml",
-        r#"
+        r"
             [term]
             minimap = true
-        "#,
+        ",
     );
     let input = "flowchart LR\nA-->B-->C-->D-->E-->F\n";
 
@@ -370,10 +370,10 @@ fn core_deterministic_false_is_accepted() {
     let config_path = write_config(
         &temp,
         "config.toml",
-        r#"
+        r"
             [core]
             deterministic = false
-        "#,
+        ",
     );
 
     let output = run_cli_in_dir(
@@ -395,10 +395,10 @@ fn fallback_on_error_false_changes_default_parse_mode() {
     let config_path = write_config(
         &temp,
         "config.toml",
-        r#"
+        r"
             [core]
             fallback_on_error = false
-        "#,
+        ",
     );
 
     let output = run_cli_in_dir(
@@ -425,10 +425,10 @@ fn intent_inference_false_disables_fuzzy_detection() {
     let config_path = write_config(
         &temp,
         "config.toml",
-        r#"
+        r"
             [parser]
             intent_inference = false
-        "#,
+        ",
     );
 
     let output = run_cli_in_dir(
@@ -454,10 +454,10 @@ fn fuzzy_keyword_distance_changes_detection_threshold() {
     let config_path = write_config(
         &temp,
         "config.toml",
-        r#"
+        r"
             [parser]
             fuzzy_keyword_distance = 1
-        "#,
+        ",
     );
 
     let output = run_cli_in_dir(
@@ -484,10 +484,10 @@ fn auto_close_delimiters_config_controls_unclosed_shape_recovery() {
     let config_path = write_config(
         &configured_dir,
         "config.toml",
-        r#"
+        r"
             [parser]
             auto_close_delimiters = false
-        "#,
+        ",
     );
     let input = "flowchart LR\nA[Open\n";
 
@@ -533,10 +533,10 @@ fn create_placeholder_nodes_config_controls_dangling_edges() {
     let config_path = write_config(
         &configured_dir,
         "config.toml",
-        r#"
+        r"
             [parser]
             create_placeholder_nodes = false
-        "#,
+        ",
     );
     let input = "flowchart LR\nA -->\n";
 

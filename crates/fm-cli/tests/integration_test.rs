@@ -564,7 +564,7 @@ fn mutate_ir_for_incremental_step(
 fn incremental_layout_matches_full_recompute_for_complex_svg_outputs() {
     let input = build_incremental_stress_input(64);
     let parsed = parse(&input);
-    let mut edited_ir = parsed.ir.clone();
+    let mut edited_ir = parsed.ir;
     let session = Rc::new(RefCell::new(IncrementalLayoutSession::new()));
     let mut engine = IncrementalLayoutEngine::default();
     let config = LayoutConfig::default();
@@ -604,7 +604,7 @@ fn incremental_layout_matches_full_recompute_for_complex_svg_outputs() {
     let full = layout_diagram_traced_with_config_and_guardrails(
         &edited_ir,
         LayoutAlgorithm::Auto,
-        config.clone(),
+        config,
         guardrails,
     );
     let full_svg = render_svg_with_layout(&edited_ir, &full.layout, &svg_config);
@@ -629,7 +629,7 @@ fn incremental_layout_matches_full_recompute_for_complex_svg_outputs() {
 fn incremental_layout_e2e_stress_matches_full_recompute_and_records_reuse() {
     let input = build_incremental_stress_input(56);
     let parsed = parse(&input);
-    let mut ir = parsed.ir.clone();
+    let mut ir = parsed.ir;
     let session = Rc::new(RefCell::new(IncrementalLayoutSession::new()));
     let config = LayoutConfig::default();
     let guardrails = LayoutGuardrails::default();
@@ -683,7 +683,7 @@ fn incremental_layout_rerender_after_small_change_is_faster_than_full_recompute(
     let config = LayoutConfig::default();
     let guardrails = LayoutGuardrails::default();
     let mut engine = IncrementalLayoutEngine::default();
-    let base_ir = parsed.ir.clone();
+    let base_ir = parsed.ir;
 
     let _warm = engine.layout_diagram_traced_with_config_and_guardrails(
         &base_ir,
@@ -770,9 +770,7 @@ fn incremental_layout_rerender_after_small_change_is_faster_than_full_recompute(
 
     assert!(
         median_incremental < median_full,
-        "expected incremental median duration {:?} to be lower than full recompute {:?}",
-        median_incremental,
-        median_full
+        "expected incremental median duration {median_incremental:?} to be lower than full recompute {median_full:?}"
     );
 }
 
@@ -3071,13 +3069,13 @@ fn evidence_perf_report_writes_summary_and_supporting_artifacts() {
     .expect("write perf baseline");
     std::fs::write(
         temp.path().join(".ci/slo.yaml"),
-        r#"schema_version: 1
+        r"schema_version: 1
 benchmarks:
   sugiyama_small:
     max_p99_ns: 20000000
   comparison_50.sugiyama:
     max_p99_ns: 70000000
-"#,
+",
     )
     .expect("write perf slo policy");
     std::fs::write(
@@ -3166,11 +3164,11 @@ fn evidence_perf_report_fails_on_tail_regression() {
     .expect("write perf baseline");
     std::fs::write(
         temp.path().join(".ci/slo.yaml"),
-        r#"schema_version: 1
+        r"schema_version: 1
 benchmarks:
   sugiyama_small:
     max_p99_ns: 15000000
-"#,
+",
     )
     .expect("write perf slo policy");
     std::fs::write(
@@ -3215,11 +3213,11 @@ fn evidence_perf_report_fails_when_slo_throughput_floor_is_breached() {
 
     std::fs::write(
         temp.path().join(".ci/slo.yaml"),
-        r#"schema_version: 1
+        r"schema_version: 1
 benchmarks:
   render_svg_small:
     min_median_ops_per_sec: 500.0
-"#,
+",
     )
     .expect("write perf slo policy");
     std::fs::write(

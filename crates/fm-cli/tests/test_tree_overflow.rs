@@ -6,7 +6,7 @@ fn test_tree_overflow() {
     input.push_str("mindmap\n");
     let mut indent = String::new();
     for i in 0..10000 {
-        writeln!(input, "{}A{i}", indent).unwrap();
+        writeln!(input, "{indent}A{i}").unwrap();
         indent.push_str("  ");
     }
 
