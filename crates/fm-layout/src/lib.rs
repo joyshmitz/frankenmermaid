@@ -2960,8 +2960,7 @@ impl IncrementalLayoutEngine {
 
         let metrics = config
             .font_metrics
-            .as_ref()
-            .cloned()
+            .clone()
             .unwrap_or_else(fm_core::FontMetrics::default_metrics);
         let node_sizes = compute_node_sizes(ir, &metrics);
         let spacing = config.spacing;
@@ -3016,7 +3015,7 @@ impl IncrementalLayoutEngine {
                     .unwrap_or((dx, dy))
             };
             for node_index in dirty_members {
-                let Some((bounds, rank, order)) = local_entries.get(&node_index).cloned() else {
+                let Some((bounds, rank, order)) = local_entries.get(&node_index).copied() else {
                     continue;
                 };
                 let Some(node_box) = nodes.get_mut(node_index) else {
@@ -4478,8 +4477,8 @@ pub fn layout_diagram_timeline_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
-        rank_by_node,
-        order_by_node,
+        &rank_by_node,
+        &order_by_node,
         centers,
         trace,
         true,
@@ -5262,8 +5261,8 @@ fn layout_diagram_gantt_fallback(ir: &MermaidDiagramIr) -> TracedLayout {
     let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
-        rank_by_node,
-        order_by_node,
+        &rank_by_node,
+        &order_by_node,
         centers,
         trace,
         true,
@@ -5453,8 +5452,8 @@ fn layout_diagram_gantt_from_meta(ir: &MermaidDiagramIr, gantt_meta: &IrGanttMet
     let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
-        rank_by_node,
-        order_by_node,
+        &rank_by_node,
+        &order_by_node,
         centers,
         trace,
         true,
@@ -6006,8 +6005,8 @@ pub fn layout_diagram_sankey_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
-        rank_by_node,
-        order_by_node,
+        &rank_by_node,
+        &order_by_node,
         centers,
         trace,
         true,
@@ -6140,8 +6139,8 @@ pub fn layout_diagram_grid_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     finalize_specialized_layout(
         ir,
         &node_sizes,
-        rank_by_node,
-        order_by_node,
+        &rank_by_node,
+        &order_by_node,
         centers,
         trace,
         matches!(ir.direction, GraphDirection::LR | GraphDirection::RL),
@@ -6487,8 +6486,8 @@ fn layout_diagram_kanban_traced(ir: &MermaidDiagramIr) -> TracedLayout {
     let mut traced = finalize_specialized_layout(
         ir,
         &node_sizes,
-        rank_by_node,
-        order_by_node,
+        &rank_by_node,
+        &order_by_node,
         centers,
         trace,
         true,
@@ -6662,8 +6661,8 @@ fn layered_ranks(ir: &MermaidDiagramIr) -> Vec<usize> {
 fn finalize_specialized_layout(
     ir: &MermaidDiagramIr,
     node_sizes: &[(f32, f32)],
-    rank_by_node: Vec<usize>,
-    order_by_node: Vec<usize>,
+    rank_by_node: &[usize],
+    order_by_node: &[usize],
     mut centers: Vec<(f32, f32)>,
     mut trace: LayoutTrace,
     horizontal_edges: bool,
@@ -6671,7 +6670,7 @@ fn finalize_specialized_layout(
     let spacing = LayoutSpacing::default();
 
     normalize_center_positions(&mut centers, node_sizes);
-    let nodes = node_boxes_from_centers(ir, node_sizes, &rank_by_node, &order_by_node, &centers);
+    let nodes = node_boxes_from_centers(ir, node_sizes, rank_by_node, order_by_node, &centers);
     let edges = build_edge_paths_with_orientation(
         ir,
         &nodes,
@@ -12295,7 +12294,7 @@ mod tests {
             baseline.nodes.len()
         );
 
-        let mut edited = baseline.clone();
+        let mut edited = baseline;
         let label_index = edited.nodes[5]
             .label
             .expect("labeled graph should assign every node a label")
@@ -18419,8 +18418,8 @@ mod tests {
         };
 
         let mut regions = BTreeMap::new();
-        regions.insert(region_a.id, region_a.clone());
-        regions.insert(region_b.id, region_b.clone());
+        regions.insert(region_a.id, region_a);
+        regions.insert(region_b.id, region_b);
 
         let mut index = BTreeMap::new();
         index.insert(
@@ -18632,7 +18631,7 @@ mod tests {
         let after_cross_edge = engine.layout_diagram_traced_with_config_and_guardrails(
             &ir,
             LayoutAlgorithm::Auto,
-            config.clone(),
+            config,
             guardrails,
         );
 

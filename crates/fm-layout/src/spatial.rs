@@ -540,7 +540,7 @@ mod tests {
         index.insert(2, (100.0, 100.0));
 
         let mut result = index.within_radius((0.0, 0.0), 10.0);
-        result.sort();
+        result.sort_unstable();
         assert_eq!(result, vec![0, 1]);
     }
 
@@ -766,7 +766,7 @@ mod tests {
         let radius = 12.0;
 
         let mut grid_result = index.within_radius(query, radius);
-        grid_result.sort();
+        grid_result.sort_unstable();
 
         // Brute force
         let mut brute_result: Vec<usize> = positions
@@ -774,7 +774,7 @@ mod tests {
             .filter(|&&(_, x, y)| x * x + y * y <= radius * radius)
             .map(|&(id, _, _)| id)
             .collect();
-        brute_result.sort();
+        brute_result.sort_unstable();
 
         assert_eq!(grid_result, brute_result);
     }

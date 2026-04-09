@@ -323,8 +323,8 @@ mod tests {
         let order = morton_order(&positions);
 
         assert_eq!(order.len(), positions.len());
-        let mut sorted = order.clone();
-        sorted.sort();
+        let mut sorted = order;
+        sorted.sort_unstable();
         assert_eq!(sorted, vec![0, 1, 2, 3]);
     }
 
@@ -411,8 +411,8 @@ mod tests {
         let order = veb_layout_order(7);
         assert_eq!(order.len(), 7);
         // All indices 0..7 should appear exactly once.
-        let mut sorted = order.clone();
-        sorted.sort();
+        let mut sorted = order;
+        sorted.sort_unstable();
         assert_eq!(sorted, vec![0, 1, 2, 3, 4, 5, 6]);
     }
 
@@ -422,7 +422,7 @@ mod tests {
             let order = veb_layout_order(n);
             assert_eq!(order.len(), n);
             let mut sorted = order.clone();
-            sorted.sort();
+            sorted.sort_unstable();
             let expected: Vec<usize> = (0..n).collect();
             assert_eq!(
                 sorted, expected,
