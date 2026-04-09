@@ -34,7 +34,7 @@ impl fmt::Display for AttributeValue {
                 {
                     write!(f, "{}", *n as i32)
                 } else {
-                    write!(f, "{:.2}", n)
+                    write!(f, "{n:.2}")
                 }
             }
             Self::Integer(i) => write!(f, "{i}"),

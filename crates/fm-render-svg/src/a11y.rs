@@ -191,7 +191,7 @@ pub fn describe_node(node: &IrNode, ir: &MermaidDiagramIr) -> String {
         fm_core::NodeShape::InvParallelogram => "inverted parallelogram",
     };
 
-    format!("Node: {}, {}", label, shape_desc)
+    format!("Node: {label}, {shape_desc}")
 }
 
 /// Generate a text alternative for an edge.
@@ -239,11 +239,10 @@ pub fn describe_edge(
 
     if let Some(label_text) = label {
         format!(
-            "{} {} {} with label: {}",
-            from_label, arrow_desc, to_label, label_text
+            "{from_label} {arrow_desc} {to_label} with label: {label_text}"
         )
     } else {
-        format!("{} {} {}", from_label, arrow_desc, to_label)
+        format!("{from_label} {arrow_desc} {to_label}")
     }
 }
 
@@ -406,7 +405,7 @@ mod tests {
         let ir = create_test_ir();
         let node = &ir.nodes[0];
         let desc = describe_node(node, &ir);
-        assert!(desc.contains("A"));
+        assert!(desc.contains('A'));
         assert!(desc.contains("rectangle"));
     }
 
@@ -415,7 +414,7 @@ mod tests {
         let ir = create_test_ir();
         let node = &ir.nodes[1];
         let desc = describe_node(node, &ir);
-        assert!(desc.contains("B"));
+        assert!(desc.contains('B'));
         assert!(desc.contains("diamond"));
     }
 
@@ -429,8 +428,8 @@ mod tests {
             Some("Submit"),
             &ir,
         );
-        assert!(desc.contains("A"));
-        assert!(desc.contains("B"));
+        assert!(desc.contains('A'));
+        assert!(desc.contains('B'));
         assert!(desc.contains("points to"));
         assert!(desc.contains("Submit"));
     }

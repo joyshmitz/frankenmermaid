@@ -1518,14 +1518,10 @@ fn render_layout_to_svg(
     let legend_height = if legend_enabled { 128.0 } else { 0.0 };
     let has_specialized_title_renderer = ir
         .xy_chart_meta
-        .as_ref()
-        .filter(|meta| !meta.series.is_empty())
-        .is_some()
+        .as_ref().as_ref().is_some_and(|meta| !meta.series.is_empty())
         || ir
             .pie_meta
-            .as_ref()
-            .filter(|meta| !meta.slices.is_empty())
-            .is_some()
+            .as_ref().as_ref().is_some_and(|meta| !meta.slices.is_empty())
         || ir.quadrant_meta.is_some();
     let generic_title = if has_specialized_title_renderer {
         None
@@ -4358,10 +4354,10 @@ fn render_node(
                     fm_core::IrAttributeKey::None => "",
                 };
                 let attr_text = format!("{key_prefix}{} {}", attr.data_type, attr.name);
-                let font_weight = if attr.key != fm_core::IrAttributeKey::None {
-                    "bold"
-                } else {
+                let font_weight = if attr.key == fm_core::IrAttributeKey::None {
                     "normal"
+                } else {
+                    "bold"
                 };
                 group = group.child(
                     Element::text()

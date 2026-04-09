@@ -406,7 +406,7 @@ impl FontConfig {
                 .chars()
                 .filter(|&c| c != '\'' && c != ')' && c != '\\' && c != '"')
                 .collect();
-            css.push_str(&format!("@import url('{}');\n", sanitized));
+            css.push_str(&format!("@import url('{sanitized}');\n"));
         }
 
         css.push_str(".fm-text {\n");
@@ -494,7 +494,7 @@ svg {{
   stroke-width: 1.6;
   vector-effect: non-scaling-stroke;
   shape-rendering: geometricPrecision;
-  {}
+  {shadow_filter}
   transition: fill 200ms ease, stroke 200ms ease, filter 200ms ease, transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }}
 .fm-node line {{
@@ -515,7 +515,7 @@ svg {{
 .fm-node:hover ellipse,
 .fm-node:hover polygon {{
   stroke: var(--fm-node-hover-accent);
-  {}
+  {hover_shadow_filter}
   transform: translateY(-2px) scale(1.01);
   transform-origin: center;
 }}
@@ -697,7 +697,7 @@ marker#arrow-cross path {{
   outline: 2px solid var(--fm-accent-1);
   outline-offset: 3px;
 }}
-"#, shadow_filter, hover_shadow_filter)
+"#)
         );
 
         css
@@ -784,7 +784,7 @@ fn hsl_to_hex(h: f32, s: f32, l: f32) -> String {
     let g = ((g + m) * 255.0) as u8;
     let b = ((b + m) * 255.0) as u8;
 
-    format!("#{:02x}{:02x}{:02x}", r, g, b)
+    format!("#{r:02x}{g:02x}{b:02x}")
 }
 
 #[cfg(test)]
@@ -824,8 +824,7 @@ mod tests {
             assert_eq!(
                 parsed.ok(),
                 Some(preset),
-                "preset {:?} should round-trip",
-                name
+                "preset {name:?} should round-trip"
             );
         }
     }
@@ -925,8 +924,7 @@ mod tests {
         // Allow small rounding differences
         assert!(
             result.to_lowercase().starts_with("#42") || result.to_lowercase().starts_with("#43"),
-            "expected similar color, got {}",
-            result
+            "expected similar color, got {result}"
         );
     }
 }

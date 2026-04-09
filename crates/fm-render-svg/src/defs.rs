@@ -561,7 +561,7 @@ impl Filter {
                     .attr_num("dx", *dx)
                     .attr_num("dy", *dy)
                     .attr_num("stdDeviation", *std_dev)
-                    .attr("flood-opacity", &format!("{:.2}", opacity));
+                    .attr("flood-opacity", &format!("{opacity:.2}"));
                 if let Some(color) = color {
                     shadow = shadow.attr("flood-color", color);
                 }

@@ -104,7 +104,7 @@ impl ElementKind {
 pub struct Element {
     kind: ElementKind,
     attrs: Attributes,
-    children: Vec<Element>,
+    children: Vec<Self>,
     text_content: Option<String>,
 }
 
@@ -468,14 +468,14 @@ impl Element {
 
     /// Add a child element.
     #[must_use]
-    pub fn child(mut self, elem: Element) -> Self {
+    pub fn child(mut self, elem: Self) -> Self {
         self.children.push(elem);
         self
     }
 
     /// Add multiple child elements.
     #[must_use]
-    pub fn children<I: IntoIterator<Item = Element>>(mut self, elems: I) -> Self {
+    pub fn children<I: IntoIterator<Item = Self>>(mut self, elems: I) -> Self {
         self.children.extend(elems);
         self
     }
