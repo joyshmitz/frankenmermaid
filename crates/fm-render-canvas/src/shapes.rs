@@ -33,7 +33,7 @@ pub fn draw_shape<C: Canvas2dContext>(
             if shape == NodeShape::FilledCircle {
                 ctx.set_fill_style(stroke);
             }
-            draw_circle(ctx, x, y, width, height)
+            draw_circle(ctx, x, y, width, height);
         }
         NodeShape::Cylinder => draw_cylinder(ctx, x, y, width, height),
         NodeShape::Trapezoid => draw_trapezoid(ctx, x, y, width, height),

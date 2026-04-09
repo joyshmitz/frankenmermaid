@@ -817,7 +817,18 @@ impl Canvas2dRenderer {
             ctx.set_line_dash(&[]);
 
             // Kind label in top-left corner.
-            if !fragment.label.is_empty() {
+            if fragment.label.is_empty() {
+                let label = fragment_kind_label(fragment.kind);
+                ctx.set_fill_style(&self.config.label_color);
+                ctx.set_font(&format!(
+                    "bold {}px {}",
+                    self.config.font_size * 0.8,
+                    self.config.font_family
+                ));
+                ctx.set_text_align(TextAlign::Left);
+                ctx.set_text_baseline(TextBaseline::Top);
+                ctx.fill_text(label, x + 6.0, y + 4.0);
+            } else {
                 let label = format!(
                     "[{}] {}",
                     fragment_kind_label(fragment.kind),
@@ -832,17 +843,6 @@ impl Canvas2dRenderer {
                 ctx.set_text_align(TextAlign::Left);
                 ctx.set_text_baseline(TextBaseline::Top);
                 ctx.fill_text(&label, x + 6.0, y + 4.0);
-            } else {
-                let label = fragment_kind_label(fragment.kind);
-                ctx.set_fill_style(&self.config.label_color);
-                ctx.set_font(&format!(
-                    "bold {}px {}",
-                    self.config.font_size * 0.8,
-                    self.config.font_family
-                ));
-                ctx.set_text_align(TextAlign::Left);
-                ctx.set_text_baseline(TextBaseline::Top);
-                ctx.fill_text(label, x + 6.0, y + 4.0);
             }
             self.draw_calls += 3;
         }
@@ -899,7 +899,7 @@ impl Canvas2dRenderer {
     ) -> usize {
         let mut count = 0;
 
-        for edge_path in layout.edges.iter() {
+        for edge_path in &layout.edges {
             let ir_edge = ir.edges.get(edge_path.edge_index);
             let arrow = ir_edge.map_or(ArrowType::Arrow, |e| e.arrow);
 
@@ -1077,7 +1077,7 @@ impl Canvas2dRenderer {
     ) -> usize {
         let mut count = 0;
 
-        for node_box in layout.nodes.iter() {
+        for node_box in &layout.nodes {
             let ir_node = ir.nodes.get(node_box.node_index);
             let shape = ir_node.map_or(NodeShape::Rect, |n| n.shape);
 
