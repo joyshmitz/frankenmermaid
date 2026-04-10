@@ -185,11 +185,17 @@ cargo build --release --workspace
 
 ### Optional FNX Integration
 
+> **Status: Early Development** — The FNX integration is currently under active development. The feature flags compile but the integration surface is not yet functional. Enabling `--features fnx-integration` will compile additional dependencies but won't change runtime behavior. Track progress via the `bd-ml2r` epic in the issue tracker.
+
+**Roadmap:**
+- **Phase 1** (in progress): Undirected graph intelligence + diagnostics — cycle detection, connectivity analysis, centrality metrics for layout heuristics
+- **Phase 2** (planned): Directed graph analysis + ordering enrichment — topological awareness, critical path analysis
+
 The canonical FNX dependency model is a pinned Git dependency on
 [`franken_networkx`](https://github.com/Dicklesworthstone/franken_networkx),
 with the integration disabled by default.
 
-- `fnx-integration`: enables the Phase 1 undirected/advisory integration surface
+- `fnx-integration`: enables the Phase 1 undirected/advisory integration surface (dependencies compile, runtime integration WIP)
 - `fnx-experimental-directed`: extends `fnx-integration` for future directed-only work; keep this off outside explicit experiments
 
 Default builds remain FNX-free, which is also the safe path when FNX is
@@ -199,20 +205,21 @@ unavailable (offline or missing git access):
 cargo build --workspace
 ```
 
-Opt into the pinned FNX graph-intelligence stack when you want to validate the
-integration path:
+Build with FNX dependencies (for development/testing only):
 
 ```bash
 cargo build -p fm-cli --features fnx-integration
 cargo build -p fm-wasm --features fnx-integration
 ```
 
-Why this model:
+**Why this dependency model:**
 
 - Local path dependencies would tightly couple frankenmermaid releases to one workstation layout.
 - Published crates do not exist yet, so crates.io is not an option.
 - A Git dependency pinned to a specific commit is reproducible in CI and release packaging while keeping the default build independent.
 - When FNX is unavailable, keeping `fnx-integration` disabled guarantees the build stays isolated from the FNX toolchain.
+
+See [docs/FNX_INTEGRATION.md](docs/FNX_INTEGRATION.md) for the full architecture decision record.
 
 If you are developing `frankenmermaid` and `franken_networkx` together, prefer a
 local developer-only Cargo patch override instead of committing path
