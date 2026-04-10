@@ -1,6 +1,21 @@
 # franken_networkx (fnx) Integration Architecture
 
-> Decision record for dependency model and feature-flag topology.
+> Authoritative technical contract for integrating franken_networkx into frankenmermaid.
+
+This document defines:
+- Phase boundaries and scope
+- Success metrics and acceptance criteria
+- Risk register and mitigation strategies
+- Go/no-go gates for each phase
+- Implementation map across crates
+
+---
+
+## 0. Executive Summary
+
+frankenmermaid already has deterministic parsing/layout/rendering. fnx provides graph intelligence (centrality, cycles, connectivity) that can inform layout heuristics. This integration is **advisory only** — fnx analysis provides hints, not authoritative layout decisions.
+
+**Key constraint**: fnx APIs are currently undirected. Directed graph support (critical for flow diagrams) is in development. This contract defines how to safely adopt undirected intelligence now while preparing for directed capabilities later.
 
 ---
 
@@ -218,8 +233,226 @@ This requires:
 
 ---
 
+## 9. Phase Definitions and Boundaries
+
+### Phase 1: Undirected Structural Intelligence (Current Focus)
+
+**Scope**: Use fnx undirected graph algorithms to provide advisory hints to layout:
+- Cycle detection and reporting
+- Connectivity analysis (components, bridges, articulation points)
+- Centrality metrics (betweenness, PageRank projections)
+- Structural complexity metrics for layout algorithm selection
+
+**Boundaries**:
+- fnx output is **advisory only** — layout makes final decisions
+- No directed graph analysis (DAG, topological sort) until Phase 2
+- Fallback to existing heuristics if fnx analysis fails or times out
+
+**Feature flag**: `fnx-integration`
+
+### Phase 2: Directed Graph Intelligence (Future)
+
+**Scope**: Adopt fnx directed graph algorithms when available:
+- DAG detection and topological ordering
+- Critical path analysis
+- Directed centrality (in-degree, out-degree influence)
+- Layered layout optimization using directed structure
+
+**Boundaries**:
+- Requires fnx directed API completion (upstream work)
+- Must pass directed parity tests before enablement
+- Separate feature flag: `fnx-experimental-directed`
+
+**Go/no-go**: Phase 2 is blocked until:
+1. fnx exposes stable directed graph APIs
+2. Directed conformance tests pass
+3. Performance regression budget met (<10% latency increase)
+
+---
+
+## 10. Success Metrics
+
+### Quality Metrics
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Layout quality (crossing count) | ≤ current baseline | Golden snapshot tests |
+| Diagnostic accuracy | 100% correct cycle detection | Property tests |
+| Edge routing quality | No regression | Visual inspection + automated checks |
+
+### Performance Metrics
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| fnx analysis latency | < 50ms for graphs < 100 nodes | Benchmark harness |
+| Layout latency overhead | < 10% vs fnx-off | A/B comparison tests |
+| Memory overhead | < 2x working set | Memory profiling |
+
+### Determinism Metrics
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Output stability | Byte-identical across runs | Repeated execution tests |
+| Witness hash stability | Identical for identical inputs | Hash comparison |
+| Cross-platform parity | Same output on Linux/macOS/Windows | CI matrix |
+
+### Diagnostics Metrics
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Cycle detection recall | 100% (no missed cycles) | Synthetic test suite |
+| False positive rate | < 1% | Manual review of diagnostics |
+| Diagnostic actionability | User can resolve issue from message | UX review |
+
+---
+
+## 11. Risk Register
+
+### R1: Algorithm Mismatch
+
+**Risk**: fnx undirected algorithms may produce different results than frankenmermaid's existing directed-aware heuristics.
+
+**Impact**: High — could cause layout quality regression.
+
+**Mitigation**:
+- fnx output is advisory only; layout engine makes final decisions
+- A/B testing before each feature enablement
+- Golden snapshot regression tests
+
+**Residual risk**: Low after mitigations.
+
+### R2: Runtime Overhead
+
+**Risk**: fnx analysis adds latency to the layout pipeline.
+
+**Impact**: Medium — could affect perceived responsiveness.
+
+**Mitigation**:
+- Timeout budget (50ms default) with fallback
+- Lazy evaluation: only run fnx analysis when feature is enabled
+- Cache fnx results for repeated layouts of same graph
+
+**Residual risk**: Low with timeout enforcement.
+
+### R3: Maintenance Coupling
+
+**Risk**: Changes in fnx upstream break frankenmermaid builds.
+
+**Impact**: Medium — could block CI.
+
+**Mitigation**:
+- Pinned git revision (not floating branch)
+- fnx-off mode always works (core functionality independent)
+- Explicit upgrade workflow with validation
+
+**Residual risk**: Low with pinned revisions.
+
+### R4: Directed/Undirected Confusion
+
+**Risk**: Applying undirected analysis to inherently directed diagrams (flowcharts) produces misleading results.
+
+**Impact**: Medium — could confuse users or produce poor layouts.
+
+**Mitigation**:
+- Clear documentation that Phase 1 is undirected only
+- Diagnostics warn when undirected projection loses information
+- Phase 2 deferred until directed APIs available
+
+**Residual risk**: Medium until Phase 2.
+
+---
+
+## 12. Go/No-Go Gates
+
+### Gate 1: Phase 1 Enablement
+
+**Criteria**:
+- [ ] All golden tests pass with fnx-on
+- [ ] Performance regression < 10%
+- [ ] No new clippy warnings
+- [ ] Documentation complete
+- [ ] Fallback behavior validated
+
+**Decision**: Product owner reviews test evidence and approves enablement.
+
+### Gate 2: Phase 2 Enablement
+
+**Criteria**:
+- [ ] fnx directed APIs stable and documented
+- [ ] Directed conformance tests pass
+- [ ] Directed parity tests pass (compare to existing layout)
+- [ ] Performance budget met
+- [ ] Integration tests for directed diagrams pass
+
+**Decision**: Requires explicit approval after Phase 1 stabilizes.
+
+---
+
+## 13. Implementation Map
+
+### fm-core (IR Types)
+
+- Add fnx witness fields to `MermaidDiagramIr` (optional, populated when fnx enabled)
+- Add fnx-related diagnostic categories
+- No fnx dependency (just type definitions)
+
+### fm-parser (Parsing)
+
+- No fnx dependency
+- Parser remains fnx-agnostic; graph construction happens in layout
+
+### fm-layout (Core Integration Point)
+
+- Primary fnx integration location
+- Conditional compilation: `#[cfg(feature = "fnx-integration")]`
+- Adapter layer: `MermaidDiagramIr` → fnx graph
+- Analysis dispatcher: run fnx algorithms, collect witnesses
+- Fallback logic: timeout handling, error recovery
+- Witness logging: structured output for audit
+
+### fm-render-svg / fm-render-term / fm-render-canvas
+
+- No fnx dependency
+- Consume layout output (may include fnx-informed positions)
+- Renderers remain fnx-agnostic
+
+### fm-cli
+
+- Forward fnx feature flags to fm-layout
+- Add `--fnx-mode` flag for runtime control (future)
+- Include fnx diagnostics in verbose output
+
+### fm-wasm
+
+- fnx disabled on WASM target (deps are `cfg(not(wasm32))`)
+- Forward feature flags for native builds
+
+---
+
+## 14. Evidence Requirements
+
+All fnx integration work must produce:
+
+1. **Structured logs** with fields:
+   - `scenario_id`, `input_hash`, `fnx_mode`, `projection_mode`
+   - `parse_ms`, `analysis_ms`, `layout_ms`, `render_ms`
+   - `diagnostic_count`, `fallback_reason`, `witness_hash`, `output_hash`
+
+2. **Witness artifacts** (JSON):
+   - Graph structure (nodes, edges, directed/undirected)
+   - Cycle detection results
+   - Centrality scores
+   - Connectivity analysis
+
+3. **Reproducibility assertions**:
+   - Same input → same witness → same output
+   - Verified by repeated execution (5 runs minimum)
+
+---
+
 ## References
 
 - Bead: [bd-ml2r.1.1] Decide dependency model and feature-flag topology
+- Bead: [bd-ml2r.1.2] Deterministic decision contract and fallback semantics
 - Parent: [bd-ml2r.1] Integration architecture contract
 - Epic: [bd-ml2r] Graph Intelligence Integration via franken_networkx
