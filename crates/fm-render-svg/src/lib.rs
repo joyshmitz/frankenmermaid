@@ -37,8 +37,9 @@ use std::collections::BTreeMap;
 
 use fm_core::{
     DiagramType, IrLabelId, IrLabelSegment, IrXyChartMeta, IrXySeriesKind, MermaidDiagramIr,
-    MermaidLinkMode, MermaidTier, Span, is_safe_link_target, mermaid_cluster_element_id,
-    mermaid_edge_element_id, mermaid_node_element_id, mermaid_node_element_id_with_variant,
+    MermaidLinkMode, MermaidSanitizeMode, MermaidTier, Span, is_safe_link_target,
+    mermaid_cluster_element_id, mermaid_edge_element_id, mermaid_node_element_id,
+    mermaid_node_element_id_with_variant,
 };
 use fm_layout::{
     DiagramLayout, FillStyle, LayoutBand, LayoutBandKind, LayoutEdgePath, LayoutNodeBox,
@@ -4513,9 +4514,22 @@ fn render_node(
     if let Some(node) = ir_node
         && !node.menu_links.is_empty()
     {
-        group = group
-            .attr("data-menu-links", &serialize_menu_links(&node.menu_links))
-            .class("fm-node-has-menu-links");
+        let sanitize_mode = ir.meta.init.config.sanitize_mode;
+        let menu_links: Vec<fm_core::IrMenuLink> = if sanitize_mode == MermaidSanitizeMode::Lenient
+        {
+            node.menu_links.clone()
+        } else {
+            node.menu_links
+                .iter()
+                .filter(|link| is_safe_link_target(&link.url, sanitize_mode))
+                .cloned()
+                .collect()
+        };
+        if !menu_links.is_empty() {
+            group = group
+                .attr("data-menu-links", &serialize_menu_links(&menu_links))
+                .class("fm-node-has-menu-links");
+        }
     }
 
     if let Some(node) = ir_node
@@ -7651,6 +7665,24 @@ mod tests {
             "data-menu-links=\"[{&quot;label&quot;:&quot;Docs&quot;,&quot;url&quot;:&quot;https://example.com/docs&quot;}]\""
         ));
         assert!(svg.contains("fm-node-has-menu-links"));
+    }
+
+    #[test]
+    fn svg_menu_links_skip_unsafe_urls_under_strict() {
+        let mut ir = MermaidDiagramIr::empty(DiagramType::Sequence);
+        ir.nodes.push(IrNode {
+            id: "API".to_string(),
+            menu_links: vec![fm_core::IrMenuLink {
+                label: "Admin".to_string(),
+                url: "javascript:alert(1)".to_string(),
+            }],
+            ..IrNode::default()
+        });
+        ir.meta.init.config.sanitize_mode = MermaidSanitizeMode::Strict;
+
+        let svg = render_svg(&ir);
+        assert!(!svg.contains("data-menu-links"));
+        assert!(!svg.contains("javascript:alert(1)"));
     }
 
     #[test]
