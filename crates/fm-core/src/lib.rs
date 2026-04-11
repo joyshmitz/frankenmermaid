@@ -1732,6 +1732,10 @@ pub fn sanitize_style_value(value: &str) -> Option<String> {
     if value.contains('<') || value.contains('>') {
         return None;
     }
+    // Reject CSS rule delimiters to prevent breaking out of declarations.
+    if value.contains('{') || value.contains('}') {
+        return None;
+    }
     // Reject expression() (IE legacy XSS vector).
     if trimmed.contains("expression(") {
         return None;
@@ -7526,6 +7530,11 @@ mod tests {
     fn sanitize_rejects_xml_injection() {
         assert!(sanitize_style_value("<script>").is_none());
         assert!(sanitize_style_value("val>ue").is_none());
+    }
+
+    #[test]
+    fn sanitize_rejects_brace_injection() {
+        assert!(sanitize_style_value("red} .evil{color:red").is_none());
     }
 
     #[test]
