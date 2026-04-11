@@ -2155,11 +2155,25 @@ fn substitute_svg_var_calls(input: &str, custom_properties: &BTreeMap<String, St
         output.push_str(&input[cursor..start]);
 
         let content_start = start + "var(".len();
-        let Some(rel_end) = input[content_start..].find(')') else {
+        let mut depth = 1_usize;
+        let mut end = None;
+        for (offset, ch) in input[content_start..].char_indices() {
+            match ch {
+                '(' => depth = depth.saturating_add(1),
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        end = Some(content_start + offset);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(end) = end else {
             output.push_str(&input[start..]);
             return output;
         };
-        let end = content_start + rel_end;
         let body = &input[content_start..end];
         let (property_name, fallback) = match body.split_once(',') {
             Some((name, fallback)) => (name.trim(), Some(fallback.trim())),
@@ -2309,6 +2323,15 @@ mod png_tests {
 
         let resolved = resolve_svg_custom_properties_for_rasterization(svg);
         assert!(resolved.contains("#123456"));
+        assert!(!resolved.contains("var(--fm-missing"));
+    }
+
+    #[test]
+    fn png_rasterization_applies_var_fallback_with_parentheses() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect fill="var(--fm-missing, rgb(18, 52, 86))" x="0" y="0" width="40" height="20"/></svg>"##;
+
+        let resolved = resolve_svg_custom_properties_for_rasterization(svg);
+        assert!(resolved.contains("rgb(18, 52, 86)"));
         assert!(!resolved.contains("var(--fm-missing"));
     }
 }
