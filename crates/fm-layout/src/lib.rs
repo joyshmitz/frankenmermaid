@@ -931,7 +931,7 @@ pub struct LayoutTrace {
     pub incremental: IncrementalRecomputeTrace,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct IncrementalRecomputeTrace {
     pub query_type: &'static str,
     pub cache_hit: bool,
@@ -939,6 +939,17 @@ pub struct IncrementalRecomputeTrace {
     pub total_nodes: usize,
     pub recompute_duration_us: u64,
 }
+
+impl PartialEq for IncrementalRecomputeTrace {
+    fn eq(&self, other: &Self) -> bool {
+        self.query_type == other.query_type
+            && self.cache_hit == other.cache_hit
+            && self.recomputed_nodes == other.recomputed_nodes
+            && self.total_nodes == other.total_nodes
+    }
+}
+
+impl Eq for IncrementalRecomputeTrace {}
 
 impl Default for IncrementalRecomputeTrace {
     fn default() -> Self {
@@ -2660,7 +2671,7 @@ pub fn layout_diagram_traced_with_config_and_guardrails(
         cache_hit: false,
         recomputed_nodes: ir.nodes.len(),
         total_nodes: ir.nodes.len(),
-        recompute_duration_us: 0,
+        recompute_duration_us,
     };
     debug!(
         query_type = traced.trace.incremental.query_type,
@@ -18298,6 +18309,29 @@ mod tests {
 
         assert_eq!(first.trace.incremental.query_type, "layout_full_recompute");
         assert_eq!(second.trace.incremental.query_type, "layout_memoized_reuse");
+    }
+
+    #[test]
+    fn full_recompute_trace_records_duration() {
+        let node_count = 60;
+        let edges: Vec<(usize, usize)> = (0..node_count - 1).map(|i| (i, i + 1)).collect();
+        let ir = graph_ir(DiagramType::Flowchart, node_count, &edges);
+
+        let start = std::time::Instant::now();
+        let traced = layout_diagram_traced_with_config_and_guardrails(
+            &ir,
+            LayoutAlgorithm::Auto,
+            super::LayoutConfig::default(),
+            LayoutGuardrails::default(),
+        );
+        let elapsed_us = start.elapsed().as_micros() as u64;
+
+        assert_eq!(traced.trace.incremental.query_type, "layout_full_recompute");
+        assert_eq!(traced.trace.incremental.total_nodes, node_count);
+        assert!(traced.trace.incremental.recompute_duration_us <= elapsed_us);
+        if elapsed_us > 0 {
+            assert!(traced.trace.incremental.recompute_duration_us > 0);
+        }
     }
 
     #[test]
