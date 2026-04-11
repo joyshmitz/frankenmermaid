@@ -83,7 +83,23 @@ pub fn normalize_identifier(raw: &str) -> String {
         result = fallback.trim_matches('_').to_string();
     }
 
+    if result.is_empty() {
+        let has_alphanumeric = cleaned.chars().any(|ch| ch.is_alphanumeric());
+        if has_alphanumeric {
+            result = format!("id_{:x}", fnv1a_hash(cleaned.as_bytes()));
+        }
+    }
+
     result
+}
+
+fn fnv1a_hash(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1011,7 +1027,7 @@ mod tests {
 
     use super::{
         MermaidLineEndingStyle, MermaidWhitespaceKind, apply_parse_lens_edit, build_parse_lens,
-        capture_format_complement, detect_type, parse, parse_with_mode,
+        capture_format_complement, detect_type, normalize_identifier, parse, parse_with_mode,
     };
     use fm_core::{
         ArrowType, DiagnosticCategory, DiagramType, GraphDirection, IrEndpoint, MermaidDiagramIr,
@@ -1042,6 +1058,23 @@ mod tests {
         let result = parse("");
         assert_eq!(result.ir.diagram_type, DiagramType::Unknown);
         assert_eq!(result.warnings.len(), 1);
+    }
+
+    #[test]
+    fn normalize_identifier_falls_back_to_hashed_id_for_non_ascii() {
+        let first = normalize_identifier("你好");
+        let second = normalize_identifier("你好");
+        let other = normalize_identifier("こんにちは");
+
+        assert!(!first.is_empty());
+        assert!(first.starts_with("id_"));
+        assert_eq!(first, second);
+        assert_ne!(first, other);
+        assert!(
+            first
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+        );
     }
 
     #[test]
