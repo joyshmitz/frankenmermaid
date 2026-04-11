@@ -5,7 +5,7 @@ use fm_core::{
     ArrowType, Diagnostic, DiagnosticCategory, DiagramType, GanttDate, GanttExclude, GanttTaskType,
     GanttTickInterval, GraphDirection, IrAttributeKey, IrC4NodeMeta, IrGanttMeta, IrGanttSection,
     IrGanttTask, IrLabelSegment, IrNodeId, IrXyAxis, IrXyChartMeta, IrXySeries, IrXySeriesKind,
-    MermaidParseMode, MermaidSanitizeMode, MermaidSupportLevel, NodeShape, Span,
+    MermaidParseMode, MermaidSupportLevel, NodeShape, Span, is_safe_link_target,
     parse_mermaid_js_config_value, to_init_parse,
 };
 use serde_json::Value;
@@ -817,7 +817,7 @@ fn lower_flow_ast(
                         builder.set_node_tooltip(node, tip_cleaned, span);
                     }
                 }
-            } else if !is_safe_click_target(cleaned, builder.sanitize_mode()) {
+            } else if !is_safe_link_target(cleaned, builder.sanitize_mode()) {
                 builder.add_warning(format!(
                     "Line {line_number}: unsafe click link target blocked: {cleaned}"
                 ));
@@ -1857,7 +1857,7 @@ fn lower_sequence_statement(
             builder.hide_sequence_footbox();
         }
         SequenceStatement::Link { actor, label, url } => {
-            if is_safe_click_target(&url, builder.sanitize_mode()) {
+            if is_safe_link_target(&url, builder.sanitize_mode()) {
                 builder.add_node_menu_link(
                     &actor,
                     &label,
@@ -1873,7 +1873,7 @@ fn lower_sequence_statement(
         SequenceStatement::Links { actor, entries } => {
             let span = span_for(line_number, source_line);
             for (label, url) in entries {
-                if !is_safe_click_target(&url, builder.sanitize_mode()) {
+                if !is_safe_link_target(&url, builder.sanitize_mode()) {
                     builder.add_warning(format!(
                         "Line {line_number}: unsafe sequence actor menu link blocked: {url}"
                     ));
@@ -3375,70 +3375,6 @@ fn take_token(input: &str) -> Option<(&str, &str)> {
     let slice = &trimmed[..split_idx];
     let rest = &trimmed[split_idx..];
     Some((slice, rest))
-}
-
-fn is_safe_click_target(target: &str, sanitize_mode: MermaidSanitizeMode) -> bool {
-    let decoded = decode_percent_triplets(target);
-    // Trim leading/trailing whitespace and control characters that browsers might ignore
-    let trimmed = decoded.trim_matches(|c: char| c.is_whitespace() || c.is_control());
-    if trimmed.is_empty() {
-        return false;
-    }
-    if sanitize_mode == MermaidSanitizeMode::Lenient {
-        return true;
-    }
-    if trimmed.starts_with("//") || trimmed.starts_with("\\\\") {
-        return false;
-    }
-    let lower = trimmed.to_ascii_lowercase();
-
-    if let Some(colon_idx) = lower.find(':') {
-        let scheme = &lower[..colon_idx];
-        // Only allow explicitly safe schemes.
-        // This naturally rejects any scheme that contains entities (e.g. `java&#115;cript`)
-        // or whitespace (e.g. `java script`) because it won't match the strict string literals.
-        matches!(scheme, "http" | "https" | "mailto" | "tel")
-    } else {
-        // No literal colon found, so it must be a relative path.
-        // We must ensure it doesn't hide a colon via XML entities, which the browser
-        // would decode and potentially treat as a dangerous scheme.
-        if lower.contains("&#") || lower.contains("&colon") {
-            return false;
-        }
-        !trimmed.is_empty()
-    }
-}
-
-fn decode_percent_triplets(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            let high = decode_hex_nibble(bytes[index + 1]);
-            let low = decode_hex_nibble(bytes[index + 2]);
-            if let (Some(high), Some(low)) = (high, low) {
-                decoded.push((high << 4) | low);
-                index += 3;
-                continue;
-            }
-        }
-
-        decoded.push(bytes[index]);
-        index += 1;
-    }
-
-    String::from_utf8_lossy(&decoded).to_string()
-}
-
-const fn decode_hex_nibble(value: u8) -> Option<u8> {
-    match value {
-        b'0'..=b'9' => Some(value - b'0'),
-        b'a'..=b'f' => Some(value - b'a' + 10),
-        b'A'..=b'F' => Some(value - b'A' + 10),
-        _ => None,
-    }
 }
 
 fn parse_journey(input: &str, builder: &mut IrBuilder) {

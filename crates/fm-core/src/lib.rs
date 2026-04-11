@@ -1748,6 +1748,72 @@ pub fn sanitize_style_value(value: &str) -> Option<String> {
     Some(value.trim().to_owned())
 }
 
+/// Returns `true` if `target` is a safe link target under the given sanitize mode.
+#[must_use]
+pub fn is_safe_link_target(target: &str, sanitize_mode: MermaidSanitizeMode) -> bool {
+    let decoded = decode_percent_triplets(target);
+    // Trim leading/trailing whitespace and control characters that browsers might ignore.
+    let trimmed = decoded.trim_matches(|c: char| c.is_whitespace() || c.is_control());
+    if trimmed.is_empty() {
+        return false;
+    }
+    if sanitize_mode == MermaidSanitizeMode::Lenient {
+        return true;
+    }
+    if trimmed.starts_with("//") || trimmed.starts_with("\\\\") {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+
+    if let Some(colon_idx) = lower.find(':') {
+        let scheme = &lower[..colon_idx];
+        // Only allow explicitly safe schemes.
+        // This naturally rejects any scheme that contains entities (e.g. `java&#115;cript`)
+        // or whitespace (e.g. `java script`) because it won't match the strict string literals.
+        matches!(scheme, "http" | "https" | "mailto" | "tel")
+    } else {
+        // No literal colon found, so it must be a relative path.
+        // We must ensure it doesn't hide a colon via XML entities, which the browser
+        // would decode and potentially treat as a dangerous scheme.
+        if lower.contains("&#") || lower.contains("&colon") {
+            return false;
+        }
+        !trimmed.is_empty()
+    }
+}
+
+fn decode_percent_triplets(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let high = decode_hex_nibble(bytes[index + 1]);
+            let low = decode_hex_nibble(bytes[index + 2]);
+            if let (Some(high), Some(low)) = (high, low) {
+                decoded.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8_lossy(&decoded).to_string()
+}
+
+const fn decode_hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// Parse a raw CSS-like property string (`"fill:#fff,stroke:#000,stroke-width:2px"`)
 /// into an [`IrInlineStyle`], returning any rejected properties.
 ///
@@ -4679,9 +4745,10 @@ mod tests {
         Position, Span, StructuredDiagnostic, apply_lens_edit, build_lens_bindings,
         capability_matrix, capability_matrix_json_pretty,
         capability_readme_supported_diagram_types_markdown, capability_readme_surface_markdown,
-        documented_diagram_types, is_allowed_style_property, mermaid_layout_guard_observability,
-        parse_mermaid_js_config_value, parse_style_string, parse_style_string_with_rejections,
-        resolve_span_text_range, sanitize_style_value, scale_budget, to_init_parse,
+        documented_diagram_types, is_allowed_style_property, is_safe_link_target,
+        mermaid_layout_guard_observability, parse_mermaid_js_config_value, parse_style_string,
+        parse_style_string_with_rejections, resolve_span_text_range, sanitize_style_value,
+        scale_budget, to_init_parse,
     };
 
     fn sample_span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -7570,6 +7637,42 @@ mod tests {
     #[test]
     fn sanitize_trims_whitespace() {
         assert_eq!(sanitize_style_value("  #fff  ").unwrap(), "#fff");
+    }
+
+    #[test]
+    fn safe_link_target_blocks_unsafe_schemes_in_strict_mode() {
+        assert!(!is_safe_link_target(
+            "javascript:alert(1)",
+            MermaidSanitizeMode::Strict
+        ));
+        assert!(!is_safe_link_target(
+            "data:text/html,evil",
+            MermaidSanitizeMode::Strict
+        ));
+        assert!(!is_safe_link_target(
+            "//example.com",
+            MermaidSanitizeMode::Strict
+        ));
+    }
+
+    #[test]
+    fn safe_link_target_allows_http_and_relative_in_strict_mode() {
+        assert!(is_safe_link_target(
+            "https://example.com",
+            MermaidSanitizeMode::Strict
+        ));
+        assert!(is_safe_link_target(
+            "/docs/index.html",
+            MermaidSanitizeMode::Strict
+        ));
+    }
+
+    #[test]
+    fn safe_link_target_lenient_allows_anything() {
+        assert!(is_safe_link_target(
+            "javascript:alert(1)",
+            MermaidSanitizeMode::Lenient
+        ));
     }
 
     #[test]

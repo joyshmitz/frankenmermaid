@@ -37,8 +37,8 @@ use std::collections::BTreeMap;
 
 use fm_core::{
     DiagramType, IrLabelId, IrLabelSegment, IrXyChartMeta, IrXySeriesKind, MermaidDiagramIr,
-    MermaidLinkMode, MermaidTier, Span, mermaid_cluster_element_id, mermaid_edge_element_id,
-    mermaid_node_element_id, mermaid_node_element_id_with_variant,
+    MermaidLinkMode, MermaidTier, Span, is_safe_link_target, mermaid_cluster_element_id,
+    mermaid_edge_element_id, mermaid_node_element_id, mermaid_node_element_id_with_variant,
 };
 use fm_layout::{
     DiagramLayout, FillStyle, LayoutBand, LayoutBandKind, LayoutEdgePath, LayoutNodeBox,
@@ -4520,6 +4520,7 @@ fn render_node(
 
     if let Some(node) = ir_node
         && let Some(href) = &node.href
+        && is_safe_link_target(href, ir.meta.init.config.sanitize_mode)
     {
         match config.link_mode {
             MermaidLinkMode::Inline => {
@@ -6137,7 +6138,7 @@ mod tests {
         IrGraphCluster, IrGraphNode, IrLabel, IrLabelId, IrLabelSegment, IrLifecycleEvent, IrNode,
         IrNodeId, IrPieMeta, IrPieSlice, IrSequenceMeta, IrStyleRef, IrStyleTarget, IrSubgraph,
         IrSubgraphId, IrXyAxis, IrXyChartMeta, IrXySeries, IrXySeriesKind, MermaidDiagramIr,
-        MermaidLinkMode, NodeShape, Span,
+        MermaidLinkMode, MermaidSanitizeMode, NodeShape, Span,
     };
     use fm_layout::{
         FillStyle, LayoutAxisTick, LayoutBand, LayoutBandKind, LayoutClusterBox, LayoutRect,
@@ -7677,6 +7678,29 @@ mod tests {
         let footnote_svg = render_svg_with_config(&ir, &footnote_config);
         assert!(!footnote_svg.contains("href=\"https://example.com\""));
         assert!(footnote_svg.contains("data-link=\"https://example.com\""));
+    }
+
+    #[test]
+    fn svg_link_mode_skips_unsafe_href_under_strict() {
+        let mut ir = create_ir_with_single_node("A", NodeShape::Rect);
+        if let Some(node) = ir.nodes.first_mut() {
+            node.href = Some("javascript:alert(1)".to_string());
+        }
+        ir.meta.init.config.sanitize_mode = MermaidSanitizeMode::Strict;
+
+        let inline_config = SvgRenderConfig {
+            link_mode: MermaidLinkMode::Inline,
+            ..SvgRenderConfig::default()
+        };
+        let svg = render_svg_with_config(&ir, &inline_config);
+        assert!(!svg.contains("href=\"javascript:alert(1)\""));
+
+        let footnote_config = SvgRenderConfig {
+            link_mode: MermaidLinkMode::Footnote,
+            ..SvgRenderConfig::default()
+        };
+        let footnote_svg = render_svg_with_config(&ir, &footnote_config);
+        assert!(!footnote_svg.contains("data-link=\"javascript:alert(1)\""));
     }
 
     #[test]
