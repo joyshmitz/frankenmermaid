@@ -229,6 +229,8 @@ def dump_dom(chromium_path: str, url: str, timeout_seconds: int, profile: RunPro
         env = {
             "XDG_RUNTIME_DIR": str(runtime_dir),
             "HOME": str(profile_dir),
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+            "LANG": "C.UTF-8",
         }
         result = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     if result.returncode != 0:

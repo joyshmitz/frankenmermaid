@@ -562,9 +562,9 @@ def run_json_command(command: list[str], cwd: Path) -> dict[str, object]:
 
 
 def validate_static_web(entry: Path, headers: Path, contract: Path, log_path: Path | None) -> dict[str, object]:
-    entry_text = entry.read_text()
-    headers_text = headers.read_text()
-    contract_text = contract.read_text()
+    entry_text = entry.read_text(encoding="utf-8")
+    headers_text = headers.read_text(encoding="utf-8")
+    contract_text = contract.read_text(encoding="utf-8")
     header_rules = parse_headers_manifest(headers_text)
 
     parser = HtmlSmokeParser()
@@ -660,9 +660,9 @@ def validate_static_web(entry: Path, headers: Path, contract: Path, log_path: Pa
 
 
 def validate_react_web(entry: Path, headers: Path, contract: Path, log_path: Path | None) -> dict[str, object]:
-    entry_text = entry.read_text()
-    headers_text = headers.read_text()
-    contract_text = contract.read_text()
+    entry_text = entry.read_text(encoding="utf-8")
+    headers_text = headers.read_text(encoding="utf-8")
+    contract_text = contract.read_text(encoding="utf-8")
     header_rules = parse_headers_manifest(headers_text)
 
     parser = HtmlSmokeParser()
@@ -770,11 +770,11 @@ def validate_cloudflare_hosting_plan(
     react_contract: Path,
     strategy_doc: Path | None = None,
 ) -> dict[str, object]:
-    static_rules = parse_headers_manifest(static_headers.read_text())
-    react_rules = parse_headers_manifest(react_headers.read_text())
-    static_contract_text = static_contract.read_text()
-    react_contract_text = react_contract.read_text()
-    strategy_text = strategy_doc.read_text() if strategy_doc is not None else ""
+    static_rules = parse_headers_manifest(static_headers.read_text(encoding="utf-8"))
+    react_rules = parse_headers_manifest(react_headers.read_text(encoding="utf-8"))
+    static_contract_text = static_contract.read_text(encoding="utf-8")
+    react_contract_text = react_contract.read_text(encoding="utf-8")
+    strategy_text = strategy_doc.read_text(encoding="utf-8") if strategy_doc is not None else ""
 
     checks = [
         CheckResult(
@@ -862,9 +862,9 @@ def validate_cloudflare_deploy_ops(
     wrangler_payload = read_json_file(wrangler_config, label="wrangler config")
     if not isinstance(wrangler_payload, dict):
         raise RuntimeError("wrangler config must be a JSON object")
-    static_contract_text = static_contract.read_text()
-    react_contract_text = react_contract.read_text()
-    strategy_text = strategy_doc.read_text() if strategy_doc is not None else ""
+    static_contract_text = static_contract.read_text(encoding="utf-8")
+    react_contract_text = react_contract.read_text(encoding="utf-8")
+    strategy_text = strategy_doc.read_text(encoding="utf-8") if strategy_doc is not None else ""
 
     with tempfile.TemporaryDirectory() as tempdir:
         temp_root = Path(tempdir)
@@ -1026,7 +1026,7 @@ def validate_cloudflare_deploy_ops(
 
 
 def validate_showcase_accessibility(entry: Path, log_path: Path | None) -> dict[str, object]:
-    entry_text = entry.read_text()
+    entry_text = entry.read_text(encoding="utf-8")
 
     parser = HtmlSmokeParser()
     parser.feed(entry_text)
@@ -1091,7 +1091,7 @@ def validate_showcase_accessibility(entry: Path, log_path: Path | None) -> dict[
 
 
 def validate_showcase_compatibility(entry: Path, log_path: Path | None) -> dict[str, object]:
-    entry_text = entry.read_text()
+    entry_text = entry.read_text(encoding="utf-8")
 
     parser = HtmlSmokeParser()
     parser.feed(entry_text)
