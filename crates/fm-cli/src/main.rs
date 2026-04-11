@@ -2102,17 +2102,16 @@ fn svg_root_tag(svg: &str) -> &str {
 
 #[cfg(feature = "png")]
 fn resolve_svg_custom_properties_for_rasterization(svg: &str) -> String {
-    let Some(style_start) = svg.find("<style>") else {
-        return svg.to_string();
-    };
-    let style_content_start = style_start + "<style>".len();
-    let Some(style_end_rel) = svg[style_content_start..].find("</style>") else {
-        return svg.to_string();
-    };
-    let style_content_end = style_content_start + style_end_rel;
-    let style_content = &svg[style_content_start..style_content_end];
-    let custom_properties = extract_svg_custom_properties(style_content);
-    if custom_properties.is_empty() {
+    let mut custom_properties = BTreeMap::new();
+    if let Some(style_start) = svg.find("<style>") {
+        let style_content_start = style_start + "<style>".len();
+        if let Some(style_end_rel) = svg[style_content_start..].find("</style>") {
+            let style_content_end = style_content_start + style_end_rel;
+            let style_content = &svg[style_content_start..style_content_end];
+            custom_properties = extract_svg_custom_properties(style_content);
+        }
+    }
+    if custom_properties.is_empty() && !svg.contains("var(--fm-") {
         return svg.to_string();
     }
 
@@ -2162,10 +2161,15 @@ fn substitute_svg_var_calls(input: &str, custom_properties: &BTreeMap<String, St
         };
         let end = content_start + rel_end;
         let body = &input[content_start..end];
-        let property_name = body.split_once(',').map_or(body, |(name, _)| name).trim();
+        let (property_name, fallback) = match body.split_once(',') {
+            Some((name, fallback)) => (name.trim(), Some(fallback.trim())),
+            None => (body.trim(), None),
+        };
 
         if let Some(value) = custom_properties.get(property_name) {
             output.push_str(value);
+        } else if let Some(fallback) = fallback.filter(|value| !value.is_empty()) {
+            output.push_str(fallback);
         } else {
             output.push_str(&input[start..=end]);
         }
@@ -2297,6 +2301,15 @@ mod png_tests {
         let resolved = resolve_svg_custom_properties_for_rasterization(svg);
         assert!(resolved.contains("#654321"));
         assert!(!resolved.contains("var(--fm-edge-muted"));
+    }
+
+    #[test]
+    fn png_rasterization_applies_var_fallback_without_style_block() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect fill="var(--fm-missing, #123456)" x="0" y="0" width="40" height="20"/></svg>"##;
+
+        let resolved = resolve_svg_custom_properties_for_rasterization(svg);
+        assert!(resolved.contains("#123456"));
+        assert!(!resolved.contains("var(--fm-missing"));
     }
 }
 
