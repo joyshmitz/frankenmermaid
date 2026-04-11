@@ -317,31 +317,56 @@ impl ThemeColors {
 
     /// Apply theme variables mapping from standard Mermaid configs.
     pub fn apply_overrides(&mut self, vars: &std::collections::BTreeMap<String, String>) {
-        if let Some(v) = vars.get("background") {
-            self.background = v.clone();
+        if let Some(color) = vars
+            .get("background")
+            .and_then(|value| crate::sanitize_svg_paint(value))
+        {
+            self.background = color;
         }
-        if let Some(v) = vars.get("primaryTextColor").or(vars.get("textColor")) {
-            self.text = v.clone();
+        if let Some(color) = vars
+            .get("primaryTextColor")
+            .or_else(|| vars.get("textColor"))
+            .and_then(|value| crate::sanitize_svg_paint(value))
+        {
+            self.text = color;
         }
-        if let Some(v) = vars.get("primaryColor") {
-            self.node_fill = v.clone();
+        if let Some(color) = vars
+            .get("primaryColor")
+            .and_then(|value| crate::sanitize_svg_paint(value))
+        {
+            self.node_fill = color;
         }
-        if let Some(v) = vars.get("primaryBorderColor") {
-            self.node_stroke = v.clone();
+        if let Some(color) = vars
+            .get("primaryBorderColor")
+            .and_then(|value| crate::sanitize_svg_paint(value))
+        {
+            self.node_stroke = color;
         }
-        if let Some(v) = vars.get("lineColor") {
-            self.edge = v.clone();
+        if let Some(color) = vars
+            .get("lineColor")
+            .and_then(|value| crate::sanitize_svg_paint(value))
+        {
+            self.edge = color;
         }
-        if let Some(v) = vars.get("clusterBkg") {
-            self.cluster_fill = v.clone();
+        if let Some(color) = vars
+            .get("clusterBkg")
+            .and_then(|value| crate::sanitize_svg_paint(value))
+        {
+            self.cluster_fill = color;
         }
-        if let Some(v) = vars.get("clusterBorder") {
-            self.cluster_stroke = v.clone();
+        if let Some(color) = vars
+            .get("clusterBorder")
+            .and_then(|value| crate::sanitize_svg_paint(value))
+        {
+            self.cluster_stroke = color;
         }
         for (index, accent) in self.accents.iter_mut().enumerate() {
             let key = format!("pie{}", index + 1);
-            if let Some(v) = vars.get(&key) {
-                *accent = v.clone();
+            if let Some(color) = vars
+                .get(&key)
+                .and_then(|value| crate::sanitize_svg_paint(value))
+            {
+                *accent = color;
             }
         }
     }
@@ -848,6 +873,21 @@ mod tests {
             "dark theme background should be dark: {}",
             colors.background
         );
+    }
+
+    #[test]
+    fn theme_overrides_ignore_invalid_colors() {
+        let mut colors = ThemeColors::from_preset(ThemePreset::Default);
+        let original = colors.node_fill.clone();
+
+        let mut overrides = std::collections::BTreeMap::new();
+        overrides.insert(
+            "primaryColor".to_string(),
+            "red; } .fm-node { fill: url(javascript:alert(1))".to_string(),
+        );
+
+        colors.apply_overrides(&overrides);
+        assert_eq!(colors.node_fill, original);
     }
 
     #[test]

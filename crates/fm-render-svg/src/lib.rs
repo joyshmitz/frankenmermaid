@@ -926,7 +926,7 @@ fn sanitize_css_token(value: &str) -> String {
         .collect()
 }
 
-fn sanitize_svg_paint(value: &str) -> Option<String> {
+pub(crate) fn sanitize_svg_paint(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
@@ -1211,19 +1211,19 @@ fn collect_classdef_css(ir: &MermaidDiagramIr) -> String {
 
     defs.sort_by(|a, b| a.name.cmp(&b.name));
     for def in &defs {
-        let token = sanitize_css_token(&def.name);
-        if token.is_empty() || def.properties.is_empty() {
+        let class_slug = sanitize_css_token(&def.name);
+        if class_slug.is_empty() || def.properties.is_empty() {
             continue;
         }
         let (shape_props, text_props) = split_style_properties(&def.properties);
         if let Some(shape_css) = style_map_to_css(&shape_props) {
             css.push_str(&format!(
-                ".fm-node-user-{token} .fm-node-shape, .fm-node-user-{token} .fm-node-shape * {{ {shape_css}; }}\n"
+                ".fm-node-user-{class_slug} .fm-node-shape, .fm-node-user-{class_slug} .fm-node-shape * {{ {shape_css}; }}\n"
             ));
         }
         if let Some(text_css) = style_map_to_css(&text_props) {
             css.push_str(&format!(
-                ".fm-node-user-{token} .fm-node-label, .fm-node-user-{token} .fm-node-label * {{ {text_css}; }}\n"
+                ".fm-node-user-{class_slug} .fm-node-label, .fm-node-user-{class_slug} .fm-node-label * {{ {text_css}; }}\n"
             ));
         }
     }
@@ -3646,9 +3646,9 @@ fn render_node(
     }
     if let Some(icon) = node_icon {
         group = group.class("fm-node-has-icon");
-        let icon_token = sanitize_css_token(&normalize_icon_token(icon));
-        if !icon_token.is_empty() {
-            group = group.class(&format!("fm-node-icon-{icon_token}"));
+        let icon_class = sanitize_css_token(&normalize_icon_token(icon));
+        if !icon_class.is_empty() {
+            group = group.class(&format!("fm-node-icon-{icon_class}"));
         }
         group = group.class(match config.node_icon_position {
             NodeIconPosition::Above => "fm-node-icon-pos-above",
