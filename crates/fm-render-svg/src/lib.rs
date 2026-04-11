@@ -4562,11 +4562,10 @@ fn is_block_beta_space_node(node: &fm_core::IrNode) -> bool {
 }
 
 fn serialize_menu_links(links: &[fm_core::IrMenuLink]) -> String {
-    links
-        .iter()
-        .map(|entry| format!("{}|{}", entry.label, entry.url))
-        .collect::<Vec<_>>()
-        .join(";;")
+    match serde_json::to_string(links) {
+        Ok(json) => json,
+        Err(_) => String::from("[]"),
+    }
 }
 
 fn stable_accent_index(node_id: &str) -> usize {
@@ -7647,7 +7646,9 @@ mod tests {
         });
 
         let svg = render_svg(&ir);
-        assert!(svg.contains("data-menu-links=\"Docs|https://example.com/docs\""));
+        assert!(svg.contains(
+            "data-menu-links=\"[{&quot;label&quot;:&quot;Docs&quot;,&quot;url&quot;:&quot;https://example.com/docs&quot;}]\""
+        ));
         assert!(svg.contains("fm-node-has-menu-links"));
     }
 

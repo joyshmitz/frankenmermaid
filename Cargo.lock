@@ -635,6 +635,7 @@ dependencies = [
  "fm-layout",
  "fm-parser",
  "proptest",
+ "serde_json",
 ]
 
 [[package]]
