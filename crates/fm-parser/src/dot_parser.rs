@@ -595,7 +595,19 @@ fn normalize_identifier(raw: &str) -> String {
         }
         result = fallback.trim_matches('_').to_string();
     }
+    if result.is_empty() {
+        result = format!("id_{:x}", fnv1a_hash(cleaned.as_bytes()));
+    }
     result
+}
+
+fn fnv1a_hash(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn is_directed_graph(input: &str) -> bool {
@@ -938,6 +950,17 @@ mod tests {
         let parsed = parse_dot("digraph G { a [label=<b>Alpha</b>]; }");
         assert_eq!(parsed.ir.labels.len(), 1);
         assert_eq!(parsed.ir.labels[0].text, "Alpha");
+    }
+
+    #[test]
+    fn symbol_only_node_ids_fall_back_to_hashed_ids() {
+        let parsed = parse_dot("digraph G { \"***\" -> \"$$$\"; }");
+        assert_eq!(parsed.ir.nodes.len(), 2);
+        let first = parsed.ir.nodes[0].id.as_str();
+        let second = parsed.ir.nodes[1].id.as_str();
+        assert!(first.starts_with("id_"));
+        assert!(second.starts_with("id_"));
+        assert_ne!(first, second);
     }
 
     #[test]
