@@ -10,6 +10,7 @@ import html
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -182,11 +183,29 @@ def extract_determinism_report(dom: str) -> dict[str, object] | None:
     payload = html.unescape(match.group(1)).strip()
     if not payload or payload.startswith("Determinism evidence JSON will appear here"):
         return None
-    return json.loads(payload)
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        return None
 
 
 def ensure_contains(dom: str, required_substrings: Iterable[str]) -> list[str]:
     return [item for item in required_substrings if item not in dom]
+
+
+def resolve_chromium_binary(candidate: str) -> str:
+    has_separator = os.path.sep in candidate or (os.path.altsep and os.path.altsep in candidate)
+    path = Path(candidate)
+    if path.is_absolute() or has_separator or candidate.startswith("."):
+        if not path.exists():
+            raise RuntimeError(f"chromium binary not found: {candidate}")
+        if not path.is_file():
+            raise RuntimeError(f"chromium binary is not a file: {candidate}")
+        return str(path)
+    resolved = shutil.which(candidate)
+    if not resolved:
+        raise RuntimeError(f"chromium binary not found in PATH: {candidate}")
+    return resolved
 
 
 def dump_dom(chromium_path: str, url: str, timeout_seconds: int, profile: RunProfile) -> str:
@@ -207,8 +226,10 @@ def dump_dom(chromium_path: str, url: str, timeout_seconds: int, profile: RunPro
             url,
         ]
         cmd[5:5] = list(profile.chromium_flags)
-        env = os.environ.copy()
-        env["XDG_RUNTIME_DIR"] = str(runtime_dir)
+        env = {
+            "XDG_RUNTIME_DIR": str(runtime_dir),
+            "HOME": str(profile_dir),
+        }
         result = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "chromium --dump-dom failed")
@@ -228,7 +249,7 @@ def start_http_server(root: Path) -> tuple[ThreadingHTTPServer, str]:
 
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
 
 
 def build_log(
@@ -501,6 +522,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    chromium = resolve_chromium_binary(args.chromium)
     repo_root = Path(args.repo_root).resolve()
     serve_root = Path(args.serve_root).resolve() if args.serve_root else repo_root
     output_root = (repo_root / args.output_root).resolve()
@@ -534,7 +556,7 @@ def main() -> int:
             for profile in profiles:
                 for run_index in range(1, args.repeat + 1):
                     url = build_url(base_url, args.route_prefix, scenario.query)
-                    dom = dump_dom(args.chromium, url, args.timeout_seconds, profile)
+                    dom = dump_dom(chromium, url, args.timeout_seconds, profile)
                     missing = ensure_contains(dom, (*scenario.required_substrings, *profile.expected_substrings))
                     if missing:
                         raise RuntimeError(

@@ -89,6 +89,14 @@ class CheckResult:
         return {"name": self.name, "ok": self.ok, "detail": self.detail}
 
 
+def read_json_file(path: Path, *, label: str | None = None) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        prefix = f"{label} " if label else ""
+        raise RuntimeError(f"{prefix}JSON parse failed for {path}") from exc
+
+
 def parse_headers_manifest(text: str) -> dict[str, dict[str, str]]:
     rules: dict[str, dict[str, str]] = {}
     current_rule: str | None = None
@@ -169,7 +177,9 @@ def _resolve_artifact_path(repo_root: Path, candidate: str) -> Path:
 
 
 def validate_e2e_summary(summary_path: Path, repo_root: Path, require_replay_bundle: bool = False) -> dict[str, object]:
-    payload = json.loads(summary_path.read_text())
+    payload = read_json_file(summary_path, label="summary")
+    if not isinstance(payload, dict):
+        raise RuntimeError("summary JSON must be an object")
     errors: list[str] = []
 
     required_top_level = {
@@ -258,7 +268,11 @@ def validate_e2e_summary(summary_path: Path, repo_root: Path, require_replay_bun
                 if not resolved_log.exists():
                     errors.append(f"missing result log_path: {log_path}")
                 else:
-                    errors.extend(validate_log_payload(json.loads(resolved_log.read_text())))
+                    log_payload = read_json_file(resolved_log, label="log")
+                    if isinstance(log_payload, dict):
+                        errors.extend(validate_log_payload(log_payload))
+                    else:
+                        errors.append(f"log payload must be a JSON object: {log_path}")
             validated_results += 1
 
     validated_determinism = 0
@@ -317,12 +331,15 @@ def validate_e2e_summary(summary_path: Path, repo_root: Path, require_replay_bun
                 if not resolved_manifest.exists():
                     errors.append(f"missing replay manifest: {manifest_path}")
                 else:
-                    manifest = json.loads(resolved_manifest.read_text())
-                    expected_commands = len(payload.get("profiles", [])) * len(payload.get("scenarios", []))
-                    if len(manifest.get("scenario_commands", [])) != expected_commands:
-                        errors.append("replay manifest scenario command count does not match scenario/profile matrix")
-                    if trace_index is not None and manifest.get("trace_index") != trace_index:
-                        errors.append("replay manifest trace_index does not match summary trace_index")
+                    manifest = read_json_file(resolved_manifest, label="replay manifest")
+                    if isinstance(manifest, dict):
+                        expected_commands = len(payload.get("profiles", [])) * len(payload.get("scenarios", []))
+                        if len(manifest.get("scenario_commands", [])) != expected_commands:
+                            errors.append("replay manifest scenario command count does not match scenario/profile matrix")
+                        if trace_index is not None and manifest.get("trace_index") != trace_index:
+                            errors.append("replay manifest trace_index does not match summary trace_index")
+                    else:
+                        errors.append("replay manifest must be a JSON object")
             if isinstance(script_path, str) and not _resolve_artifact_path(repo_root, script_path).exists():
                 errors.append(f"missing replay shell helper: {script_path}")
 
@@ -353,7 +370,9 @@ def shared_scenario_id(scenario_id: str) -> str:
 def collect_latest_logs(root: Path) -> dict[tuple[str, str], dict[str, object]]:
     latest: dict[tuple[str, str], tuple[Path, dict[str, object]]] = {}
     for path in sorted(root.rglob("*__e2e__log.json")):
-        payload = json.loads(path.read_text())
+        payload = read_json_file(path, label="log")
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"log payload must be a JSON object: {path}")
         errors = validate_log_payload(payload)
         if errors:
             raise RuntimeError(f"{path} is not a valid showcase log: {errors}")
@@ -469,7 +488,10 @@ def extract_json_pre(dom: str, element_id: str) -> dict[str, object] | None:
         "will appear here after the checker runs."
     ):
         return None
-    return json.loads(payload)
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        return None
 
 
 def extract_element_inner_html(dom: str, element_id: str) -> str | None:
@@ -615,8 +637,11 @@ def validate_static_web(entry: Path, headers: Path, contract: Path, log_path: Pa
 
     failures = [check.detail for check in checks if not check.ok]
     if log_path is not None:
-        payload = json.loads(log_path.read_text())
-        failures.extend(validate_log_payload(payload))
+        payload = read_json_file(log_path, label="log")
+        if isinstance(payload, dict):
+            failures.extend(validate_log_payload(payload))
+        else:
+            failures.append("log payload must be a JSON object")
 
     if failures:
         raise RuntimeError("; ".join(failures))
@@ -715,8 +740,11 @@ def validate_react_web(entry: Path, headers: Path, contract: Path, log_path: Pat
 
     failures = [check.detail for check in checks if not check.ok]
     if log_path is not None:
-        payload = json.loads(log_path.read_text())
-        failures.extend(validate_log_payload(payload))
+        payload = read_json_file(log_path, label="log")
+        if isinstance(payload, dict):
+            failures.extend(validate_log_payload(payload))
+        else:
+            failures.append("log payload must be a JSON object")
 
     if failures:
         raise RuntimeError("; ".join(failures))
@@ -831,7 +859,9 @@ def validate_cloudflare_deploy_ops(
     strategy_doc: Path | None = None,
 ) -> dict[str, object]:
     repo_root = ops_script.resolve().parent.parent
-    wrangler_payload = json.loads(wrangler_config.read_text())
+    wrangler_payload = read_json_file(wrangler_config, label="wrangler config")
+    if not isinstance(wrangler_payload, dict):
+        raise RuntimeError("wrangler config must be a JSON object")
     static_contract_text = static_contract.read_text()
     react_contract_text = react_contract.read_text()
     strategy_text = strategy_doc.read_text() if strategy_doc is not None else ""
@@ -1042,8 +1072,11 @@ def validate_showcase_accessibility(entry: Path, log_path: Path | None) -> dict[
 
     failures = [check.detail for check in checks if not check.ok]
     if log_path is not None:
-        payload = json.loads(log_path.read_text())
-        failures.extend(validate_log_payload(payload))
+        payload = read_json_file(log_path, label="log")
+        if isinstance(payload, dict):
+            failures.extend(validate_log_payload(payload))
+        else:
+            failures.append("log payload must be a JSON object")
 
     if failures:
         raise RuntimeError("; ".join(failures))
@@ -1094,8 +1127,11 @@ def validate_showcase_compatibility(entry: Path, log_path: Path | None) -> dict[
 
     failures = [check.detail for check in checks if not check.ok]
     if log_path is not None:
-        payload = json.loads(log_path.read_text())
-        failures.extend(validate_log_payload(payload))
+        payload = read_json_file(log_path, label="log")
+        if isinstance(payload, dict):
+            failures.extend(validate_log_payload(payload))
+        else:
+            failures.append("log payload must be a JSON object")
 
     if failures:
         raise RuntimeError("; ".join(failures))
@@ -1110,7 +1146,14 @@ def validate_showcase_compatibility(entry: Path, log_path: Path | None) -> dict[
 
 
 def cmd_validate_log(args: argparse.Namespace) -> int:
-    payload = json.loads(Path(args.log).read_text())
+    try:
+        payload = read_json_file(Path(args.log), label="log")
+    except RuntimeError as exc:
+        print(json.dumps({"ok": False, "errors": [str(exc)]}, indent=2))
+        return 1
+    if not isinstance(payload, dict):
+        print(json.dumps({"ok": False, "errors": ["log payload must be a JSON object"]}, indent=2))
+        return 1
     errors = validate_log_payload(payload)
     if errors:
         print(json.dumps({"ok": False, "errors": errors}, indent=2))

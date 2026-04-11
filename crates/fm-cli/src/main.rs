@@ -4324,7 +4324,7 @@ fn open_browser(url: &str) -> Result<()> {
 
     #[cfg(target_os = "windows")]
     let _ = std::process::Command::new("cmd")
-        .args(["/c", "start", url])
+        .args(["/c", "start", "", url])
         .status()?;
 
     Ok(())
