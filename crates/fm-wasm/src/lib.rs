@@ -303,11 +303,12 @@ impl LayoutRuntimeSummary {
             reversed_edge_total_length: layout.stats.reversed_edge_total_length,
             total_edge_length: layout.stats.total_edge_length,
             phase_iterations: layout.stats.phase_iterations,
-            incremental: traced_layout
-                .trace
-                .incremental
-                .query_type
-                .contains("incremental"),
+            incremental: traced_layout.trace.incremental.cache_hit
+                || traced_layout
+                    .trace
+                    .incremental
+                    .query_type
+                    .contains("incremental"),
             recomputed_nodes: traced_layout.trace.incremental.recomputed_nodes,
             recompute_duration_us: traced_layout.trace.incremental.recompute_duration_us,
         }
@@ -1345,18 +1346,21 @@ impl Diagram {
 #[cfg(test)]
 mod tests {
     use super::{
-        CanvasConfigOverrides, PressureConfigOverrides, RuntimeConfig, RuntimeInitConfig,
-        SvgConfigOverrides, ThemePreset, WebRendererKind, align_canvas_typography_with_svg,
-        apply_budget_svg_simplifications, apply_canvas_theme_preset, canvas_font_size_px,
-        collect_source_spans, merge_canvas_config, merge_pressure_config, merge_renderer_kind,
-        merge_svg_config, read_runtime_config, render, render_svg_js, requested_theme_preset,
-        resolve_renderer, write_runtime_config,
+        CanvasConfigOverrides, LayoutRuntimeSummary, PressureConfigOverrides, RuntimeConfig,
+        RuntimeInitConfig, SvgConfigOverrides, ThemePreset, WebRendererKind,
+        align_canvas_typography_with_svg, apply_budget_svg_simplifications,
+        apply_canvas_theme_preset, canvas_font_size_px, collect_source_spans, merge_canvas_config,
+        merge_pressure_config, merge_renderer_kind, merge_svg_config, read_runtime_config, render,
+        render_svg_js, requested_theme_preset, resolve_renderer, write_runtime_config,
     };
     use fm_core::{
         MermaidLensBinding, MermaidLensEdit, MermaidLensEditResult, MermaidLensError,
         MermaidPressureTier, MermaidWasmPressureSignals,
     };
-    use fm_layout::layout_diagram_traced;
+    use fm_layout::{
+        IncrementalLayoutEngine, LayoutAlgorithm, LayoutConfig, LayoutGuardrails,
+        layout_diagram_traced,
+    };
     use fm_parser::{apply_parse_lens_edit, build_parse_lens, parse};
     use fm_render_canvas::CanvasRenderConfig;
     use fm_render_svg::{SvgRenderConfig, describe_diagram_with_layout};
@@ -1429,6 +1433,36 @@ mod tests {
         assert_eq!(output.layout.edge_count, 1);
         assert!(output.source_spans.iter().any(|span| span.kind == "node"));
         assert!(output.source_spans.iter().any(|span| span.kind == "edge"));
+    }
+
+    #[test]
+    fn layout_runtime_summary_marks_memoized_reuse_as_incremental() {
+        let parsed = parse("flowchart LR\nA-->B");
+        let mut engine = IncrementalLayoutEngine::default();
+        let config = LayoutConfig::default();
+        let guardrails = LayoutGuardrails::default();
+
+        let _warm = engine.layout_diagram_traced_with_config_and_guardrails(
+            &parsed.ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+        let traced = engine.layout_diagram_traced_with_config_and_guardrails(
+            &parsed.ir,
+            LayoutAlgorithm::Auto,
+            config.clone(),
+            guardrails,
+        );
+
+        assert!(traced.trace.incremental.cache_hit);
+        assert_eq!(traced.trace.incremental.query_type, "layout_memoized_reuse");
+
+        let summary = LayoutRuntimeSummary::new(&traced, &config);
+        assert!(
+            summary.incremental,
+            "memoized reuse should count as incremental fast path"
+        );
     }
 
     #[test]
