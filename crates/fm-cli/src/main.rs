@@ -1074,13 +1074,6 @@ fn parse_link_mode(value: &str) -> Result<MermaidLinkMode> {
     }
 }
 
-fn validate_reduced_motion_name(value: &str) -> Result<()> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "auto" | "always" | "never" => Ok(()),
-        other => anyhow::bail!("unknown render.reduced_motion '{other}'"),
-    }
-}
-
 fn resolve_max_input_bytes(config: &FrankenmermaidConfigFile) -> Result<usize> {
     let max_input_bytes = config
         .core
@@ -1197,12 +1190,11 @@ fn apply_reduced_motion_setting(
     let Some(reduced_motion) = reduced_motion else {
         return Ok(());
     };
-    validate_reduced_motion_name(reduced_motion)?;
     match reduced_motion.trim().to_ascii_lowercase().as_str() {
         "always" => config.animations_enabled = false,
         "never" => config.animations_enabled = true,
         "auto" => {}
-        _ => unreachable!("validated above"),
+        other => anyhow::bail!("unknown render.reduced_motion '{other}'"),
     }
     Ok(())
 }
