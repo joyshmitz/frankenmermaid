@@ -241,11 +241,7 @@ fn parse_dot_edge_statement(
     active_subgraphs: &[usize],
     builder: &mut IrBuilder,
 ) -> bool {
-    let operator = if statement.contains("->") {
-        "->"
-    } else if statement.contains("--") {
-        "--"
-    } else {
+    let Some(operator) = find_edge_operator(statement) else {
         return false;
     };
 
@@ -305,6 +301,59 @@ fn parse_dot_edge_statement(
     }
 
     true
+}
+
+fn find_edge_operator(statement: &str) -> Option<&'static str> {
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    let mut html_depth = 0_usize;
+
+    let chars: Vec<char> = statement.chars().collect();
+    let mut i = 0;
+    while i + 1 < chars.len() {
+        let c = chars[i];
+
+        if let Some(q) = in_quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                in_quote = None;
+            }
+            i += 1;
+            continue;
+        }
+
+        if c == '"' || c == '\'' {
+            in_quote = Some(c);
+            i += 1;
+            continue;
+        }
+
+        if c == '<' {
+            html_depth = html_depth.saturating_add(1);
+            i += 1;
+            continue;
+        }
+        if c == '>' {
+            html_depth = html_depth.saturating_sub(1);
+            i += 1;
+            continue;
+        }
+
+        if html_depth == 0 && c == '-' {
+            match chars[i + 1] {
+                '>' => return Some("->"),
+                '-' => return Some("--"),
+                _ => {}
+            }
+        }
+
+        i += 1;
+    }
+
+    None
 }
 
 fn parse_dot_node_statement(
@@ -612,8 +661,68 @@ fn fnv1a_hash(bytes: &[u8]) -> u64 {
 
 fn is_directed_graph(input: &str) -> bool {
     let first_line = input.lines().map(str::trim).find(|line| !line.is_empty());
-    first_line.is_some_and(|line| line.to_ascii_lowercase().contains("digraph"))
-        || input.contains("->")
+    if let Some(line) = first_line {
+        let lower = line.to_ascii_lowercase();
+        if lower.contains("digraph") {
+            return true;
+        }
+        if lower.contains("graph") {
+            return false;
+        }
+    }
+
+    let body = extract_body(input);
+    let body_without_comments = strip_all_comments(body);
+    contains_directed_edge_operator(&body_without_comments)
+}
+
+fn contains_directed_edge_operator(input: &str) -> bool {
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    let mut html_depth = 0_usize;
+
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    while i + 1 < chars.len() {
+        let c = chars[i];
+
+        if let Some(q) = in_quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                in_quote = None;
+            }
+            i += 1;
+            continue;
+        }
+
+        if c == '"' || c == '\'' {
+            in_quote = Some(c);
+            i += 1;
+            continue;
+        }
+
+        if c == '<' {
+            html_depth = html_depth.saturating_add(1);
+            i += 1;
+            continue;
+        }
+        if c == '>' {
+            html_depth = html_depth.saturating_sub(1);
+            i += 1;
+            continue;
+        }
+
+        if html_depth == 0 && c == '-' && chars[i + 1] == '>' {
+            return true;
+        }
+
+        i += 1;
+    }
+
+    false
 }
 
 fn extract_body(input: &str) -> &str {
@@ -892,6 +1001,13 @@ mod tests {
         assert_eq!(parsed.ir.edges.len(), 2);
         assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Arrow);
         assert!(parsed.warnings.is_empty());
+    }
+
+    #[test]
+    fn undirected_graph_label_arrows_do_not_force_directed_edges() {
+        let parsed = parse_dot("graph G { a -- b [label=\"a->b\"]; }");
+        assert_eq!(parsed.ir.edges.len(), 1);
+        assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Line);
     }
 
     #[test]
