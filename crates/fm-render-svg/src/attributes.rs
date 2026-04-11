@@ -207,6 +207,8 @@ fn escape_xml_attr(s: &str) -> String {
 /// Escape special characters in XML text content.
 pub fn escape_xml_text(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
+    let mut prev1 = '\0';
+    let mut prev2 = '\0';
     for c in s.chars() {
         match c {
             '&' => result.push_str("&amp;"),
@@ -214,8 +216,11 @@ pub fn escape_xml_text(s: &str) -> String {
             // We intentionally do not escape '>' to '&gt;' here because it breaks
             // CSS child combinators (e.g. `div > p`) when the SVG is embedded inline in HTML5.
             // In standard XML, '>' only needs to be escaped if it is part of `]]>`.
+            '>' if prev1 == ']' && prev2 == ']' => result.push_str("&gt;"),
             _ => result.push(c),
         }
+        prev2 = prev1;
+        prev1 = c;
     }
     result
 }
@@ -245,6 +250,13 @@ mod tests {
         assert!(rendered.contains("&gt;"));
         assert!(rendered.contains("&quot;"));
         assert!(rendered.contains("&#39;"));
+    }
+
+    #[test]
+    fn escapes_cdata_terminator_sequence() {
+        let escaped = escape_xml_text("literal ]]> should be safe");
+        assert!(escaped.contains("]]&gt;"));
+        assert!(!escaped.contains("]]>"));
     }
 
     #[test]
