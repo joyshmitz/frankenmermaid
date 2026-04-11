@@ -5,18 +5,11 @@ use crate::{DetectionMethod, ParseResult, ir_builder::IrBuilder};
 
 #[must_use]
 pub fn looks_like_dot(input: &str) -> bool {
-    let Some(first_line) = input.lines().map(str::trim).find(|line| !line.is_empty()) else {
-        return false;
-    };
-    let lower = first_line.to_ascii_lowercase();
-    if !(lower.starts_with("graph ")
-        || lower.starts_with("digraph ")
-        || lower.starts_with("strict graph ")
-        || lower.starts_with("strict digraph "))
-    {
+    let cleaned = strip_all_comments(input);
+    if dot_header_kind(&cleaned).is_none() {
         return false;
     }
-    input.contains('{') && input.contains('}')
+    cleaned.contains('{') && cleaned.contains('}')
 }
 
 #[must_use]
@@ -230,6 +223,40 @@ fn strip_all_comments(input: &str) -> String {
         i += 1;
     }
     output
+}
+
+fn dot_header_kind(cleaned_input: &str) -> Option<bool> {
+    let first_line = cleaned_input
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let lower = first_line.to_ascii_lowercase();
+    let mut cursor = lower.as_str();
+    if let Some(rest) = cursor.strip_prefix("strict") {
+        if rest.is_empty() || !rest.chars().next().is_some_and(char::is_whitespace) {
+            return None;
+        }
+        cursor = rest.trim_start();
+    }
+    if starts_with_keyword(cursor, "digraph") {
+        return Some(true);
+    }
+    if starts_with_keyword(cursor, "graph") {
+        return Some(false);
+    }
+    None
+}
+
+fn starts_with_keyword(line: &str, keyword: &str) -> bool {
+    let Some(rest) = line.strip_prefix(keyword) else {
+        return false;
+    };
+    if rest.is_empty() {
+        return true;
+    }
+    rest.chars()
+        .next()
+        .is_some_and(|ch| ch.is_whitespace() || ch == '{')
 }
 
 fn parse_dot_edge_statement(
@@ -533,10 +560,53 @@ fn dot_shape_to_node_shape(name: &str) -> Option<NodeShape> {
 
 fn split_endpoint_and_attrs(fragment: &str) -> (&str, Option<&str>) {
     let trimmed = fragment.trim();
-    let Some(open_idx) = trimmed.find('[') else {
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    let mut html_depth = 0_usize;
+    let mut open_idx: Option<usize> = None;
+    let mut close_idx: Option<usize> = None;
+
+    for (idx, ch) in trimmed.char_indices() {
+        if let Some(q) = in_quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == q {
+                in_quote = None;
+            }
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            in_quote = Some(ch);
+            continue;
+        }
+
+        if ch == '<' {
+            html_depth = html_depth.saturating_add(1);
+            continue;
+        }
+        if ch == '>' {
+            html_depth = html_depth.saturating_sub(1);
+            continue;
+        }
+
+        if html_depth == 0 {
+            if ch == '[' && open_idx.is_none() {
+                open_idx = Some(idx);
+                continue;
+            }
+            if ch == ']' && open_idx.is_some() {
+                close_idx = Some(idx);
+            }
+        }
+    }
+
+    let Some(open_idx) = open_idx else {
         return (trimmed, None);
     };
-    let Some(close_idx) = trimmed.rfind(']') else {
+    let Some(close_idx) = close_idx else {
         return (trimmed, None);
     };
     if close_idx <= open_idx {
@@ -660,15 +730,9 @@ fn fnv1a_hash(bytes: &[u8]) -> u64 {
 }
 
 fn is_directed_graph(input: &str) -> bool {
-    let first_line = input.lines().map(str::trim).find(|line| !line.is_empty());
-    if let Some(line) = first_line {
-        let lower = line.to_ascii_lowercase();
-        if lower.contains("digraph") {
-            return true;
-        }
-        if lower.contains("graph") {
-            return false;
-        }
+    let cleaned = strip_all_comments(input);
+    if let Some(is_directed) = dot_header_kind(&cleaned) {
+        return is_directed;
     }
 
     let body = extract_body(input);
@@ -994,6 +1058,28 @@ mod tests {
     }
 
     #[test]
+    fn detects_dot_headers_with_leading_comments() {
+        assert!(looks_like_dot("// comment\ndigraph G { a -> b; }"));
+        assert!(looks_like_dot("/* comment */\nstrict graph G { a -- b; }"));
+    }
+
+    #[test]
+    fn detects_dot_headers_without_space_before_brace() {
+        assert!(looks_like_dot("digraph{ a -> b; }"));
+        assert!(looks_like_dot("strict digraph{ a -> b; }"));
+        assert!(looks_like_dot("graph{ a -- b; }"));
+    }
+
+    #[test]
+    fn directed_detection_ignores_leading_comments() {
+        let parsed = parse_dot("// comment\n digraph{ a -> b; }");
+        assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Arrow);
+
+        let parsed = parse_dot("/* comment */ graph{ a -- b; }");
+        assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Line);
+    }
+
+    #[test]
     fn parses_directed_dot_edges() {
         let parsed = parse_dot("digraph G { a -> b; b -> c; }");
         assert_eq!(parsed.ir.diagram_type, DiagramType::Flowchart);
@@ -1066,6 +1152,13 @@ mod tests {
         let parsed = parse_dot("digraph G { a [label=<b>Alpha</b>]; }");
         assert_eq!(parsed.ir.labels.len(), 1);
         assert_eq!(parsed.ir.labels[0].text, "Alpha");
+    }
+
+    #[test]
+    fn quoted_node_ids_with_brackets_do_not_start_attribute_blocks() {
+        let parsed = parse_dot("digraph G { \"node[a]\" -> b; }");
+        let ids: Vec<&str> = parsed.ir.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(ids.contains(&"node_a"));
     }
 
     #[test]
