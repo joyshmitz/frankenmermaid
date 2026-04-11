@@ -2045,21 +2045,22 @@ fn terminal_size(width: Option<u32>, height: Option<u32>) -> (usize, usize) {
 fn extract_svg_dimensions(svg: &str) -> (Option<u32>, Option<u32>) {
     // Simple regex-free extraction of width/height from SVG, with viewBox fallback for
     // responsive SVGs that use percentage sizing.
-    let width = svg.find("width=\"").and_then(|i| {
+    let tag = svg_root_tag(svg);
+    let width = tag.find("width=\"").and_then(|i| {
         let start = i + 7;
-        let end = svg[start..].find('"').map(|e| start + e)?;
-        parse_svg_dimension_value(&svg[start..end])
+        let end = tag[start..].find('"').map(|e| start + e)?;
+        parse_svg_dimension_value(&tag[start..end])
     });
 
-    let height = svg.find("height=\"").and_then(|i| {
+    let height = tag.find("height=\"").and_then(|i| {
         let start = i + 8;
-        let end = svg[start..].find('"').map(|e| start + e)?;
-        parse_svg_dimension_value(&svg[start..end])
+        let end = tag[start..].find('"').map(|e| start + e)?;
+        parse_svg_dimension_value(&tag[start..end])
     });
 
     match (width, height) {
         (Some(width), Some(height)) => (Some(width), Some(height)),
-        _ => extract_viewbox_dimensions(svg).unwrap_or((width, height)),
+        _ => extract_viewbox_dimensions(tag).unwrap_or((width, height)),
     }
 }
 
@@ -2086,6 +2087,17 @@ fn extract_viewbox_dimensions(svg: &str) -> Option<(Option<u32>, Option<u32>)> {
     let width = parse_svg_dimension_value(parts.next()?);
     let height = parse_svg_dimension_value(parts.next()?);
     Some((width, height))
+}
+
+fn svg_root_tag(svg: &str) -> &str {
+    let Some(start) = svg.find("<svg") else {
+        return svg;
+    };
+    let Some(end_rel) = svg[start..].find('>') else {
+        return svg;
+    };
+    let end = start + end_rel + 1;
+    &svg[start..end]
 }
 
 #[cfg(feature = "png")]
@@ -3206,6 +3218,12 @@ mod render_tests {
     fn extract_svg_dimensions_rounds_positive_fractional_sizes_up() {
         let svg = r#"<svg width="0.5" height="1.2" xmlns="http://www.w3.org/2000/svg"></svg>"#;
         assert_eq!(extract_svg_dimensions(svg), (Some(1), Some(2)));
+    }
+
+    #[test]
+    fn extract_svg_dimensions_ignores_child_width_height() {
+        let svg = r#"<svg viewBox="0 0 10 20" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><rect width="999" height="888"/></svg>"#;
+        assert_eq!(extract_svg_dimensions(svg), (Some(10), Some(20)));
     }
 
     #[test]
