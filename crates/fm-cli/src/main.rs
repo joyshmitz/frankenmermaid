@@ -2186,17 +2186,27 @@ fn svg_to_png(svg: &str, width: Option<u32>, height: Option<u32>) -> Result<(Vec
     let tree = Tree::from_str(svg, &opt).context("Failed to parse SVG")?;
 
     let size = tree.size();
+    let size_width = size.width();
+    let size_height = size.height();
+    if !size_width.is_finite()
+        || !size_height.is_finite()
+        || size_width <= 0.0
+        || size_height <= 0.0
+    {
+        anyhow::bail!("SVG dimensions must be greater than 0");
+    }
+
     let (px_width, px_height) = match (width, height) {
         (Some(w), Some(h)) => (w, h),
         (Some(w), None) => {
-            let scale = w as f32 / size.width();
-            (w, (size.height() * scale) as u32)
+            let scale = w as f32 / size_width;
+            (w, (size_height * scale) as u32)
         }
         (None, Some(h)) => {
-            let scale = h as f32 / size.height();
-            ((size.width() * scale) as u32, h)
+            let scale = h as f32 / size_height;
+            ((size_width * scale) as u32, h)
         }
-        (None, None) => (size.width() as u32, size.height() as u32),
+        (None, None) => (size_width as u32, size_height as u32),
     };
     if px_width == 0 || px_height == 0 {
         anyhow::bail!("PNG dimensions must be greater than 0");
@@ -2205,8 +2215,8 @@ fn svg_to_png(svg: &str, width: Option<u32>, height: Option<u32>) -> Result<(Vec
     let mut pixmap =
         tiny_skia::Pixmap::new(px_width, px_height).context("Failed to create pixmap")?;
 
-    let scale_x = px_width as f32 / size.width();
-    let scale_y = px_height as f32 / size.height();
+    let scale_x = px_width as f32 / size_width;
+    let scale_y = px_height as f32 / size_height;
 
     resvg::render(
         &tree,
@@ -2227,6 +2237,8 @@ mod png_tests {
     use super::{resolve_svg_custom_properties_for_rasterization, svg_to_png};
 
     const SIMPLE_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><rect x="0" y="0" width="100" height="50" fill="#f00"/></svg>"##;
+    const ZERO_SVG: &str =
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="0" height="10"></svg>"##;
 
     #[test]
     fn png_dimensions_default_to_svg_size() {
@@ -2247,6 +2259,16 @@ mod png_tests {
     fn png_dimensions_reject_zero_sized_outputs() {
         let err = svg_to_png(SIMPLE_SVG, Some(0), Some(10)).expect_err("zero width must fail");
         assert!(err.to_string().contains("greater than 0"));
+    }
+
+    #[test]
+    fn png_dimensions_reject_zero_sized_svg() {
+        let err = svg_to_png(ZERO_SVG, Some(100), None).expect_err("zero SVG size must fail");
+        let message = err.to_string();
+        assert!(
+            message.contains("SVG dimensions must be greater than 0")
+                || message.contains("Failed to parse SVG")
+        );
     }
 
     #[test]
