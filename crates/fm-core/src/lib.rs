@@ -1720,15 +1720,16 @@ pub fn sanitize_style_value(value: &str) -> Option<String> {
     if value.contains("/*") || value.contains("*/") {
         return None;
     }
-    // Reject javascript: protocol.
-    if trimmed.contains("javascript:") {
+    let lower = trimmed.to_ascii_lowercase();
+    // Reject javascript: protocol (case-insensitive).
+    if lower.contains("javascript:") {
         return None;
     }
     // Reject event-handler attributes smuggled as values.
-    if trimmed.contains("onclick")
-        || trimmed.contains("onerror")
-        || trimmed.contains("onload")
-        || trimmed.contains("onmouseover")
+    if lower.contains("onclick")
+        || lower.contains("onerror")
+        || lower.contains("onload")
+        || lower.contains("onmouseover")
     {
         return None;
     }
@@ -1745,7 +1746,7 @@ pub fn sanitize_style_value(value: &str) -> Option<String> {
         return None;
     }
     // Reject expression() (IE legacy XSS vector).
-    if trimmed.contains("expression(") {
+    if lower.contains("expression(") {
         return None;
     }
 
@@ -7593,12 +7594,14 @@ mod tests {
     #[test]
     fn sanitize_rejects_javascript() {
         assert!(sanitize_style_value("javascript:alert(1)").is_none());
+        assert!(sanitize_style_value("JaVaScRiPt:alert(1)").is_none());
     }
 
     #[test]
     fn sanitize_rejects_event_handlers() {
         assert!(sanitize_style_value("onclick=alert(1)").is_none());
         assert!(sanitize_style_value("onerror=fetch()").is_none());
+        assert!(sanitize_style_value("OnLoAd=alert(1)").is_none());
     }
 
     #[test]
@@ -7631,6 +7634,7 @@ mod tests {
     #[test]
     fn sanitize_rejects_expression() {
         assert!(sanitize_style_value("expression(alert(1))").is_none());
+        assert!(sanitize_style_value("ExPrEsSiOn(alert(1))").is_none());
     }
 
     #[test]
