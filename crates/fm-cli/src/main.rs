@@ -1666,16 +1666,18 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
     )?;
     let render_time = render_start.elapsed();
     budget_broker.record_render(render_time.as_millis().min(u128::from(u64::MAX)) as u64);
-    guard_report.budget_broker = budget_broker.clone();
-    let layout_decision_ledger =
-        build_layout_decision_ledger(&parsed.ir, &traced_layout, &guard_report);
-    let layout_decision_ledger_jsonl = layout_decision_ledger.to_jsonl()?;
 
     let total_time = total_start.elapsed();
-    let source_map = layout_source_map(&parsed.ir, layout);
-    let accessibility_summary = describe_diagram_with_layout(&parsed.ir, Some(layout));
+    let source_map = if options.json_output || options.source_map_out.is_some() {
+        Some(layout_source_map(&parsed.ir, layout))
+    } else {
+        None
+    };
 
     if let Some(path) = options.source_map_out {
+        let source_map = source_map.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Source map requested but not generated for this render")
+        })?;
         let artifact = serde_json::to_string_pretty(&source_map)?;
         std::fs::write(path, artifact)
             .context(format!("Failed to write source map file: {path}"))?;
@@ -1693,6 +1695,14 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
     );
 
     let render_result = if options.json_output {
+        let accessibility_summary = describe_diagram_with_layout(&parsed.ir, Some(layout));
+        let source_map = source_map.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Render metadata requested but source map was not generated")
+        })?;
+        guard_report.budget_broker = budget_broker.clone();
+        let layout_decision_ledger =
+            build_layout_decision_ledger(&parsed.ir, &traced_layout, &guard_report);
+        let layout_decision_ledger_jsonl = layout_decision_ledger.to_jsonl()?;
         Some(RenderResult {
             format: format!("{:?}", options.format).to_lowercase(),
             parse_mode: options.parse_mode.as_str().to_string(),
