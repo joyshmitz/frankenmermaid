@@ -648,7 +648,7 @@ fn flow_statement_parser<'a>() -> impl Parser<'a, &'a str, FlowAst, extra::Err<R
         });
 
     // -- click directive: click nodeId target ["tooltip"] -------------------
-    let bare_token = any()
+    let bare_word = any()
         .filter(|c: &char| !c.is_whitespace())
         .repeated()
         .at_least(1)
@@ -666,7 +666,7 @@ fn flow_statement_parser<'a>() -> impl Parser<'a, &'a str, FlowAst, extra::Err<R
         .then_ignore(required_ws)
         .then(choice((just("call"), just("callback"))))
         .then_ignore(required_ws)
-        .then(bare_token)
+        .then(bare_word)
         .then(required_ws.ignore_then(quoted_string).or_not())
         .then_ignore(end())
         .map(
@@ -697,7 +697,7 @@ fn flow_statement_parser<'a>() -> impl Parser<'a, &'a str, FlowAst, extra::Err<R
         .then(required_ws)
         .ignore_then(ident)
         .then_ignore(required_ws)
-        .then(quoted_string_link.or(bare_token))
+        .then(quoted_string_link.or(bare_word))
         .then(required_ws.ignore_then(quoted_string_tooltip).or_not())
         .then_ignore(end())
         .map(
@@ -1468,13 +1468,13 @@ fn decode_mermaid_entities(text: &str) -> String {
             return decoded;
         };
         let end = start + relative_end;
-        let token = if text[start..].starts_with('&') {
+        let entity = if text[start..].starts_with('&') {
             &text[start + 1..end]
         } else {
             &text[start..end]
         };
 
-        if let Some(ch) = decode_mermaid_entity_token(token) {
+        if let Some(ch) = decode_mermaid_entity_token(entity) {
             decoded.push(ch);
         } else {
             decoded.push_str(&text[start..=end]);
@@ -1605,9 +1605,9 @@ fn extract_sequence_box_color(rest: &str) -> Option<(String, &str)> {
     let token_end = rest
         .find(|ch: char| ch.is_whitespace())
         .unwrap_or(rest.len());
-    let token = &rest[..token_end];
-    if is_css_named_color(token) {
-        return Some((token.to_string(), rest[token_end..].trim_start()));
+    let color_name = &rest[..token_end];
+    if is_css_named_color(color_name) {
+        return Some((color_name.to_string(), rest[token_end..].trim_start()));
     }
 
     None
@@ -3363,18 +3363,18 @@ fn take_token(input: &str) -> Option<(&str, &str)> {
     if matches!(first_char, '"' | '\'' | '`') {
         for (idx, ch) in trimmed.char_indices().skip(1) {
             if ch == first_char {
-                let token = &trimmed[..=idx];
+                let slice = &trimmed[..=idx];
                 let rest = &trimmed[idx + 1..];
-                return Some((token, rest));
+                return Some((slice, rest));
             }
         }
         return Some((trimmed, ""));
     }
 
     let split_idx = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
-    let token = &trimmed[..split_idx];
+    let slice = &trimmed[..split_idx];
     let rest = &trimmed[split_idx..];
-    Some((token, rest))
+    Some((slice, rest))
 }
 
 fn is_safe_click_target(target: &str, sanitize_mode: MermaidSanitizeMode) -> bool {
@@ -3386,6 +3386,9 @@ fn is_safe_click_target(target: &str, sanitize_mode: MermaidSanitizeMode) -> boo
     }
     if sanitize_mode == MermaidSanitizeMode::Lenient {
         return true;
+    }
+    if trimmed.starts_with("//") || trimmed.starts_with("\\\\") {
+        return false;
     }
     let lower = trimmed.to_ascii_lowercase();
 
@@ -4470,13 +4473,13 @@ where
     if parts.is_empty() { None } else { Some(parts) }
 }
 
-fn parse_gantt_duration_days(token: &str) -> Option<u32> {
-    let token = token.trim();
-    if token.is_empty() {
+fn parse_gantt_duration_days(raw: &str) -> Option<u32> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
         return None;
     }
 
-    let lower = token.to_ascii_lowercase();
+    let lower = trimmed.to_ascii_lowercase();
     if let Some(days) = lower.strip_suffix('d') {
         return days.trim().parse::<u32>().ok();
     }
@@ -5580,9 +5583,9 @@ fn split_block_beta_defs(line: &str) -> Vec<String> {
                 current.push(ch);
             }
             _ if ch.is_whitespace() && square_depth == 0 => {
-                let token = current.trim();
-                if !token.is_empty() {
-                    tokens.push(token.to_string());
+                let segment = current.trim();
+                if !segment.is_empty() {
+                    tokens.push(segment.to_string());
                 }
                 current.clear();
             }
@@ -5590,9 +5593,9 @@ fn split_block_beta_defs(line: &str) -> Vec<String> {
         }
     }
 
-    let token = current.trim();
-    if !token.is_empty() {
-        tokens.push(token.to_string());
+    let segment = current.trim();
+    if !segment.is_empty() {
+        tokens.push(segment.to_string());
     }
 
     tokens
@@ -8495,18 +8498,23 @@ mod tests {
             .ir
             .edges
             .iter()
-            .map(|edge| {
-                let from = match edge.from {
-                    IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.clone(),
-                    _ => panic!("expected node source"),
+            .filter_map(|edge| {
+                let (IrEndpoint::Node(from_id), IrEndpoint::Node(to_id)) = (&edge.from, &edge.to)
+                else {
+                    return None;
                 };
-                let to = match edge.to {
-                    IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.clone(),
-                    _ => panic!("expected node target"),
-                };
-                (from, to)
+                Some((
+                    parsed.ir.nodes[from_id.0].id.clone(),
+                    parsed.ir.nodes[to_id.0].id.clone(),
+                ))
             })
             .collect();
+
+        assert_eq!(
+            edges.len(),
+            parsed.ir.edges.len(),
+            "expected node endpoints"
+        );
 
         assert_eq!(
             edges,
@@ -8531,18 +8539,23 @@ mod tests {
             .ir
             .edges
             .iter()
-            .map(|edge| {
-                let from = match edge.from {
-                    IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.clone(),
-                    _ => panic!("expected node source"),
+            .filter_map(|edge| {
+                let (IrEndpoint::Node(from_id), IrEndpoint::Node(to_id)) = (&edge.from, &edge.to)
+                else {
+                    return None;
                 };
-                let to = match edge.to {
-                    IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.clone(),
-                    _ => panic!("expected node target"),
-                };
-                (from, to)
+                Some((
+                    parsed.ir.nodes[from_id.0].id.clone(),
+                    parsed.ir.nodes[to_id.0].id.clone(),
+                ))
             })
             .collect();
+
+        assert_eq!(
+            edges.len(),
+            parsed.ir.edges.len(),
+            "expected node endpoints"
+        );
 
         assert_eq!(
             edges,
@@ -8567,18 +8580,23 @@ mod tests {
             .ir
             .edges
             .iter()
-            .map(|edge| {
-                let from = match edge.from {
-                    IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.clone(),
-                    _ => panic!("expected node source"),
+            .filter_map(|edge| {
+                let (IrEndpoint::Node(from_id), IrEndpoint::Node(to_id)) = (&edge.from, &edge.to)
+                else {
+                    return None;
                 };
-                let to = match edge.to {
-                    IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.clone(),
-                    _ => panic!("expected node target"),
-                };
-                (from, to)
+                Some((
+                    parsed.ir.nodes[from_id.0].id.clone(),
+                    parsed.ir.nodes[to_id.0].id.clone(),
+                ))
             })
             .collect();
+
+        assert_eq!(
+            edges.len(),
+            parsed.ir.edges.len(),
+            "expected node endpoints"
+        );
 
         assert_eq!(
             edges,
@@ -9053,6 +9071,39 @@ mod tests {
         let parsed = parse_mermaid("flowchart LR\nA-->B\nclick A \"javascript:alert(1)\"");
         assert!(
             parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("unsafe click link target blocked"))
+        );
+    }
+
+    #[test]
+    fn flowchart_click_directive_blocks_protocol_relative_links() {
+        let parsed = parse_mermaid("flowchart LR\nA-->B\nclick A \"//example.com\"");
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("unsafe click link target blocked"))
+        );
+        let node_a = parsed.ir.nodes.iter().find(|node| node.id == "A");
+        if let Some(node_a) = node_a {
+            assert!(node_a.href.is_none());
+        }
+    }
+
+    #[test]
+    fn flowchart_click_directive_allows_protocol_relative_links_when_security_level_loose() {
+        let parsed = parse_mermaid(
+            "%%{init: {\"securityLevel\":\"loose\"}}%%\nflowchart LR\nA-->B\nclick A \"//example.com\"",
+        );
+        let node_a = parsed.ir.nodes.iter().find(|node| node.id == "A");
+
+        assert!(node_a.is_some());
+        let node_a = node_a.expect("node A should exist");
+        assert_eq!(node_a.href.as_deref(), Some("//example.com"));
+        assert!(
+            !parsed
                 .warnings
                 .iter()
                 .any(|warning| warning.contains("unsafe click link target blocked"))
@@ -10523,14 +10574,23 @@ api <--> db",
         assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Arrow);
         assert_eq!(parsed.ir.edges[1].arrow, ArrowType::Line);
 
-        let first_from = match parsed.ir.edges[0].from {
-            fm_core::IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.as_str(),
-            _ => panic!("expected architecture node endpoint"),
+        let first_edge = &parsed.ir.edges[0];
+        let endpoints_are_nodes = matches!(
+            (&first_edge.from, &first_edge.to),
+            (fm_core::IrEndpoint::Node(_), fm_core::IrEndpoint::Node(_))
+        );
+        assert!(endpoints_are_nodes, "expected architecture node endpoint");
+        if !endpoints_are_nodes {
+            return;
+        }
+        let (from_id, to_id) = match (&first_edge.from, &first_edge.to) {
+            (fm_core::IrEndpoint::Node(from_id), fm_core::IrEndpoint::Node(to_id)) => {
+                (from_id, to_id)
+            }
+            _ => return,
         };
-        let first_to = match parsed.ir.edges[0].to {
-            fm_core::IrEndpoint::Node(node_id) => parsed.ir.nodes[node_id.0].id.as_str(),
-            _ => panic!("expected architecture node endpoint"),
-        };
+        let first_from = parsed.ir.nodes[from_id.0].id.as_str();
+        let first_to = parsed.ir.nodes[to_id.0].id.as_str();
         assert_eq!(first_from, "api");
         assert_eq!(first_to, "db");
     }
@@ -10641,14 +10701,22 @@ Rel_Back(db, app, "Responds")"#,
         assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Line);
 
         let back_edge = &parsed.ir.edges[1];
-        let from_index = match back_edge.from {
-            fm_core::IrEndpoint::Node(node_id) => node_id.0,
-            _ => panic!("expected node endpoint"),
+        let endpoints_are_nodes = matches!(
+            (&back_edge.from, &back_edge.to),
+            (fm_core::IrEndpoint::Node(_), fm_core::IrEndpoint::Node(_))
+        );
+        assert!(endpoints_are_nodes, "expected node endpoint");
+        if !endpoints_are_nodes {
+            return;
+        }
+        let (from_id, to_id) = match (&back_edge.from, &back_edge.to) {
+            (fm_core::IrEndpoint::Node(from_id), fm_core::IrEndpoint::Node(to_id)) => {
+                (from_id, to_id)
+            }
+            _ => return,
         };
-        let to_index = match back_edge.to {
-            fm_core::IrEndpoint::Node(node_id) => node_id.0,
-            _ => panic!("expected node endpoint"),
-        };
+        let from_index = from_id.0;
+        let to_index = to_id.0;
         assert_eq!(parsed.ir.nodes[from_index].id, "app");
         assert_eq!(parsed.ir.nodes[to_index].id, "db");
     }
