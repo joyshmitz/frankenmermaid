@@ -572,6 +572,12 @@ struct RenderResult {
     warnings: Vec<String>,
 }
 
+#[derive(Debug)]
+struct RenderOutcome {
+    rendered: Vec<u8>,
+    render_result: Option<RenderResult>,
+}
+
 #[derive(Debug, Clone)]
 struct RenderCommandOptions<'a> {
     parse_mode: MermaidParseMode,
@@ -942,7 +948,34 @@ fn main() -> Result<()> {
         }
 
         #[cfg(feature = "serve")]
-        Command::Serve { port, host, open } => cmd_serve(&host, port, open),
+        Command::Serve { port, host, open } => {
+            let theme = resolve_theme_name(None, &loaded_config.file);
+            let layout_config = build_layout_config(&loaded_config.file, None)?;
+            let svg_base_config = build_base_svg_render_config(&loaded_config.file)?;
+            let term_base_config = build_base_term_render_config(&loaded_config.file)?;
+            let show_back_edges = resolve_show_back_edges(&loaded_config.file);
+            let show_minimap = term_base_config.show_minimap;
+            let options = RenderCommandOptions {
+                parse_mode: resolve_parse_mode(None, &loaded_config.file),
+                parser_config,
+                layout_algorithm: resolve_layout_algorithm(None, &loaded_config.file)?,
+                layout_config,
+                format: OutputFormat::Svg,
+                theme: &theme,
+                font_size: None,
+                output: None,
+                max_input_bytes,
+                svg_base_config,
+                term_base_config,
+                show_back_edges,
+                show_minimap,
+                embed_source_spans: true,
+                source_map_out: None,
+                dimensions: (None, None),
+                json_output: false,
+            };
+            cmd_serve(&host, port, open, options)
+        }
     }
 }
 
@@ -1533,42 +1566,22 @@ fn layout_float_anomalies(layout: &fm_layout::DiagramLayout) -> (usize, usize) {
 // Command: render
 // =============================================================================
 
-fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
-    let RenderCommandOptions {
-        parse_mode,
-        parser_config,
-        layout_algorithm,
-        layout_config,
-        format,
-        theme,
-        font_size,
-        output,
-        max_input_bytes,
-        svg_base_config,
-        term_base_config,
-        show_back_edges,
-        show_minimap,
-        embed_source_spans,
-        source_map_out,
-        dimensions,
-        json_output,
-    } = options;
-    let (width, height) = dimensions;
-    if json_output && output.is_none() {
-        anyhow::bail!("--json requires --output so rendered output does not mix with metadata");
-    }
-    if source_map_out.is_some() && format != OutputFormat::Svg {
-        anyhow::bail!("--source-map-out is only supported with --format svg");
+fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<RenderOutcome> {
+    if source.len() > options.max_input_bytes {
+        anyhow::bail!(
+            "Inline input is {} bytes, which exceeds core.max_input_bytes={}",
+            source.len(),
+            options.max_input_bytes
+        );
     }
 
-    let source = load_input(input, max_input_bytes)?;
     let total_start = Instant::now();
     let pressure = MermaidNativePressureSignals::sample().into_report();
     let mut budget_broker = MermaidBudgetLedger::new(&pressure);
 
     // Parse
     let parse_start = Instant::now();
-    let parsed = parse_with_mode_and_config(&source, parse_mode, &parser_config);
+    let parsed = parse_with_mode_and_config(source, options.parse_mode, &options.parser_config);
     let parse_time = parse_start.elapsed();
     budget_broker.record_parse(u64::try_from(parse_time.as_millis()).unwrap_or(u64::MAX));
 
@@ -1594,8 +1607,8 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
     };
     let traced_layout = fm_layout::layout_diagram_traced_with_config_and_guardrails(
         &parsed.ir,
-        layout_algorithm,
-        layout_config,
+        options.layout_algorithm,
+        options.layout_config.clone(),
         layout_guardrails,
     );
     let layout = &traced_layout.layout;
@@ -1605,7 +1618,7 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
         build_layout_guard_report_with_pressure(&parsed.ir, &traced_layout, pressure);
     let (_cx, observability) = mermaid_layout_guard_observability(
         "cli.render",
-        &source,
+        source,
         traced_layout.trace.dispatch.selected.as_str(),
         traced_layout.trace.guard.estimated_layout_time_ms.max(1) as u64,
     );
@@ -1633,21 +1646,21 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
     let effective_theme = if budget_broker.should_simplify_render() {
         "monochrome"
     } else {
-        theme
+        options.theme
     };
     let (rendered, actual_width, actual_height) = render_format(
         &parsed.ir,
         layout,
-        format,
+        options.format,
         RenderSurfaceOptions {
             theme: effective_theme,
-            font_size,
-            svg_base_config,
-            term_base_config,
-            show_back_edges,
-            show_minimap,
-            embed_source_spans,
-            dimensions: (width, height),
+            font_size: options.font_size,
+            svg_base_config: options.svg_base_config.clone(),
+            term_base_config: options.term_base_config.clone(),
+            show_back_edges: options.show_back_edges,
+            show_minimap: options.show_minimap,
+            embed_source_spans: options.embed_source_spans,
+            dimensions: options.dimensions,
             degradation: guard_report.degradation.clone(),
         },
     )?;
@@ -1662,18 +1675,28 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
     let source_map = layout_source_map(&parsed.ir, layout);
     let accessibility_summary = describe_diagram_with_layout(&parsed.ir, Some(layout));
 
-    if let Some(path) = source_map_out {
+    if let Some(path) = options.source_map_out {
         let artifact = serde_json::to_string_pretty(&source_map)?;
         std::fs::write(path, artifact)
             .context(format!("Failed to write source map file: {path}"))?;
         info!("Wrote source map artifact to: {path}");
     }
 
-    if json_output {
-        let result = RenderResult {
-            format: format!("{format:?}").to_lowercase(),
-            parse_mode: parse_mode.as_str().to_string(),
-            embedded_source_spans: embed_source_spans,
+    info!(
+        "Rendered {} via layout {}->{} with {} nodes, {} edges in {:.2}ms",
+        parsed.ir.diagram_type.as_str(),
+        traced_layout.trace.dispatch.requested.as_str(),
+        traced_layout.trace.dispatch.selected.as_str(),
+        parsed.ir.nodes.len(),
+        parsed.ir.edges.len(),
+        total_time.as_secs_f64() * 1000.0
+    );
+
+    let render_result = if options.json_output {
+        Some(RenderResult {
+            format: format!("{:?}", options.format).to_lowercase(),
+            parse_mode: options.parse_mode.as_str().to_string(),
+            embedded_source_spans: options.embed_source_spans,
             accessibility_summary,
             layout_requested: traced_layout.trace.dispatch.requested.as_str().to_string(),
             layout_selected: traced_layout.trace.dispatch.selected.as_str().to_string(),
@@ -1697,7 +1720,7 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             source_span_edge_count: count_known_edge_spans(layout),
             source_span_cluster_count: count_known_cluster_spans(layout),
             source_map_entry_count: source_map.entries.len(),
-            source_map_out: source_map_out.map(str::to_string),
+            source_map_out: options.source_map_out.map(str::to_string),
             diagram_type: parsed.ir.diagram_type.as_str().to_string(),
             node_count: parsed.ir.nodes.len(),
             edge_count: parsed.ir.edges.len(),
@@ -1737,27 +1760,79 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
             render_time_ms: render_time.as_secs_f64() * 1000.0,
             total_time_ms: total_time.as_secs_f64() * 1000.0,
             warnings: parsed.warnings,
-        };
+        })
+    } else {
+        None
+    };
 
+    Ok(RenderOutcome {
+        rendered,
+        render_result,
+    })
+}
+
+fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
+    let RenderCommandOptions {
+        parse_mode,
+        parser_config,
+        layout_algorithm,
+        layout_config,
+        format,
+        theme,
+        font_size,
+        output,
+        max_input_bytes,
+        svg_base_config,
+        term_base_config,
+        show_back_edges,
+        show_minimap,
+        embed_source_spans,
+        source_map_out,
+        dimensions,
+        json_output,
+    } = options;
+    let (width, height) = dimensions;
+    if json_output && output.is_none() {
+        anyhow::bail!("--json requires --output so rendered output does not mix with metadata");
+    }
+    if source_map_out.is_some() && format != OutputFormat::Svg {
+        anyhow::bail!("--source-map-out is only supported with --format svg");
+    }
+
+    let source = load_input(input, max_input_bytes)?;
+    let outcome = render_source(
+        &source,
+        &RenderCommandOptions {
+            parse_mode,
+            parser_config,
+            layout_algorithm,
+            layout_config,
+            format,
+            theme,
+            font_size,
+            output,
+            max_input_bytes,
+            svg_base_config,
+            term_base_config,
+            show_back_edges,
+            show_minimap,
+            embed_source_spans,
+            source_map_out,
+            dimensions: (width, height),
+            json_output,
+        },
+    )?;
+
+    if let Some(result) = outcome.render_result {
         let json_str = serde_json::to_string_pretty(&result)?;
         println!("{json_str}");
     }
 
     // Write output
     match format {
-        OutputFormat::Png => write_output_bytes(output, &rendered)?,
-        _ => write_output(output, &String::from_utf8_lossy(&rendered))?,
+        OutputFormat::Png => write_output_bytes(output, &outcome.rendered)?,
+        _ => write_output(output, &String::from_utf8_lossy(&outcome.rendered))?,
     }
-
-    info!(
-        "Rendered {} via layout {}->{} with {} nodes, {} edges in {:.2}ms",
-        parsed.ir.diagram_type.as_str(),
-        traced_layout.trace.dispatch.requested.as_str(),
-        traced_layout.trace.dispatch.selected.as_str(),
-        parsed.ir.nodes.len(),
-        parsed.ir.edges.len(),
-        total_time.as_secs_f64() * 1000.0
-    );
 
     Ok(())
 }
@@ -4140,7 +4215,7 @@ fn render_and_output(input: &str, options: RenderCommandOptions<'_>, clear: bool
 // =============================================================================
 
 #[cfg(feature = "serve")]
-fn cmd_serve(host: &str, port: u16, open: bool) -> Result<()> {
+fn cmd_serve(host: &str, port: u16, open: bool, options: RenderCommandOptions<'_>) -> Result<()> {
     use tiny_http::{Response, Server};
 
     let addr = format!("{host}:{port}");
@@ -4159,7 +4234,7 @@ fn cmd_serve(host: &str, port: u16, open: bool) -> Result<()> {
 
         let response = match url_path {
             "/" => serve_playground_html(),
-            "/render" => handle_render_request(&mut request),
+            "/render" => handle_render_request(&mut request, &options),
             _ => Response::from_string("Not Found").with_status_code(404),
         };
 
@@ -4256,6 +4331,7 @@ fn serve_playground_html() -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
 #[cfg(feature = "serve")]
 fn handle_render_request(
     request: &mut tiny_http::Request,
+    options: &RenderCommandOptions<'_>,
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
     use tiny_http::{Header, Response};
 
@@ -4264,9 +4340,10 @@ fn handle_render_request(
         .iter()
         .find(|header| header.field.equiv("Content-Length"))
         .and_then(|header| header.value.as_str().parse::<usize>().ok());
-    if content_length.is_some_and(|len| len > DEFAULT_MAX_INPUT_BYTES) {
+    if content_length.is_some_and(|len| len > options.max_input_bytes) {
         return Response::from_string(format!(
-            "Request body exceeds {DEFAULT_MAX_INPUT_BYTES} bytes"
+            "Request body exceeds {} bytes",
+            options.max_input_bytes
         ))
         .with_status_code(413);
     }
@@ -4274,22 +4351,26 @@ fn handle_render_request(
     let mut body = String::new();
     let mut reader = request
         .as_reader()
-        .take(u64::try_from(DEFAULT_MAX_INPUT_BYTES).unwrap_or(u64::MAX) + 1);
+        .take(u64::try_from(options.max_input_bytes).unwrap_or(u64::MAX) + 1);
     if let Err(e) = reader.read_to_string(&mut body) {
         return Response::from_string(format!("Failed to read body: {e}")).with_status_code(400);
     }
-    if body.len() > DEFAULT_MAX_INPUT_BYTES {
+    if body.len() > options.max_input_bytes {
         return Response::from_string(format!(
-            "Request body exceeds {DEFAULT_MAX_INPUT_BYTES} bytes"
+            "Request body exceeds {} bytes",
+            options.max_input_bytes
         ))
         .with_status_code(413);
     }
 
-    let parsed = fm_parser::parse(&body);
-    let layout = fm_layout::layout_diagram(&parsed.ir);
-    let svg = render_svg_with_layout(&parsed.ir, &layout, &SvgRenderConfig::default());
+    let svg_bytes = match render_source(&body, options) {
+        Ok(outcome) => outcome.rendered,
+        Err(err) => {
+            return Response::from_string(format!("Render error: {err}")).with_status_code(400);
+        }
+    };
 
-    let mut response = Response::from_data(svg.into_bytes());
+    let mut response = Response::from_data(svg_bytes);
     if let Ok(header) = Header::from_bytes(&b"Content-Type"[..], &b"image/svg+xml"[..]) {
         response = response.with_header(header);
     }
