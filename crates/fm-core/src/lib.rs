@@ -1736,6 +1736,10 @@ pub fn sanitize_style_value(value: &str) -> Option<String> {
     if value.contains('{') || value.contains('}') {
         return None;
     }
+    // Reject escape/control characters to avoid CSS escape-based bypasses.
+    if value.contains('\\') || value.chars().any(|ch| ch.is_control()) {
+        return None;
+    }
     // Reject expression() (IE legacy XSS vector).
     if trimmed.contains("expression(") {
         return None;
@@ -7535,6 +7539,16 @@ mod tests {
     #[test]
     fn sanitize_rejects_brace_injection() {
         assert!(sanitize_style_value("red} .evil{color:red").is_none());
+    }
+
+    #[test]
+    fn sanitize_rejects_backslash_escape() {
+        assert!(sanitize_style_value("url\\(http://evil.com)").is_none());
+    }
+
+    #[test]
+    fn sanitize_rejects_control_characters() {
+        assert!(sanitize_style_value("rgb(1,\n2,3)").is_none());
     }
 
     #[test]
