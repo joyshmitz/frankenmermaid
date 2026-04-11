@@ -789,16 +789,55 @@ fn contains_directed_edge_operator(input: &str) -> bool {
 }
 
 fn extract_body(input: &str) -> &str {
-    let Some(start) = input.find('{') else {
+    let mut start: Option<usize> = None;
+    let mut end: Option<usize> = None;
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    let mut html_depth = 0_usize;
+
+    for (idx, ch) in input.char_indices() {
+        if let Some(q) = in_quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == q {
+                in_quote = None;
+            }
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            in_quote = Some(ch);
+            continue;
+        }
+        if ch == '<' {
+            html_depth = html_depth.saturating_add(1);
+            continue;
+        }
+        if ch == '>' {
+            html_depth = html_depth.saturating_sub(1);
+            continue;
+        }
+        if html_depth > 0 {
+            continue;
+        }
+
+        if ch == '{' {
+            start.get_or_insert(idx);
+        } else if ch == '}' && start.is_some() {
+            end = Some(idx);
+        }
+    }
+
+    let Some(start_idx) = start else {
         return input;
     };
-    let Some(end) = input.rfind('}') else {
-        return &input[start + 1..];
-    };
-    if end <= start {
+    let end_idx = end.unwrap_or(input.len());
+    if end_idx <= start_idx {
         return input;
     }
-    &input[start + 1..end]
+    &input[start_idx + 1..end_idx]
 }
 
 fn parse_subgraph_start(
@@ -1092,6 +1131,22 @@ mod tests {
         assert_eq!(parsed.ir.nodes.len(), 2);
         assert_eq!(parsed.ir.edges.len(), 1);
         assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Line);
+    }
+
+    #[test]
+    fn parses_dot_when_graph_name_contains_brace_in_quotes() {
+        let parsed = parse_dot("digraph \"name {brace}\" { a -> b; }");
+        assert_eq!(parsed.ir.nodes.len(), 2);
+        assert_eq!(parsed.ir.edges.len(), 1);
+        assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Arrow);
+    }
+
+    #[test]
+    fn parses_dot_when_graph_name_contains_brace_in_html() {
+        let parsed = parse_dot("digraph <<b>{name}</b>> { a -> b; }");
+        assert_eq!(parsed.ir.nodes.len(), 2);
+        assert_eq!(parsed.ir.edges.len(), 1);
+        assert_eq!(parsed.ir.edges[0].arrow, ArrowType::Arrow);
     }
 
     #[test]

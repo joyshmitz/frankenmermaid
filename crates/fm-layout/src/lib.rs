@@ -3235,6 +3235,7 @@ fn dispatch_layout_algorithm(ir: &MermaidDiagramIr, requested: LayoutAlgorithm) 
         }
     };
     info!(
+        event = "layout.dispatch",
         requested = dispatch.requested.as_str(),
         selected = dispatch.selected.as_str(),
         capability_unavailable = dispatch.capability_unavailable,
