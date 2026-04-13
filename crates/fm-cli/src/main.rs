@@ -2138,15 +2138,15 @@ fn build_fnx_witness(
     }
     let layout_selected = traced_layout.trace.dispatch.selected;
     let uses_sugiyama = layout_selected == fm_layout::LayoutAlgorithm::Sugiyama;
-    let used = fnx_enabled && uses_sugiyama;
+    // fnx_enabled is always true here (early return above), so `used` simplifies to `uses_sugiyama`
+    let used = uses_sugiyama;
     let algorithms_invoked = if used {
         vec!["degree_centrality".to_string()]
     } else {
         Vec::new()
     };
-    let (fallback_level, fallback_reason) = if !fnx_enabled {
-        ("fnx_disabled", "user_disabled")
-    } else if !uses_sugiyama {
+    // fnx_enabled is always true here (early return above)
+    let (fallback_level, fallback_reason) = if !uses_sugiyama {
         ("fnx_disabled", "not_applicable")
     } else {
         ("fnx_full", "none")
@@ -2195,9 +2195,8 @@ fn build_fnx_validation_witness(
     if !fnx_enabled {
         return None;
     }
-    let (fallback_level, fallback_reason) = if !fnx_enabled {
-        ("fnx_disabled", "user_disabled")
-    } else if results.is_none() {
+    // fnx_enabled is always true here (early return above)
+    let (fallback_level, fallback_reason) = if results.is_none() {
         ("fnx_disabled", "not_applicable")
     } else {
         ("fnx_full", "none")
@@ -2221,8 +2220,9 @@ fn build_fnx_validation_witness(
     let bridge_count = results
         .map(|r| r.bridge_count.to_string())
         .unwrap_or_default();
+    // fnx_enabled is always true here (early return above)
     let results_hash = fnx_results_hash(&[
-        if fnx_enabled { "enabled" } else { "disabled" },
+        "enabled",
         projection_mode,
         fnx_fallback.as_str(),
         &component_count,
@@ -2231,8 +2231,8 @@ fn build_fnx_validation_witness(
     ]);
 
     Some(FnxWitness {
-        enabled: fnx_enabled,
-        used: fnx_enabled && results.is_some(),
+        enabled: true,
+        used: results.is_some(),
         projection_mode: projection_mode.to_string(),
         algorithms_invoked,
         analysis_time_us: analysis_time.as_micros().min(u128::from(u64::MAX)) as u64,
