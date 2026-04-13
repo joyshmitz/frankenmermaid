@@ -1,0 +1,26 @@
+flowchart TD
+  %% SCC-heavy: Multiple strongly connected components with inter-SCC edges
+  %% Tests: dense cycle detection, component isolation
+
+  %% SCC 1: Triangle
+  A1 --> A2
+  A2 --> A3
+  A3 --> A1
+
+  %% SCC 2: Square
+  B1 --> B2
+  B2 --> B3
+  B3 --> B4
+  B4 --> B1
+
+  %% SCC 3: Pentagon
+  C1 --> C2
+  C2 --> C3
+  C3 --> C4
+  C4 --> C5
+  C5 --> C1
+
+  %% Inter-SCC edges (non-cyclic)
+  A2 --> B1
+  B3 --> C1
+  A3 --> C4

@@ -1,0 +1,31 @@
+flowchart TD
+  %% Feedback loop pattern: Multiple control loops with shared nodes
+  %% Tests: back-edge detection, nested cycle handling
+
+  %% Main forward path
+  Input --> Process1
+  Process1 --> Process2
+  Process2 --> Process3
+  Process3 --> Output
+
+  %% Primary feedback loop
+  Output --> Monitor
+  Monitor --> Controller
+  Controller --> Process1
+
+  %% Secondary feedback loop (inner)
+  Process2 --> Sensor
+  Sensor --> Adjuster
+  Adjuster --> Process1
+
+  %% Tertiary feedback loop (nested)
+  Process3 --> Validator
+  Validator --> Process2
+
+  %% Error recovery loop
+  Monitor --> ErrorHandler
+  ErrorHandler --> Input
+
+  %% Cross-loop interaction
+  Controller --> Sensor
+  Validator --> Monitor

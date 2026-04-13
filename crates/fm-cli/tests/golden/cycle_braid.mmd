@@ -1,0 +1,31 @@
+flowchart TD
+  %% Braid pattern: Interleaved crossing paths forming multiple cycles
+  %% Tests: crossing minimization, edge routing under high overlap
+
+  %% Top row
+  T1 --> M1
+  T1 --> M2
+  T2 --> M1
+  T2 --> M2
+  T3 --> M2
+  T3 --> M3
+
+  %% Middle row - cross connections
+  M1 --> B1
+  M1 --> B2
+  M2 --> B1
+  M2 --> B2
+  M2 --> B3
+  M3 --> B2
+  M3 --> B3
+
+  %% Back edges creating cycles
+  B1 --> T1
+  B2 --> T2
+  B3 --> T3
+
+  %% Additional cross-braid edges
+  M1 --> M2
+  M2 --> M3
+  B1 --> M2
+  B2 --> M1

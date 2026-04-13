@@ -620,6 +620,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fm-regression-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fm-core",
+ "fm-layout",
+ "fm-parser",
+ "fm-render-svg",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fm-render-canvas"
 version = "0.1.0"
 dependencies = [

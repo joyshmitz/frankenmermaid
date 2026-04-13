@@ -8,6 +8,7 @@ members = [
     "crates/fm-render-term",
     "crates/fm-wasm",
     "crates/fm-cli",
+    "crates/fm-regression-harness",
 ]
 default-members = ["crates/fm-cli"]
 resolver = "2"
