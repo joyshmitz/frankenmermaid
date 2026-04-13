@@ -656,9 +656,10 @@ mod ablation_tests {
         let small = make_chain_graph(20);
         let result = run_ablation_single(&small);
 
-        // For 20 nodes, centrality should definitely be fast enough
-        assert!(result.centrality_time_us < 1000,
-            "Centrality for 20-node graph should be < 1ms, got {}us",
+        // For 20 nodes, centrality should definitely be fast enough.
+        // Use lenient 5ms threshold to account for CI timing variance.
+        assert!(result.centrality_time_us < 5000,
+            "Centrality for 20-node graph should be < 5ms, got {}us",
             result.centrality_time_us);
 
         // Verify the comparison function works with computed scores
