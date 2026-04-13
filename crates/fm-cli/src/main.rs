@@ -1354,7 +1354,7 @@ fn load_input(input: &str, max_input_bytes: usize) -> Result<String> {
             );
         }
         Ok(buffer)
-    } else if Path::new(input).exists() {
+    } else if Path::new(input).exists() && should_treat_input_as_path(input) {
         let metadata =
             std::fs::metadata(input).context(format!("Failed to stat input file: {input}"))?;
         if metadata.len() > u64::try_from(max_input_bytes).unwrap_or(u64::MAX) {
@@ -1390,6 +1390,135 @@ fn load_input(input: &str, max_input_bytes: usize) -> Result<String> {
         }
         Ok(input.to_string())
     }
+}
+
+fn should_treat_input_as_path(input: &str) -> bool {
+    let has_path_separator = input.contains('/') || input.contains('\\');
+    if has_path_separator {
+        return true;
+    }
+
+    if looks_like_inline_mermaid(input) {
+        return has_file_extension_hint(input);
+    }
+
+    true
+}
+
+fn has_file_extension_hint(input: &str) -> bool {
+    if input.chars().any(|c| c.is_whitespace()) {
+        return false;
+    }
+    let ext = Path::new(input)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    ext.is_some()
+}
+
+fn looks_like_inline_mermaid(input: &str) -> bool {
+    if input.contains('\n') || input.contains('\r') {
+        return true;
+    }
+
+    let lowered = input.to_ascii_lowercase();
+    let keywords = [
+        "flowchart",
+        "graph",
+        "sequencediagram",
+        "classdiagram",
+        "statediagram",
+        "erdiagram",
+        "journey",
+        "gantt",
+        "gitgraph",
+        "mindmap",
+        "sankey",
+        "xychart",
+        "block",
+        "timeline",
+        "pie",
+    ];
+    if keywords.iter().any(|kw| lowered.contains(kw)) {
+        return true;
+    }
+
+    let tokens = [
+        "-->",
+        "<--",
+        "---",
+        "==>",
+        "<=>",
+        "-.->",
+        ":::",
+        "%%{",
+        "subgraph",
+        "participant",
+        "note",
+        "classdef",
+        "linkstyle",
+    ];
+    if tokens.iter().any(|token| input.contains(token)) {
+        return true;
+    }
+
+    // Check for mermaid node definitions (ID followed by bracket shape)
+    // Pattern: word followed by bracket - e.g., "A[text]", "B{decision}", "C(label)"
+    // This is more specific than just checking for brackets, which would
+    // false-positive on filenames like "report(final).mmd"
+    has_node_definition_pattern(input)
+}
+
+/// Check for mermaid node definition patterns: alphanumeric ID followed by bracket shape.
+/// Examples: `A[text]`, `node1{decision}`, `step(label)`, `id((circle))`
+///
+/// Excludes patterns that look like filenames (bracket followed by file extension).
+fn has_node_definition_pattern(input: &str) -> bool {
+    // If input looks like a filename with extension, it's probably not mermaid
+    if looks_like_filename(input) {
+        return false;
+    }
+
+    let chars: Vec<char> = input.chars().collect();
+    let openers = ['[', '{', '('];
+
+    for (i, &c) in chars.iter().enumerate() {
+        if openers.contains(&c) && i > 0 {
+            // Check if preceded by alphanumeric (node ID)
+            let prev = chars[i - 1];
+            if prev.is_alphanumeric() || prev == '_' {
+                // Find matching closer
+                let closer = match c {
+                    '[' => ']',
+                    '{' => '}',
+                    '(' => ')',
+                    _ => continue,
+                };
+                // Look for closer with content between
+                if let Some(close_pos) = chars[i + 1..].iter().position(|&x| x == closer) {
+                    if close_pos > 0 {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if input looks like a filename (has a file extension pattern).
+fn looks_like_filename(input: &str) -> bool {
+    // Look for pattern: text.ext where ext is 1-5 alphanumeric chars at end
+    if let Some(dot_pos) = input.rfind('.') {
+        let ext = &input[dot_pos + 1..];
+        if !ext.is_empty()
+            && ext.len() <= 5
+            && ext.chars().all(|c| c.is_ascii_alphanumeric())
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn layout_without_back_edges(layout: &fm_layout::DiagramLayout) -> fm_layout::DiagramLayout {
@@ -3584,6 +3713,93 @@ mod config_tests {
         )
         .expect("parse config");
         assert!(!resolve_show_back_edges(&config));
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::load_input;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
+
+    struct CwdGuard {
+        original: PathBuf,
+    }
+
+    impl CwdGuard {
+        fn new(path: &Path) -> Self {
+            let original = std::env::current_dir().expect("read cwd");
+            std::env::set_current_dir(path).expect("set cwd");
+            Self { original }
+        }
+    }
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.original);
+        }
+    }
+
+    #[test]
+    fn inline_mermaid_like_input_does_not_read_existing_file() {
+        let _guard = CWD_LOCK.lock().expect("lock cwd");
+        let temp = TempDir::new().expect("temp dir");
+        let _cwd = CwdGuard::new(temp.path());
+
+        let path = temp.path().join("A[Start]");
+        std::fs::write(&path, "file-contents").expect("write temp file");
+
+        let input = "A[Start]";
+        let loaded = load_input(input, 1024).expect("load inline input");
+        assert_eq!(loaded, input);
+    }
+
+    #[test]
+    fn explicit_path_wins_over_inline_heuristics() {
+        let _guard = CWD_LOCK.lock().expect("lock cwd");
+        let temp = TempDir::new().expect("temp dir");
+        let _cwd = CwdGuard::new(temp.path());
+
+        let path = temp.path().join("A[Start]");
+        std::fs::write(&path, "file-contents").expect("write temp file");
+        let input = "./A[Start]";
+        let loaded = load_input(input, 1024).expect("load file input");
+        assert_eq!(loaded, "file-contents");
+    }
+
+    #[test]
+    fn filename_with_parens_reads_as_file_not_inline() {
+        // Regression test: filenames like "report(final).mmd" should be read
+        // as files, not treated as inline mermaid due to parentheses
+        let _guard = CWD_LOCK.lock().expect("lock cwd");
+        let temp = TempDir::new().expect("temp dir");
+        let _cwd = CwdGuard::new(temp.path());
+
+        let path = temp.path().join("report(final).mmd");
+        std::fs::write(&path, "graph TD\n  A-->B").expect("write temp file");
+
+        let input = "report(final).mmd";
+        let loaded = load_input(input, 1024).expect("load file with parens");
+        assert_eq!(loaded, "graph TD\n  A-->B");
+    }
+
+    #[test]
+    fn filename_with_brackets_reads_as_file_not_inline() {
+        // Regression test: filenames like "data[backup].txt" should be read
+        // as files, not treated as inline mermaid due to brackets
+        let _guard = CWD_LOCK.lock().expect("lock cwd");
+        let temp = TempDir::new().expect("temp dir");
+        let _cwd = CwdGuard::new(temp.path());
+
+        let path = temp.path().join("data[backup].txt");
+        std::fs::write(&path, "flowchart LR\n  X-->Y").expect("write temp file");
+
+        let input = "data[backup].txt";
+        let loaded = load_input(input, 1024).expect("load file with brackets");
+        assert_eq!(loaded, "flowchart LR\n  X-->Y");
     }
 }
 
