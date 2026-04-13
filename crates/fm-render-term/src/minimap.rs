@@ -489,7 +489,8 @@ fn colorize_output(output: &str) -> String {
             '┌' | '┐' | '└' | '┘' | '─' | '│' | '+' | '-' | '|' => {
                 format!("\x1b[90m{ch}\x1b[0m")
             }
-            '█' | '▀' | '▄' | '⣿' | '⣀'..='⣿' => format!("\x1b[36m{ch}\x1b[0m"),
+            // Block characters and full Braille range (U+2800..=U+28FF)
+            '█' | '▀' | '▄' | '\u{2800}'..='\u{28FF}' => format!("\x1b[36m{ch}\x1b[0m"),
             _ => ch.to_string(),
         })
         .collect()
