@@ -40,13 +40,13 @@ use fm_core::{
     MermaidTier, StructuredDiagnostic, capability_matrix, capability_matrix_json_pretty,
     mermaid_layout_guard_observability,
 };
+#[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
+use fm_layout::fnx_diagnostics::{FnxAnalysisResults, FnxDiagnosticSeverity, analyze_structure};
 use fm_layout::{
     CycleStrategy, EdgeRouting, LayoutAlgorithm, LayoutConfig, LayoutGuardrails, TracedLayout,
     build_layout_decision_ledger, build_layout_guard_report_with_pressure,
     layout_diagram_traced_with_config_and_guardrails, layout_source_map,
 };
-#[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
-use fm_layout::fnx_diagnostics::{FnxAnalysisResults, FnxDiagnosticSeverity, analyze_structure};
 use fm_parser::{
     ParserConfig, detect_type_with_confidence_and_config, first_significant_line,
     parse_evidence_json, parse_with_mode, parse_with_mode_and_config,
@@ -276,6 +276,18 @@ enum Command {
         /// Optional path to write machine-readable diagnostics JSON artifact.
         #[arg(long)]
         diagnostics_out: Option<String>,
+
+        /// FNX integration mode (auto=feature-detect, enabled=force on, disabled=force off).
+        #[arg(long, value_enum, default_value = "auto")]
+        fnx_mode: FnxModeArg,
+
+        /// FNX graph projection strategy for analysis algorithms.
+        #[arg(long, value_enum, default_value = "undirected")]
+        fnx_projection: FnxProjectionArg,
+
+        /// FNX fallback behavior when analysis exceeds budget or fails.
+        #[arg(long, value_enum, default_value = "graceful")]
+        fnx_fallback: FnxFallbackArg,
     },
 
     /// Emit the executable capability claim matrix as JSON.
@@ -456,10 +468,12 @@ enum FnxModeArg {
 impl FnxModeArg {
     /// Check if FNX should be used based on mode and feature availability.
     #[must_use]
-    #[allow(dead_code)] // Will be used when FNX integration is wired through render path
     fn should_use_fnx(self) -> bool {
         match self {
-            Self::Auto => cfg!(all(feature = "fnx-integration", not(target_arch = "wasm32"))),
+            Self::Auto => cfg!(all(
+                feature = "fnx-integration",
+                not(target_arch = "wasm32")
+            )),
             Self::Enabled => true,
             Self::Disabled => false,
         }
@@ -695,6 +709,17 @@ struct FnxWitness {
     results_hash: String,
 }
 
+fn fnx_results_hash(parts: &[&str]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for part in parts {
+        for byte in part.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{:016x}", hash)
+}
+
 #[derive(Debug)]
 struct RenderOutcome {
     rendered: Vec<u8>,
@@ -762,6 +787,10 @@ struct ValidateCommandOptions<'a> {
     max_input_bytes: usize,
     svg_base_config: SvgRenderConfig,
     show_back_edges: bool,
+    // FNX integration controls
+    fnx_mode: FnxModeArg,
+    fnx_projection: FnxProjectionArg,
+    fnx_fallback: FnxFallbackArg,
 }
 
 /// Result of detecting diagram type.
@@ -838,6 +867,8 @@ struct ValidateResult {
     fnx_bridge_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fnx_cycle_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fnx_witness: Option<FnxWitness>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -951,7 +982,10 @@ fn main() -> Result<()> {
                 fnx_mode = fnx_mode.as_str(),
                 fnx_projection = fnx_projection.as_str(),
                 fnx_fallback = fnx_fallback.as_str(),
-                fnx_available = cfg!(all(feature = "fnx-integration", not(target_arch = "wasm32"))),
+                fnx_available = cfg!(all(
+                    feature = "fnx-integration",
+                    not(target_arch = "wasm32")
+                )),
                 "FNX configuration"
             );
 
@@ -1032,6 +1066,9 @@ fn main() -> Result<()> {
             format,
             fail_on,
             diagnostics_out,
+            fnx_mode,
+            fnx_projection,
+            fnx_fallback,
         } => cmd_validate(
             &input,
             ValidateCommandOptions {
@@ -1045,6 +1082,9 @@ fn main() -> Result<()> {
                 max_input_bytes,
                 svg_base_config: build_base_svg_render_config(&loaded_config.file)?,
                 show_back_edges: resolve_show_back_edges(&loaded_config.file),
+                fnx_mode,
+                fnx_projection,
+                fnx_fallback,
             },
         ),
 
@@ -1641,7 +1681,11 @@ fn has_node_definition_pattern(input: &str) -> bool {
                     _ => continue,
                 };
                 // Look for closer with content between
-                if chars[i + 1..].iter().position(|&x| x == closer).is_some_and(|p| p > 0) {
+                if chars[i + 1..]
+                    .iter()
+                    .position(|&x| x == closer)
+                    .is_some_and(|p| p > 0)
+                {
                     return true;
                 }
             }
@@ -1655,10 +1699,7 @@ fn looks_like_filename(input: &str) -> bool {
     // Look for pattern: text.ext where ext is 1-5 alphanumeric chars at end
     if let Some(dot_pos) = input.rfind('.') {
         let ext = &input[dot_pos + 1..];
-        if !ext.is_empty()
-            && ext.len() <= 5
-            && ext.chars().all(|c| c.is_ascii_alphanumeric())
-        {
+        if !ext.is_empty() && ext.len() <= 5 && ext.chars().all(|c| c.is_ascii_alphanumeric()) {
             return true;
         }
     }
@@ -1886,6 +1927,9 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
     }
 
     // Layout
+    let fnx_enabled = options.fnx_mode.should_use_fnx();
+    let mut layout_config = options.layout_config.clone();
+    layout_config.fnx_enabled = fnx_enabled;
     let layout_start = Instant::now();
     let layout_guardrails = LayoutGuardrails {
         max_layout_time_ms: budget_broker.layout_time_budget_ms(),
@@ -1896,7 +1940,7 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
     let traced_layout = fm_layout::layout_diagram_traced_with_config_and_guardrails(
         &parsed.ir,
         options.layout_algorithm,
-        options.layout_config.clone(),
+        layout_config,
         layout_guardrails,
     );
     let layout = &traced_layout.layout;
@@ -1994,6 +2038,16 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
         let layout_decision_ledger =
             build_layout_decision_ledger(&parsed.ir, &traced_layout, &guard_report);
         let layout_decision_ledger_jsonl = layout_decision_ledger.to_jsonl()?;
+        #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
+        let fnx_witness = build_fnx_witness(
+            &traced_layout,
+            fnx_enabled,
+            options.fnx_projection,
+            options.fnx_fallback,
+        );
+        #[cfg(not(all(feature = "fnx-integration", not(target_arch = "wasm32"))))]
+        let fnx_witness = None;
+
         Some(RenderResult {
             format: format!("{:?}", options.format).to_lowercase(),
             parse_mode: options.parse_mode.as_str().to_string(),
@@ -2061,7 +2115,7 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
             render_time_ms: render_time.as_secs_f64() * 1000.0,
             total_time_ms: total_time.as_secs_f64() * 1000.0,
             warnings: parsed.warnings,
-            fnx_witness: build_fnx_witness(&traced_layout),
+            fnx_witness,
         })
     } else {
         None
@@ -2075,32 +2129,130 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
 
 /// Build FNX witness metadata if FNX integration is enabled.
 #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
-fn build_fnx_witness(_traced_layout: &fm_layout::TracedLayout) -> Option<FnxWitness> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    // Build a basic witness indicating FNX was available
-    // In the future this will be enhanced with actual analysis provenance
-    let mut hasher = DefaultHasher::new();
-    "fnx_enabled".hash(&mut hasher);
-    let results_hash = format!("{:016x}", hasher.finish());
+fn build_fnx_witness(
+    traced_layout: &fm_layout::TracedLayout,
+    fnx_enabled: bool,
+    _fnx_projection: FnxProjectionArg,
+    fnx_fallback: FnxFallbackArg,
+) -> Option<FnxWitness> {
+    if !fnx_enabled {
+        return None;
+    }
+    let layout_selected = traced_layout.trace.dispatch.selected;
+    let uses_sugiyama = layout_selected == fm_layout::LayoutAlgorithm::Sugiyama;
+    let used = fnx_enabled && uses_sugiyama;
+    let algorithms_invoked = if used {
+        vec!["degree_centrality".to_string()]
+    } else {
+        Vec::new()
+    };
+    let (fallback_level, fallback_reason) = if !fnx_enabled {
+        ("fnx_disabled", "user_disabled")
+    } else if !uses_sugiyama {
+        ("fnx_disabled", "not_applicable")
+    } else {
+        ("fnx_full", "none")
+    };
+    let projection_mode = "undirected";
+    let node_count = traced_layout.layout.stats.node_count.to_string();
+    let edge_count = traced_layout.layout.stats.edge_count.to_string();
+    let crossings_before = traced_layout
+        .layout
+        .stats
+        .crossing_count_before_refinement
+        .to_string();
+    let crossings_after = traced_layout.layout.stats.crossing_count.to_string();
+    let results_hash = fnx_results_hash(&[
+        layout_selected.as_str(),
+        if used { "used" } else { "unused" },
+        projection_mode,
+        fnx_fallback.as_str(),
+        &node_count,
+        &edge_count,
+        &crossings_before,
+        &crossings_after,
+    ]);
 
     Some(FnxWitness {
-        enabled: true,
-        used: true, // Will be refined when FNX telemetry is integrated
-        projection_mode: "undirected".to_string(),
-        algorithms_invoked: vec!["degree_centrality".to_string()],
-        analysis_time_us: 0, // Will be populated from budget context
+        enabled: fnx_enabled,
+        used,
+        projection_mode: projection_mode.to_string(),
+        algorithms_invoked,
+        analysis_time_us: 0,
         budget_exceeded: false,
-        fallback_level: "fnx_full".to_string(),
-        fallback_reason: "none".to_string(),
+        fallback_level: fallback_level.to_string(),
+        fallback_reason: fallback_reason.to_string(),
+        results_hash,
+    })
+}
+
+#[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
+fn build_fnx_validation_witness(
+    fnx_enabled: bool,
+    _fnx_projection: FnxProjectionArg,
+    fnx_fallback: FnxFallbackArg,
+    results: Option<&FnxAnalysisResults>,
+    analysis_time: std::time::Duration,
+) -> Option<FnxWitness> {
+    if !fnx_enabled {
+        return None;
+    }
+    let (fallback_level, fallback_reason) = if !fnx_enabled {
+        ("fnx_disabled", "user_disabled")
+    } else if results.is_none() {
+        ("fnx_disabled", "not_applicable")
+    } else {
+        ("fnx_full", "none")
+    };
+    let projection_mode = "undirected";
+    let mut algorithms_invoked = vec!["connected_components", "cycle_basis"];
+    if results.is_some_and(|r| r.is_connected) {
+        algorithms_invoked.push("articulation_points");
+        algorithms_invoked.push("bridges");
+    }
+    let algorithms_invoked = algorithms_invoked
+        .into_iter()
+        .map(|entry| entry.to_string())
+        .collect::<Vec<_>>();
+    let component_count = results
+        .map(|r| r.component_count.to_string())
+        .unwrap_or_default();
+    let cycle_count = results
+        .map(|r| r.cycle_count.to_string())
+        .unwrap_or_default();
+    let bridge_count = results
+        .map(|r| r.bridge_count.to_string())
+        .unwrap_or_default();
+    let results_hash = fnx_results_hash(&[
+        if fnx_enabled { "enabled" } else { "disabled" },
+        projection_mode,
+        fnx_fallback.as_str(),
+        &component_count,
+        &cycle_count,
+        &bridge_count,
+    ]);
+
+    Some(FnxWitness {
+        enabled: fnx_enabled,
+        used: fnx_enabled && results.is_some(),
+        projection_mode: projection_mode.to_string(),
+        algorithms_invoked,
+        analysis_time_us: analysis_time.as_micros().min(u128::from(u64::MAX)) as u64,
+        budget_exceeded: false,
+        fallback_level: fallback_level.to_string(),
+        fallback_reason: fallback_reason.to_string(),
         results_hash,
     })
 }
 
 /// Build FNX witness metadata when FNX integration is disabled.
 #[cfg(not(all(feature = "fnx-integration", not(target_arch = "wasm32"))))]
-fn build_fnx_witness(_traced_layout: &fm_layout::TracedLayout) -> Option<FnxWitness> {
+fn build_fnx_witness(
+    _traced_layout: &fm_layout::TracedLayout,
+    _fnx_enabled: bool,
+    _fnx_projection: FnxProjectionArg,
+    _fnx_fallback: FnxFallbackArg,
+) -> Option<FnxWitness> {
     // FNX not available, no witness to report
     None
 }
@@ -2134,6 +2286,31 @@ fn cmd_render(input: &str, options: RenderCommandOptions<'_>) -> Result<()> {
     }
     if source_map_out.is_some() && format != OutputFormat::Svg {
         anyhow::bail!("--source-map-out is only supported with --format svg");
+    }
+    if matches!(fnx_mode, FnxModeArg::Enabled)
+        && !cfg!(all(
+            feature = "fnx-integration",
+            not(target_arch = "wasm32")
+        ))
+    {
+        anyhow::bail!("--fnx-mode enabled requires fnx-integration feature");
+    }
+    if fnx_mode.should_use_fnx() {
+        if matches!(
+            fnx_projection,
+            FnxProjectionArg::Directed | FnxProjectionArg::Auto
+        ) {
+            anyhow::bail!(
+                "--fnx-projection {} is not yet supported (use undirected)",
+                fnx_projection.as_str()
+            );
+        }
+        if matches!(fnx_fallback, FnxFallbackArg::Strict | FnxFallbackArg::Warn) {
+            anyhow::bail!(
+                "--fnx-fallback {} is not yet supported (use graceful)",
+                fnx_fallback.as_str()
+            );
+        }
     }
 
     let source = load_input(input, max_input_bytes)?;
@@ -2832,7 +3009,35 @@ fn cmd_validate(input: &str, options: ValidateCommandOptions<'_>) -> Result<()> 
         max_input_bytes,
         svg_base_config,
         show_back_edges,
+        fnx_mode,
+        fnx_projection,
+        fnx_fallback,
     } = options;
+    if matches!(fnx_mode, FnxModeArg::Enabled)
+        && !cfg!(all(
+            feature = "fnx-integration",
+            not(target_arch = "wasm32")
+        ))
+    {
+        anyhow::bail!("--fnx-mode enabled requires fnx-integration feature");
+    }
+    if fnx_mode.should_use_fnx() {
+        if matches!(
+            fnx_projection,
+            FnxProjectionArg::Directed | FnxProjectionArg::Auto
+        ) {
+            anyhow::bail!(
+                "--fnx-projection {} is not yet supported (use undirected)",
+                fnx_projection.as_str()
+            );
+        }
+        if matches!(fnx_fallback, FnxFallbackArg::Strict | FnxFallbackArg::Warn) {
+            anyhow::bail!(
+                "--fnx-fallback {} is not yet supported (use graceful)",
+                fnx_fallback.as_str()
+            );
+        }
+    }
 
     let source = load_input(input, max_input_bytes)?;
     let total_start = Instant::now();
@@ -2844,6 +3049,9 @@ fn cmd_validate(input: &str, options: ValidateCommandOptions<'_>) -> Result<()> 
     let parse_time = parse_start.elapsed();
     budget_broker.record_parse(u64::try_from(parse_time.as_millis()).unwrap_or(u64::MAX));
 
+    let fnx_enabled = fnx_mode.should_use_fnx();
+    let mut layout_config = layout_config;
+    layout_config.fnx_enabled = fnx_enabled;
     let layout_start = Instant::now();
     let layout_guardrails = LayoutGuardrails {
         max_layout_time_ms: budget_broker.layout_time_budget_ms(),
@@ -2890,13 +3098,17 @@ fn cmd_validate(input: &str, options: ValidateCommandOptions<'_>) -> Result<()> 
 
     // FNX structural analysis (when feature is enabled)
     #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
-    let fnx_results = {
+    let (fnx_results, fnx_analysis_time) = if fnx_enabled {
+        let analysis_start = Instant::now();
         let results = analyze_structure(&parsed.ir);
+        let analysis_time = analysis_start.elapsed();
         diagnostics.extend(collect_fnx_diagnostics(&results));
-        Some(results)
+        (Some(results), analysis_time)
+    } else {
+        (None, std::time::Duration::ZERO)
     };
     #[cfg(not(all(feature = "fnx-integration", not(target_arch = "wasm32"))))]
-    let _fnx_results: Option<()> = None;
+    let (fnx_results, fnx_analysis_time) = (None, std::time::Duration::ZERO);
 
     sort_diagnostics(&mut diagnostics);
 
@@ -2954,7 +3166,7 @@ fn cmd_validate(input: &str, options: ValidateCommandOptions<'_>) -> Result<()> 
             .map(|m| format!("{m:?}")),
         diagnostics,
         #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
-        fnx_enabled: Some(true),
+        fnx_enabled: Some(fnx_enabled),
         #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
         fnx_component_count: fnx_results.as_ref().map(|r| r.component_count),
         #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
@@ -2965,6 +3177,14 @@ fn cmd_validate(input: &str, options: ValidateCommandOptions<'_>) -> Result<()> 
         fnx_bridge_count: fnx_results.as_ref().map(|r| r.bridge_count),
         #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
         fnx_cycle_count: fnx_results.as_ref().map(|r| r.cycle_count),
+        #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
+        fnx_witness: build_fnx_validation_witness(
+            fnx_enabled,
+            fnx_projection,
+            fnx_fallback,
+            fnx_results.as_ref(),
+            fnx_analysis_time,
+        ),
         #[cfg(not(all(feature = "fnx-integration", not(target_arch = "wasm32"))))]
         fnx_enabled: None,
         #[cfg(not(all(feature = "fnx-integration", not(target_arch = "wasm32"))))]
@@ -2977,6 +3197,8 @@ fn cmd_validate(input: &str, options: ValidateCommandOptions<'_>) -> Result<()> 
         fnx_bridge_count: None,
         #[cfg(not(all(feature = "fnx-integration", not(target_arch = "wasm32"))))]
         fnx_cycle_count: None,
+        #[cfg(not(all(feature = "fnx-integration", not(target_arch = "wasm32"))))]
+        fnx_witness: None,
     };
     let _total_time = total_start.elapsed();
 
@@ -3516,9 +3738,9 @@ mod render_tests {
     use super::{
         ColorChoice, FnxFallbackArg, FnxModeArg, FnxProjectionArg, OutputFormat,
         RenderCommandOptions, RenderSurfaceOptions, SvgRenderConfig, TermRenderConfig, ThemePreset,
-        build_svg_render_config, diff_use_colors, extract_svg_dimensions, layout_without_back_edges,
-        normalize_positive_font_size, parse_positive_dimension_arg, parse_positive_font_size_arg,
-        render_format, render_source, terminal_size,
+        build_svg_render_config, diff_use_colors, extract_svg_dimensions,
+        layout_without_back_edges, normalize_positive_font_size, parse_positive_dimension_arg,
+        parse_positive_font_size_arg, render_format, render_source, terminal_size,
     };
     use fm_core::{MermaidParseMode, MermaidSourceMap, MermaidSourceMapKind};
     use fm_layout::{

@@ -1830,6 +1830,15 @@ fn render_json_replay_keeps_ledger_trace_continuity_and_stable_outputs() {
     assert_eq!(first_json["edge_count"], second_json["edge_count"]);
     assert_eq!(first_json["output_bytes"], first_svg.len());
     assert_eq!(second_json["output_bytes"], second_svg.len());
+    if let (Some(first_witness), Some(second_witness)) = (
+        first_json.get("fnx_witness"),
+        second_json.get("fnx_witness"),
+    ) {
+        assert_eq!(
+            first_witness["results_hash"], second_witness["results_hash"],
+            "FNX witness hash should be stable across replay"
+        );
+    }
 
     for json in [&first_json, &second_json] {
         let trace_id = json["trace_id"]
@@ -1850,6 +1859,89 @@ fn render_json_replay_keeps_ledger_trace_continuity_and_stable_outputs() {
             assert_eq!(entry["decision_id"], decision_id);
         }
     }
+}
+
+#[cfg(feature = "fnx-integration")]
+#[test]
+fn render_json_reports_fnx_witness_when_enabled() {
+    let output_file = NamedTempFile::new().expect("temp render output file");
+    let output_path = output_file
+        .path()
+        .to_str()
+        .expect("temp path must be valid utf-8")
+        .to_string();
+
+    let output = run_cli(
+        &[
+            "render",
+            "-",
+            "--format",
+            "svg",
+            "--json",
+            "--output",
+            &output_path,
+            "--fnx-mode",
+            "enabled",
+        ],
+        "flowchart LR\nA-->B\n",
+    );
+    assert!(
+        output.status.success(),
+        "render --json should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("render --json must print metadata JSON");
+    let witness = json
+        .get("fnx_witness")
+        .expect("fnx_witness should be present when fnx is enabled");
+    assert_eq!(witness["enabled"], true);
+    assert_eq!(witness["used"], true);
+    assert_eq!(witness["projection_mode"], "undirected");
+    assert!(witness["algorithms_invoked"].is_array());
+    assert!(
+        witness["algorithms_invoked"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry == "degree_centrality"),
+        "expected degree_centrality in algorithms_invoked"
+    );
+    assert!(witness["results_hash"].is_string());
+}
+
+#[cfg(feature = "fnx-integration")]
+#[test]
+fn validate_json_reports_fnx_witness_when_enabled() {
+    let output = run_cli(
+        &["validate", "-", "--format", "json", "--fnx-mode", "enabled"],
+        "flowchart LR\nA-->B\n",
+    );
+    assert!(
+        output.status.success(),
+        "validate --format json should succeed; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be utf-8");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("validate --format json must print valid JSON");
+    let witness = json
+        .get("fnx_witness")
+        .expect("fnx_witness should be present when fnx is enabled");
+    assert_eq!(witness["enabled"], true);
+    assert_eq!(witness["projection_mode"], "undirected");
+    assert!(
+        witness["algorithms_invoked"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry == "connected_components"),
+        "expected connected_components in algorithms_invoked"
+    );
+    assert!(witness["results_hash"].is_string());
 }
 
 #[test]
