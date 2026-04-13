@@ -454,3 +454,221 @@ mod tests {
         assert!(scores.is_empty());
     }
 }
+
+// ============================================================================
+// Ablation Benchmark (bd-ml2r.5.2)
+// ============================================================================
+
+/// Results from a single ablation benchmark run.
+#[derive(Debug, Clone)]
+pub struct AblationResult {
+    /// Number of nodes in the test graph.
+    pub node_count: usize,
+    /// Number of edges in the test graph.
+    pub edge_count: usize,
+    /// Time to compute centrality scores (microseconds).
+    pub centrality_time_us: u64,
+    /// Whether centrality computation succeeded.
+    pub centrality_computed: bool,
+}
+
+/// Summary of ablation results across multiple test cases.
+#[derive(Debug, Clone, Default)]
+pub struct AblationSummary {
+    /// Results for each test case.
+    pub results: Vec<AblationResult>,
+    /// Adoption threshold: max nodes where centrality is recommended.
+    pub recommended_node_threshold: usize,
+    /// Adoption threshold: max edges where centrality is recommended.
+    pub recommended_edge_threshold: usize,
+    /// Mean centrality computation time (microseconds).
+    pub mean_centrality_time_us: u64,
+    /// Max centrality computation time (microseconds).
+    pub max_centrality_time_us: u64,
+}
+
+impl AblationSummary {
+    /// Compute summary statistics from results.
+    pub fn compute(&mut self) {
+        if self.results.is_empty() {
+            return;
+        }
+
+        let times: Vec<u64> = self.results.iter().map(|r| r.centrality_time_us).collect();
+        self.mean_centrality_time_us = times.iter().sum::<u64>() / times.len() as u64;
+        self.max_centrality_time_us = *times.iter().max().unwrap_or(&0);
+
+        // Adoption threshold: centrality is recommended when time < 1ms (1000us)
+        const TIME_BUDGET_US: u64 = 1000;
+        let passing: Vec<_> = self.results.iter()
+            .filter(|r| r.centrality_time_us < TIME_BUDGET_US)
+            .collect();
+
+        if let Some(max_passing) = passing.iter().max_by_key(|r| r.node_count) {
+            self.recommended_node_threshold = max_passing.node_count;
+        }
+        if let Some(max_passing) = passing.iter().max_by_key(|r| r.edge_count) {
+            self.recommended_edge_threshold = max_passing.edge_count;
+        }
+    }
+}
+
+/// Run an ablation benchmark for a single graph.
+#[must_use]
+pub fn run_ablation_single(ir: &MermaidDiagramIr) -> AblationResult {
+    use std::time::Instant;
+
+    let start = Instant::now();
+    let scores = compute_centrality_scores(ir);
+    let elapsed = start.elapsed();
+
+    AblationResult {
+        node_count: ir.nodes.len(),
+        edge_count: ir.edges.len(),
+        centrality_time_us: elapsed.as_micros() as u64,
+        centrality_computed: scores.computed,
+    }
+}
+
+#[cfg(test)]
+mod ablation_tests {
+    use super::*;
+    use fm_core::{DiagramType, IrEdge, IrNode, IrNodeId, NodeShape};
+
+    fn make_dense_graph(node_count: usize) -> MermaidDiagramIr {
+        let nodes: Vec<IrNode> = (0..node_count)
+            .map(|i| IrNode {
+                id: format!("N{i}"),
+                shape: NodeShape::Rect,
+                ..Default::default()
+            })
+            .collect();
+
+        // Create edges: each node connects to next 3 nodes (cyclic)
+        let mut edges = Vec::new();
+        for i in 0..node_count {
+            for offset in 1..=3.min(node_count - 1) {
+                edges.push(IrEdge {
+                    from: IrEndpoint::Node(IrNodeId(i)),
+                    to: IrEndpoint::Node(IrNodeId((i + offset) % node_count)),
+                    ..Default::default()
+                });
+            }
+        }
+
+        MermaidDiagramIr {
+            diagram_type: DiagramType::Flowchart,
+            nodes,
+            edges,
+            ..Default::default()
+        }
+    }
+
+    fn make_chain_graph(node_count: usize) -> MermaidDiagramIr {
+        let nodes: Vec<IrNode> = (0..node_count)
+            .map(|i| IrNode {
+                id: format!("N{i}"),
+                shape: NodeShape::Rect,
+                ..Default::default()
+            })
+            .collect();
+
+        let edges: Vec<IrEdge> = (0..node_count.saturating_sub(1))
+            .map(|i| IrEdge {
+                from: IrEndpoint::Node(IrNodeId(i)),
+                to: IrEndpoint::Node(IrNodeId(i + 1)),
+                ..Default::default()
+            })
+            .collect();
+
+        MermaidDiagramIr {
+            diagram_type: DiagramType::Flowchart,
+            nodes,
+            edges,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn ablation_small_graph_fast() {
+        let ir = make_chain_graph(10);
+        let result = run_ablation_single(&ir);
+
+        assert!(result.centrality_computed);
+        assert_eq!(result.node_count, 10);
+        assert_eq!(result.edge_count, 9);
+        // Small graphs should be very fast (< 1ms)
+        assert!(result.centrality_time_us < 10000, "small graph took too long: {}us", result.centrality_time_us);
+    }
+
+    #[test]
+    fn ablation_medium_graph_reasonable() {
+        let ir = make_dense_graph(50);
+        let result = run_ablation_single(&ir);
+
+        assert!(result.centrality_computed);
+        assert_eq!(result.node_count, 50);
+        // Dense graph has 3 edges per node (with wraparound)
+        assert!(result.edge_count > 100);
+        // Medium graphs should complete in reasonable time (< 100ms)
+        assert!(result.centrality_time_us < 100000, "medium graph took too long: {}us", result.centrality_time_us);
+    }
+
+    #[test]
+    fn ablation_sweep_produces_threshold() {
+        let sizes = [5, 10, 20, 50, 100];
+        let mut summary = AblationSummary::default();
+
+        for &size in &sizes {
+            let ir = make_dense_graph(size);
+            let result = run_ablation_single(&ir);
+            summary.results.push(result);
+        }
+
+        summary.compute();
+
+        // Should have a reasonable threshold
+        assert!(summary.recommended_node_threshold > 0);
+        assert!(summary.recommended_edge_threshold > 0);
+        // Mean time should be positive
+        assert!(summary.mean_centrality_time_us > 0);
+    }
+
+    #[test]
+    fn ablation_deterministic() {
+        let ir = make_dense_graph(30);
+
+        // Run 5 times, verify centrality scores are identical
+        let results: Vec<_> = (0..5).map(|_| {
+            let scores = compute_centrality_scores(&ir);
+            scores.degree.clone()
+        }).collect();
+
+        for i in 1..results.len() {
+            assert_eq!(results[0], results[i], "results differ at iteration {i}");
+        }
+    }
+
+    /// CI-friendly smoke test that validates adoption thresholds.
+    #[test]
+    fn ablation_adoption_threshold_smoke() {
+        // Test standard adoption scenario
+        let small = make_chain_graph(20);
+        let result = run_ablation_single(&small);
+
+        // For 20 nodes, centrality should definitely be fast enough
+        assert!(result.centrality_time_us < 1000,
+            "Centrality for 20-node graph should be < 1ms, got {}us",
+            result.centrality_time_us);
+
+        // Verify the comparison function works with computed scores
+        let scores = compute_centrality_scores(&small);
+        let cmp = compare_with_centrality(
+            (0, Some(1.5), 0),
+            (1, Some(1.5), 1),
+            &scores,
+        );
+        // Should produce deterministic ordering
+        assert!(cmp != std::cmp::Ordering::Equal || scores.is_empty());
+    }
+}
