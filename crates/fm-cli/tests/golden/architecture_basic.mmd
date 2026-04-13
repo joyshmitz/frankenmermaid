@@ -1,0 +1,7 @@
+architecture-beta
+  service api(cloud)[API Gateway]
+  service db(database)[PostgreSQL]
+  service cache(server)[Redis Cache]
+
+  api --> db
+  api --> cache

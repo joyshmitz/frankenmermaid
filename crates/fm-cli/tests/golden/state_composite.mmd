@@ -1,0 +1,26 @@
+stateDiagram-v2
+  [*] --> Idle
+
+  state Processing {
+    [*] --> Validating
+    Validating --> Computing
+    Computing --> Formatting
+    Formatting --> [*]
+  }
+
+  Idle --> Processing : start
+  Processing --> Idle : complete
+  Processing --> Error : fail
+
+  state fork_state <<fork>>
+  state join_state <<join>>
+
+  Idle --> fork_state
+  fork_state --> TaskA
+  fork_state --> TaskB
+  TaskA --> join_state
+  TaskB --> join_state
+  join_state --> Complete
+
+  Error --> [*]
+  Complete --> [*]

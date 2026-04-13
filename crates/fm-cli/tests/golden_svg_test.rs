@@ -15,8 +15,10 @@ const CASE_IDS: &[&str] = &[
     "flowchart_cycle",
     "fuzzy_keyword_recovery",
     "sequence_basic",
+    "sequence_advanced",
     "class_basic",
     "state_basic",
+    "state_composite",
     "gantt_basic",
     "pie_basic",
     "malformed_recovery",
@@ -33,6 +35,12 @@ const CASE_IDS: &[&str] = &[
     "stress_120_nodes",
     "empty_diagram",
     "single_node",
+    "kanban_basic",
+    "packet_basic",
+    "architecture_basic",
+    "journey_basic",
+    "sankey_basic",
+    "block_basic",
 ];
 
 fn golden_dir() -> PathBuf {

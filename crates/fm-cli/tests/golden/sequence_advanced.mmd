@@ -1,0 +1,25 @@
+sequenceDiagram
+  participant C as Client
+  participant S as Server
+  participant D as Database
+
+  C->>S: POST /login
+  Note right of S: Validate credentials
+  S->>D: SELECT user WHERE email=?
+  D-->>S: User record
+
+  alt Valid credentials
+    S->>D: UPDATE last_login
+    D-->>S: OK
+    S-->>C: 200 JWT Token
+    Note over C,S: Session established
+  else Invalid credentials
+    S-->>C: 401 Unauthorized
+  end
+
+  C->>S: GET /profile
+  activate S
+  S->>D: SELECT profile
+  D-->>S: Profile data
+  deactivate S
+  S-->>C: 200 Profile JSON
