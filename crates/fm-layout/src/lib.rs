@@ -10446,6 +10446,7 @@ fn build_centrality_assist(_: &MermaidDiagramIr) -> CentralityAssist {
     CentralityAssist::Disabled
 }
 
+#[allow(unused_variables)] // centrality only used with fnx-integration feature
 fn reorder_rank_by_barycenter(
     ir: &MermaidDiagramIr,
     ranks: &BTreeMap<usize, usize>,
