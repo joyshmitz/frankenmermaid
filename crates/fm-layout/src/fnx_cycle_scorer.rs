@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use fm_core::{IrEndpoint, MermaidDiagramIr};
+use fm_core::{IrEndpoint, IrPort, MermaidDiagramIr};
 use fnx_algorithms::{
     articulation_points, bridges, degree_centrality, ArticulationPointsResult, BridgesResult,
     DegreeCentralityResult,
@@ -150,18 +150,23 @@ pub fn compute_criticality_scores(
     let bridge_set = build_bridge_set(&bridges_result, &table);
     let articulation_set = build_articulation_set(&articulation_result, &table);
     let centrality_map = build_centrality_map(&centrality_result, &table);
+    let pair_counts = build_edge_pair_counts(ir);
 
     // Score each edge
     for (edge_idx, edge) in ir.edges.iter().enumerate() {
-        let source_idx = endpoint_node_index(edge.from);
-        let target_idx = endpoint_node_index(edge.to);
+        let source_idx = endpoint_node_index(edge.from, &ir.ports);
+        let target_idx = endpoint_node_index(edge.to, &ir.ports);
 
         let (source_idx, target_idx) = match (source_idx, target_idx) {
             (Some(s), Some(t)) => (s, t),
             _ => continue, // Skip unresolved edges
         };
 
-        let is_bridge = bridge_set.contains(&(source_idx.min(target_idx), source_idx.max(target_idx)));
+        let pair = (source_idx.min(target_idx), source_idx.max(target_idx));
+        let multiplicity = pair_counts.get(&pair).copied().unwrap_or(1);
+        let is_bridge = source_idx != target_idx
+            && multiplicity == 1
+            && bridge_set.contains(&pair);
         let source_is_articulation = articulation_set.contains(&source_idx);
         let target_is_articulation = articulation_set.contains(&target_idx);
         let source_centrality = centrality_map.get(&source_idx).copied().unwrap_or(0.0);
@@ -198,12 +203,8 @@ pub fn compute_criticality_scores(
     results
 }
 
-fn endpoint_node_index(endpoint: IrEndpoint) -> Option<usize> {
-    match endpoint {
-        IrEndpoint::Node(id) => Some(id.0),
-        IrEndpoint::Port(id) => Some(id.0), // Port maps to its parent node
-        IrEndpoint::Unresolved => None,
-    }
+fn endpoint_node_index(endpoint: IrEndpoint, ports: &[IrPort]) -> Option<usize> {
+    endpoint.resolved_node_id(ports).map(|id| id.0)
 }
 
 fn build_bridge_set(
@@ -246,6 +247,21 @@ fn build_centrality_map(
         .collect()
 }
 
+fn build_edge_pair_counts(ir: &MermaidDiagramIr) -> BTreeMap<(usize, usize), usize> {
+    let mut counts = BTreeMap::new();
+    for edge in &ir.edges {
+        let Some(source_idx) = endpoint_node_index(edge.from, &ir.ports) else {
+            continue;
+        };
+        let Some(target_idx) = endpoint_node_index(edge.to, &ir.ports) else {
+            continue;
+        };
+        let pair = (source_idx.min(target_idx), source_idx.max(target_idx));
+        *counts.entry(pair).or_insert(0) += 1;
+    }
+    counts
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -253,7 +269,7 @@ fn build_centrality_map(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fm_core::{IrEdge, IrNode, IrNodeId, NodeShape};
+    use fm_core::{IrEdge, IrNode, IrNodeId, IrPort, IrPortId, NodeShape};
 
     fn make_chain_ir() -> MermaidDiagramIr {
         // A -> B -> C (chain, both edges are bridges)
@@ -332,6 +348,80 @@ mod tests {
         }
     }
 
+    fn make_parallel_edges_ir() -> MermaidDiagramIr {
+        MermaidDiagramIr {
+            nodes: vec![
+                IrNode {
+                    id: "A".to_string(),
+                    shape: NodeShape::Rect,
+                    ..Default::default()
+                },
+                IrNode {
+                    id: "B".to_string(),
+                    shape: NodeShape::Rect,
+                    ..Default::default()
+                },
+            ],
+            edges: vec![
+                IrEdge {
+                    from: IrEndpoint::Node(IrNodeId(0)),
+                    to: IrEndpoint::Node(IrNodeId(1)),
+                    ..Default::default()
+                },
+                IrEdge {
+                    from: IrEndpoint::Node(IrNodeId(0)),
+                    to: IrEndpoint::Node(IrNodeId(1)),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn make_port_ir() -> MermaidDiagramIr {
+        let mut ir = MermaidDiagramIr {
+            nodes: vec![
+                IrNode {
+                    id: "A".to_string(),
+                    shape: NodeShape::Rect,
+                    ..Default::default()
+                },
+                IrNode {
+                    id: "B".to_string(),
+                    shape: NodeShape::Rect,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        ir.ports = vec![
+            IrPort {
+                node: IrNodeId(0),
+                name: "p0".to_string(),
+                ..Default::default()
+            },
+            IrPort {
+                node: IrNodeId(1),
+                name: "p1".to_string(),
+                ..Default::default()
+            },
+            IrPort {
+                node: IrNodeId(0),
+                name: "p2".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        ir.edges = vec![IrEdge {
+            from: IrEndpoint::Port(IrPortId(2)),
+            to: IrEndpoint::Port(IrPortId(1)),
+            ..Default::default()
+        }];
+
+        ir
+    }
+
     #[test]
     fn empty_graph_returns_empty_scores() {
         let ir = MermaidDiagramIr::default();
@@ -359,6 +449,16 @@ mod tests {
     }
 
     #[test]
+    fn port_endpoints_resolve_to_parent_nodes() {
+        let ir = make_port_ir();
+        let config = CriticalityScoringConfig::default();
+        let results = compute_criticality_scores(&ir, &config);
+
+        let score = results.scores.get(&0).expect("edge score");
+        assert!(score.is_bridge, "edge between ports should be a bridge");
+    }
+
+    #[test]
     fn triangle_has_no_bridges() {
         let ir = make_triangle_ir();
         let config = CriticalityScoringConfig::default();
@@ -371,6 +471,18 @@ mod tests {
         for edge_idx in 0..3 {
             let score = results.scores.get(&edge_idx).expect("edge score");
             assert!(!score.is_bridge, "edge {edge_idx} should not be a bridge");
+        }
+    }
+
+    #[test]
+    fn parallel_edges_are_not_bridges() {
+        let ir = make_parallel_edges_ir();
+        let config = CriticalityScoringConfig::default();
+        let results = compute_criticality_scores(&ir, &config);
+
+        for edge_idx in 0..2 {
+            let score = results.scores.get(&edge_idx).expect("edge score");
+            assert!(!score.is_bridge, "parallel edge {edge_idx} should not be a bridge");
         }
     }
 
