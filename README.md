@@ -18,6 +18,8 @@ Terminal/web output from a single pipeline.
 
 **Live Demo:** <https://dicklesworthstone.github.io/frankenmermaid/>
 
+*80+ interactive examples, live editor, style studio, diagnostics panel, and determinism checker*
+
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/frankenmermaid/main/install.sh" | bash
 ```
