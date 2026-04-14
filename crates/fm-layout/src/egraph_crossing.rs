@@ -237,8 +237,6 @@ pub enum BudgetType {
     TimeLimit,
     /// Iteration count exceeded max_iterations.
     IterationLimit,
-    /// Saturation completed naturally (no budget exhausted).
-    Saturated,
 }
 
 /// Diagnostic information when a budget is exhausted.
@@ -291,8 +289,12 @@ impl SaturationConfig {
     /// - Iteration budget: 1000
     #[must_use]
     pub fn for_graph(node_count: usize, layer_count: usize) -> Self {
-        let node_limit = (50 * node_count * node_count).min(100_000);
-        let time_limit_ms = (10 * layer_count as u64).min(500);
+        // Use saturating arithmetic to prevent overflow for large graphs
+        let node_limit = 50_usize
+            .saturating_mul(node_count)
+            .saturating_mul(node_count)
+            .min(100_000);
+        let time_limit_ms = (10_u64.saturating_mul(layer_count as u64)).min(500);
         let iter_limit = 1000;
 
         tracing::debug!(
@@ -678,5 +680,82 @@ mod tests {
         assert_eq!(config.node_limit, 10_000);
         assert_eq!(config.iter_limit, 30);
         assert_eq!(config.time_limit_ms, 100);
+    }
+
+    #[test]
+    fn config_for_graph_uses_formula() {
+        // Small graph: 10 nodes, 5 layers
+        let config = SaturationConfig::for_graph(10, 5);
+        assert_eq!(config.node_limit, 50 * 10 * 10); // 5000
+        assert_eq!(config.time_limit_ms, 10 * 5); // 50
+        assert_eq!(config.iter_limit, 1000);
+    }
+
+    #[test]
+    fn config_for_graph_clamps_to_max() {
+        // Large graph: should hit caps
+        let config = SaturationConfig::for_graph(100, 100);
+        assert_eq!(config.node_limit, 100_000); // capped
+        assert_eq!(config.time_limit_ms, 500); // capped
+    }
+
+    #[test]
+    fn config_for_graph_handles_overflow() {
+        // Very large node count - should not overflow
+        let config = SaturationConfig::for_graph(100_000, 10);
+        assert_eq!(config.node_limit, 100_000); // saturates and clamps
+    }
+
+    #[test]
+    fn saturation_reports_node_limit_exhaustion() {
+        // Force node limit with very small budget
+        let initial = LayerOrdering::new(vec![0, 1, 2, 3, 4]);
+        let config = SaturationConfig {
+            node_limit: 10, // Very small - will be hit
+            iter_limit: 1000,
+            time_limit_ms: 10000,
+        };
+
+        let result = saturate_layer(&initial, &CrossingContext::default(), &config);
+
+        assert!(result.hit_limit);
+        assert!(result.budget_exhausted.is_some());
+        let exhausted = result.budget_exhausted.unwrap();
+        assert_eq!(exhausted.budget_type, BudgetType::NodeLimit);
+        assert_eq!(exhausted.limit, 10);
+    }
+
+    #[test]
+    fn saturation_reports_iteration_limit_exhaustion() {
+        // Force iteration limit
+        let initial = LayerOrdering::new(vec![0, 1, 2, 3]);
+        let config = SaturationConfig {
+            node_limit: 100_000,
+            iter_limit: 1, // Very small - will be hit
+            time_limit_ms: 10000,
+        };
+
+        let result = saturate_layer(&initial, &CrossingContext::default(), &config);
+
+        assert!(result.hit_limit);
+        assert!(result.budget_exhausted.is_some());
+        let exhausted = result.budget_exhausted.unwrap();
+        assert_eq!(exhausted.budget_type, BudgetType::IterationLimit);
+        assert_eq!(exhausted.limit, 1);
+    }
+
+    #[test]
+    fn config_interactive_is_conservative() {
+        let config = SaturationConfig::interactive();
+        assert!(config.node_limit <= 5_000);
+        assert!(config.iter_limit <= 20);
+        assert!(config.time_limit_ms <= 50);
+    }
+
+    #[test]
+    fn config_batch_is_permissive() {
+        let config = SaturationConfig::batch();
+        assert!(config.node_limit >= 100_000);
+        assert!(config.time_limit_ms >= 1000);
     }
 }
