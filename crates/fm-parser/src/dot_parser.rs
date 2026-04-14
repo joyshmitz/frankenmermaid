@@ -906,6 +906,52 @@ fn normalize_dot_body(body: &str) -> String {
     output
 }
 
+/// Split a string on whitespace while respecting quoted sections.
+///
+/// Handles both double and single quotes. Quoted strings are preserved intact.
+/// For example: `"node 1" B 'node 2'` → `["\"node 1\"", "B", "'node 2'"]`
+fn split_whitespace_respecting_quotes(input: &str) -> Vec<&str> {
+    let mut result = Vec::new();
+    let mut start = 0;
+    let mut in_quote: Option<char> = None;
+    let bytes = input.as_bytes();
+
+    for (i, &b) in bytes.iter().enumerate() {
+        let ch = b as char;
+
+        match in_quote {
+            Some(quote_char) => {
+                if ch == quote_char {
+                    in_quote = None;
+                }
+            }
+            None => {
+                if ch == '"' || ch == '\'' {
+                    in_quote = Some(ch);
+                } else if ch.is_ascii_whitespace() {
+                    if i > start {
+                        let token = &input[start..i];
+                        if !token.trim().is_empty() {
+                            result.push(token.trim());
+                        }
+                    }
+                    start = i + 1;
+                }
+            }
+        }
+    }
+
+    // Don't forget the last token
+    if start < input.len() {
+        let token = &input[start..];
+        if !token.trim().is_empty() {
+            result.push(token.trim());
+        }
+    }
+
+    result
+}
+
 /// Pre-expand DOT edge group syntax: `A -> {B C D}` → `A -> B; A -> C; A -> D`.
 /// This must run BEFORE `normalize_dot_body` which inserts semicolons around braces.
 fn expand_edge_groups(input: &str) -> String {
@@ -953,9 +999,9 @@ fn expand_edge_groups(input: &str) -> String {
 
         output.push_str(prefix);
 
-        // Extract group members.
+        // Extract group members (respecting quotes).
         let inner = rest[brace_start + 1..brace_end].trim();
-        let members: Vec<&str> = inner.split_whitespace().filter(|s| !s.is_empty()).collect();
+        let members = split_whitespace_respecting_quotes(inner);
 
         // Expand: emit "source -> member" for each member.
         if members.is_empty() {
@@ -1308,6 +1354,31 @@ fn dot_edge_group_expands_to_multiple_edges() {
     assert!(node_ids.contains(&"B"));
     assert!(node_ids.contains(&"C"));
     assert!(node_ids.contains(&"D"));
+}
+
+#[test]
+fn dot_edge_group_with_quoted_nodes() {
+    // Quoted nodes with spaces in edge groups
+    // Spaces are normalized to underscores by normalize_identifier()
+    let input = r#"digraph G { A -> {"node 1" "node 2"}; }"#;
+    let result = parse_dot(input);
+    let node_ids: Vec<&str> = result.ir.nodes.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(result.ir.edges.len(), 2, "Expected 2 edges, got {} with nodes {:?}", result.ir.edges.len(), node_ids);
+    assert!(node_ids.contains(&"A"), "Missing source node A, got: {:?}", node_ids);
+    // Spaces in quoted IDs are normalized to underscores
+    assert!(node_ids.contains(&"node_1"), "Missing 'node_1', got: {:?}", node_ids);
+    assert!(node_ids.contains(&"node_2"), "Missing 'node_2', got: {:?}", node_ids);
+}
+
+#[test]
+fn dot_edge_group_with_single_quoted_nodes() {
+    // Single-quoted nodes in edge groups should also work
+    let input = "digraph G { A -> {'node 1' 'node 2'}; }";
+    let result = parse_dot(input);
+    let node_ids: Vec<&str> = result.ir.nodes.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(result.ir.edges.len(), 2, "Expected 2 edges, got {} with nodes {:?}", result.ir.edges.len(), node_ids);
+    assert!(node_ids.contains(&"node_1"), "Missing 'node_1', got: {:?}", node_ids);
+    assert!(node_ids.contains(&"node_2"), "Missing 'node_2', got: {:?}", node_ids);
 }
 
 #[test]
