@@ -1795,6 +1795,11 @@ If fuzzy matching picked the wrong type, add the explicit keyword header (e.g., 
 - **WebGPU backend** is planned but not yet available. Canvas2D is the current web rendering path.
 - Some niche Mermaid syntax may parse with warnings rather than producing identical output to mermaid-js.
 
+## Documentation
+
+- **[FNX User Guide](docs/FNX_USER_GUIDE.md)** - When to use graph intelligence features, command-line examples, troubleshooting
+- **[FNX Integration Architecture](docs/FNX_INTEGRATION.md)** - Technical contract, feature flags, CI configuration
+
 ## FAQ
 
 ### Is this a fork of mermaid-js?

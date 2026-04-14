@@ -163,13 +163,12 @@ flowchart TD
 #[test]
 fn fnx_advisory_witness_has_required_fields() {
     let input = "flowchart LR\nA-->B-->C\n";
-    let output = run_cli(
-        &["render", "-", "--format", "svg", "--fnx-mode", "enabled", "--json"],
+    let (output, stdout) = run_cli_json(
+        &["render", "-", "--format", "svg", "--fnx-mode", "enabled"],
         input,
     );
     assert_success(&output, "fnx advisory render with json");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("should output JSON");
 
     let witness = json.get("fnx_witness").expect("fnx_witness should be present");
@@ -263,13 +262,12 @@ fn fnx_graceful_fallback_renders_when_analysis_skipped() {
 fn fnx_fallback_reports_reason_in_witness() {
     // Test that fallback reason is captured
     let input = "flowchart LR\nA-->B\n";
-    let output = run_cli(
-        &["render", "-", "--format", "svg", "--fnx-mode", "enabled", "--json", "--fnx-fallback", "graceful"],
+    let (output, stdout) = run_cli_json(
+        &["render", "-", "--format", "svg", "--fnx-mode", "enabled", "--fnx-fallback", "graceful"],
         input,
     );
     assert_success(&output, "fnx fallback with reason");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("should output JSON");
 
     let witness = json.get("fnx_witness");
@@ -392,11 +390,16 @@ fn mode_switch_produces_consistent_layout() {
     assert!(svg_disabled.contains("<svg"), "disabled mode should produce SVG");
     assert!(svg_enabled.contains("<svg"), "enabled mode should produce SVG");
 
-    // Both should have the same node count
+    // Both should have the same number of node group elements (class="fm-node")
+    // Note: FNX mode may add additional classes like fm-node-centrality-high,
+    // so we count the primary node class declaration specifically
+    let count_node_groups = |svg: &str| -> usize {
+        svg.matches(r#"class="fm-node"#).count()
+    };
     assert_eq!(
-        svg_disabled.matches("fm-node").count(),
-        svg_enabled.matches("fm-node").count(),
-        "node count should match across modes"
+        count_node_groups(&svg_disabled),
+        count_node_groups(&svg_enabled),
+        "node group count should match across modes"
     );
 }
 
