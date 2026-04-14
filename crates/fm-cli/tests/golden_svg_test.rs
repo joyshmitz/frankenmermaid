@@ -12,6 +12,7 @@ use std::time::Instant;
 const CASE_IDS: &[&str] = &[
     "dense_flowchart_stress",
     "flowchart_simple",
+    "flowchart_classdef",
     "flowchart_cycle",
     "cycle_braid",
     "cycle_feedback",
