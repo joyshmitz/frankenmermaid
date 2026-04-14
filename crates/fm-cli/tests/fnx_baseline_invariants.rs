@@ -308,16 +308,31 @@ fn fnx_off_baseline_hashes_stable_or_bless() {
     };
 
     let mut mismatches = Vec::new();
+    let mut new_cases = Vec::new();
 
     for (case_id, baseline) in &current_baselines {
-        if let Some(expected_hash) = expected.get(case_id) {
-            if &baseline.output_hash != expected_hash {
-                mismatches.push(format!(
-                    "{case_id}: expected {} got {}",
-                    expected_hash, baseline.output_hash
-                ));
+        match expected.get(case_id) {
+            Some(expected_hash) => {
+                if &baseline.output_hash != expected_hash {
+                    mismatches.push(format!(
+                        "{case_id}: expected {} got {}",
+                        expected_hash, baseline.output_hash
+                    ));
+                }
+            }
+            None => {
+                // New case not in blessed baselines
+                new_cases.push(case_id.clone());
             }
         }
+    }
+
+    if !new_cases.is_empty() {
+        eprintln!(
+            "Warning: {} new case(s) not in baselines: {:?}. Run BLESS_BASELINE=1 to add.",
+            new_cases.len(),
+            new_cases
+        );
     }
 
     assert!(

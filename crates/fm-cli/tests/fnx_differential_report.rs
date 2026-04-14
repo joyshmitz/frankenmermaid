@@ -709,41 +709,56 @@ fn differential_baselines_stable_or_bless() {
     };
 
     let mut mismatches = Vec::new();
+    let mut new_cases = Vec::new();
 
     for (case_id, report) in &current_reports {
-        if let Some(expected_entry) = expected.get(case_id) {
-            // Check gate status consistency
-            let expected_passes = expected_entry
-                .get("passes_gate")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
+        match expected.get(case_id) {
+            Some(expected_entry) => {
+                // Check gate status consistency
+                let expected_passes = expected_entry
+                    .get("passes_gate")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
 
-            if report.passes_gate != expected_passes {
-                mismatches.push(format!(
-                    "{case_id}: gate status changed from {} to {}",
-                    expected_passes, report.passes_gate
-                ));
-            }
-
-            // Check classification consistency
-            let expected_class = expected_entry
-                .get("overall_classification")
-                .and_then(|v| v.as_str())
-                .unwrap_or("neutral");
-            let current_class = format!("{}", report.overall_classification);
-
-            if current_class != expected_class {
-                // Allow neutral -> improvement transitions (not regressions)
-                if !(expected_class == "neutral"
-                    && current_class == "expected_improvement")
-                {
+                if report.passes_gate != expected_passes {
                     mismatches.push(format!(
-                        "{case_id}: classification changed from {} to {}",
-                        expected_class, current_class
+                        "{case_id}: gate status changed from {} to {}",
+                        expected_passes, report.passes_gate
                     ));
                 }
+
+                // Check classification consistency
+                let expected_class = expected_entry
+                    .get("overall_classification")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("neutral");
+                let current_class = format!("{}", report.overall_classification);
+
+                if current_class != expected_class {
+                    // Allow neutral -> improvement transitions (not regressions)
+                    if !(expected_class == "neutral"
+                        && current_class == "expected_improvement")
+                    {
+                        mismatches.push(format!(
+                            "{case_id}: classification changed from {} to {}",
+                            expected_class, current_class
+                        ));
+                    }
+                }
+            }
+            None => {
+                // New case not in blessed baselines
+                new_cases.push(case_id.clone());
             }
         }
+    }
+
+    if !new_cases.is_empty() {
+        eprintln!(
+            "Warning: {} new case(s) not in differential baselines: {:?}. Run BLESS_DIFFERENTIAL=1 to add.",
+            new_cases.len(),
+            new_cases
+        );
     }
 
     assert!(
