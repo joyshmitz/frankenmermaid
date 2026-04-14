@@ -13,6 +13,7 @@ pub mod fnx_budget;
 pub mod fnx_cache;
 #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
 pub mod fnx_cycle_scorer;
+pub mod fnx_directed;
 #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
 pub mod fnx_diagnostics;
 #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
