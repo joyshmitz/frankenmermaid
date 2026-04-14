@@ -225,10 +225,43 @@ fn parse_node_symbol(sym: &egg::Symbol) -> Option<usize> {
 }
 
 // ============================================================================
-// Saturation Entry Point
+// Budget and Configuration (bd-1xma.3)
 // ============================================================================
 
-/// Configuration for equality saturation.
+/// Type of budget that was exhausted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetType {
+    /// E-graph node count exceeded max_enodes.
+    NodeLimit,
+    /// Wall-clock time exceeded max_time.
+    TimeLimit,
+    /// Iteration count exceeded max_iterations.
+    IterationLimit,
+    /// Saturation completed naturally (no budget exhausted).
+    Saturated,
+}
+
+/// Diagnostic information when a budget is exhausted.
+#[derive(Debug, Clone)]
+pub struct BudgetExhausted {
+    /// Which budget type was exhausted.
+    pub budget_type: BudgetType,
+    /// Current value when budget fired.
+    pub value: u64,
+    /// Configured limit.
+    pub limit: u64,
+    /// Iterations completed before exhaustion.
+    pub iterations_completed: usize,
+    /// Best crossing count found so far.
+    pub best_cost: usize,
+}
+
+/// Configuration for equality saturation with budget guards.
+///
+/// Implements the budget model from §6.6.3:
+/// - Node budget: `min(100_000, 50 * |V|²)`
+/// - Time budget: `min(500ms, 10ms * |layers|)`
+/// - Iteration budget: 1000 rewrites
 #[derive(Debug, Clone)]
 pub struct SaturationConfig {
     /// Maximum number of e-graph nodes before stopping.
@@ -249,6 +282,56 @@ impl Default for SaturationConfig {
     }
 }
 
+impl SaturationConfig {
+    /// Compute budget limits based on graph properties.
+    ///
+    /// Uses the formulas from §6.6:
+    /// - Node budget: `min(100_000, 50 * node_count²)`
+    /// - Time budget: `min(500ms, 10ms * layer_count)`
+    /// - Iteration budget: 1000
+    #[must_use]
+    pub fn for_graph(node_count: usize, layer_count: usize) -> Self {
+        let node_limit = (50 * node_count * node_count).min(100_000);
+        let time_limit_ms = (10 * layer_count as u64).min(500);
+        let iter_limit = 1000;
+
+        tracing::debug!(
+            node_count,
+            layer_count,
+            node_limit,
+            time_limit_ms,
+            iter_limit,
+            "egraph.budget.computed"
+        );
+
+        Self {
+            node_limit,
+            iter_limit,
+            time_limit_ms,
+        }
+    }
+
+    /// Create conservative config for interactive use (small graphs).
+    #[must_use]
+    pub fn interactive() -> Self {
+        Self {
+            node_limit: 5_000,
+            iter_limit: 20,
+            time_limit_ms: 50,
+        }
+    }
+
+    /// Create permissive config for batch processing.
+    #[must_use]
+    pub fn batch() -> Self {
+        Self {
+            node_limit: 100_000,
+            iter_limit: 100,
+            time_limit_ms: 1000,
+        }
+    }
+}
+
 /// Result of equality saturation for a layer.
 #[derive(Debug, Clone)]
 pub struct SaturationResult {
@@ -262,6 +345,8 @@ pub struct SaturationResult {
     pub iterations: usize,
     /// Whether saturation hit a limit (vs. natural saturation).
     pub hit_limit: bool,
+    /// Details about budget exhaustion (if any).
+    pub budget_exhausted: Option<BudgetExhausted>,
 }
 
 /// Run equality saturation on a layer ordering.
@@ -294,14 +379,73 @@ pub fn saturate_layer(
 
     let egraph_nodes = runner.egraph.total_size();
     let iterations = runner.iterations.len();
-    let hit_limit = runner.stop_reason.as_ref().map_or(false, |r| {
-        matches!(
-            r,
-            egg::StopReason::NodeLimit(_)
-                | egg::StopReason::IterationLimit(_)
-                | egg::StopReason::TimeLimit(_)
-        )
-    });
+
+    // Determine budget exhaustion details
+    let (hit_limit, budget_exhausted) = match &runner.stop_reason {
+        Some(egg::StopReason::NodeLimit(n)) => {
+            tracing::warn!(
+                node_count = *n,
+                limit = config.node_limit,
+                iterations,
+                "egraph.budget.node_limit_exhausted"
+            );
+            (
+                true,
+                Some(BudgetExhausted {
+                    budget_type: BudgetType::NodeLimit,
+                    value: *n as u64,
+                    limit: config.node_limit as u64,
+                    iterations_completed: iterations,
+                    best_cost: 0, // Will be updated after extraction
+                }),
+            )
+        }
+        Some(egg::StopReason::IterationLimit(n)) => {
+            tracing::warn!(
+                iteration_count = *n,
+                limit = config.iter_limit,
+                "egraph.budget.iteration_limit_exhausted"
+            );
+            (
+                true,
+                Some(BudgetExhausted {
+                    budget_type: BudgetType::IterationLimit,
+                    value: *n as u64,
+                    limit: config.iter_limit as u64,
+                    iterations_completed: iterations,
+                    best_cost: 0,
+                }),
+            )
+        }
+        Some(egg::StopReason::TimeLimit(duration_secs)) => {
+            let elapsed_ms = (*duration_secs * 1000.0) as u64;
+            tracing::warn!(
+                elapsed_ms,
+                limit_ms = config.time_limit_ms,
+                iterations,
+                "egraph.budget.time_limit_exhausted"
+            );
+            (
+                true,
+                Some(BudgetExhausted {
+                    budget_type: BudgetType::TimeLimit,
+                    value: elapsed_ms,
+                    limit: config.time_limit_ms,
+                    iterations_completed: iterations,
+                    best_cost: 0,
+                }),
+            )
+        }
+        Some(egg::StopReason::Saturated) | None => {
+            tracing::debug!(
+                egraph_nodes,
+                iterations,
+                "egraph.saturation.completed_naturally"
+            );
+            (false, None)
+        }
+        Some(egg::StopReason::Other(_)) => (false, None),
+    };
 
     // Extract best ordering
     let root = runner.roots[0];
@@ -316,12 +460,19 @@ pub fn saturate_layer(
             (initial.clone(), crossings)
         });
 
+    // Update best_cost in budget_exhausted
+    let budget_exhausted = budget_exhausted.map(|mut b| {
+        b.best_cost = crossing_count;
+        b
+    });
+
     SaturationResult {
         ordering,
         crossing_count,
         egraph_nodes,
         iterations,
         hit_limit,
+        budget_exhausted,
     }
 }
 
