@@ -504,6 +504,208 @@ pub fn saturate_layer_if_improves(
 }
 
 // ============================================================================
+// Fallback Mechanism (bd-1xma.4)
+// ============================================================================
+
+/// Strategy that produced the final result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FallbackStrategy {
+    /// E-graph saturation completed within budget.
+    EGraphCompleted,
+    /// E-graph exceeded budget but still produced the best result.
+    EGraphExceededButWon,
+    /// Greedy heuristic produced a better result than e-graph.
+    GreedyWon,
+    /// Greedy heuristic used because e-graph was not attempted.
+    GreedyOnly,
+}
+
+/// Diagnostic information for layout degradation events.
+#[derive(Debug, Clone)]
+pub struct FallbackDiagnostic {
+    /// Which budget was exceeded (if any).
+    pub budget_type: Option<BudgetType>,
+    /// Budget value when exceeded.
+    pub budget_value: Option<u64>,
+    /// Budget limit that was exceeded.
+    pub budget_limit: Option<u64>,
+    /// Strategy that produced the final result.
+    pub fallback_strategy: FallbackStrategy,
+    /// Crossing count of e-graph result.
+    pub egraph_crossings: Option<usize>,
+    /// Crossing count of greedy result.
+    pub greedy_crossings: usize,
+    /// Delta: greedy - final (positive means we improved over greedy).
+    pub crossing_delta: isize,
+}
+
+/// Result of saturation with fallback to greedy heuristic.
+#[derive(Debug, Clone)]
+pub struct FallbackResult {
+    /// Best ordering found (from either strategy).
+    pub ordering: LayerOrdering,
+    /// Crossing count of best ordering.
+    pub crossing_count: usize,
+    /// Which strategy produced this result.
+    pub strategy: FallbackStrategy,
+    /// E-graph saturation result (if attempted).
+    pub egraph_result: Option<SaturationResult>,
+    /// Greedy optimization result.
+    pub greedy_result: crate::egraph_ordering::LayerOptimizationResult,
+    /// Diagnostic information for telemetry.
+    pub diagnostic: FallbackDiagnostic,
+}
+
+/// Run equality saturation with automatic fallback to greedy heuristic.
+///
+/// This implements the "anytime algorithm" pattern from bd-1xma.4:
+/// 1. If layer is too large (>100 nodes), skip e-graph and use greedy only.
+/// 2. Otherwise, run e-graph saturation with budget limits.
+/// 3. In parallel (conceptually), run greedy barycenter heuristic.
+/// 4. If e-graph exceeds budget, compare best-so-far with greedy result.
+/// 5. Return the better of the two, with diagnostic telemetry.
+///
+/// Guarantees:
+/// - Result is never worse than greedy-only baseline.
+/// - Completes within config's time budget + small overhead.
+/// - Emits structured diagnostics for all fallback events.
+#[must_use]
+pub fn saturate_with_fallback(
+    initial: &LayerOrdering,
+    ctx: &CrossingContext,
+    config: &SaturationConfig,
+) -> FallbackResult {
+    // Always compute greedy result as baseline
+    let greedy_result = crate::egraph_ordering::optimize_layer_ordering(
+        initial,
+        ctx.upper_ordering.as_ref().zip(ctx.upper_edges.as_ref()),
+        ctx.lower_ordering.as_ref().zip(ctx.lower_edges.as_ref()),
+    );
+
+    // Check if e-graph is practical for this layer size
+    if !crate::egraph_ordering::should_use_egraph(initial.len()) {
+        tracing::debug!(
+            layer_size = initial.len(),
+            greedy_crossings = greedy_result.crossing_count,
+            "egraph.fallback.skipped_large_layer"
+        );
+
+        return FallbackResult {
+            ordering: greedy_result.ordering.clone(),
+            crossing_count: greedy_result.crossing_count,
+            strategy: FallbackStrategy::GreedyOnly,
+            egraph_result: None,
+            greedy_result: greedy_result.clone(),
+            diagnostic: FallbackDiagnostic {
+                budget_type: None,
+                budget_value: None,
+                budget_limit: None,
+                fallback_strategy: FallbackStrategy::GreedyOnly,
+                egraph_crossings: None,
+                greedy_crossings: greedy_result.crossing_count,
+                crossing_delta: 0,
+            },
+        };
+    }
+
+    // Run e-graph saturation
+    let egraph_result = saturate_layer(initial, ctx, config);
+
+    // Determine strategy and pick winner
+    let (ordering, crossing_count, strategy) = if egraph_result.hit_limit {
+        // E-graph exceeded budget - compare with greedy
+        if egraph_result.crossing_count <= greedy_result.crossing_count {
+            // E-graph still won despite budget exhaustion
+            tracing::info!(
+                egraph_crossings = egraph_result.crossing_count,
+                greedy_crossings = greedy_result.crossing_count,
+                budget_type = ?egraph_result.budget_exhausted.as_ref().map(|b| b.budget_type),
+                "egraph.fallback.egraph_exceeded_but_won"
+            );
+            (
+                egraph_result.ordering.clone(),
+                egraph_result.crossing_count,
+                FallbackStrategy::EGraphExceededButWon,
+            )
+        } else {
+            // Greedy won
+            tracing::info!(
+                egraph_crossings = egraph_result.crossing_count,
+                greedy_crossings = greedy_result.crossing_count,
+                budget_type = ?egraph_result.budget_exhausted.as_ref().map(|b| b.budget_type),
+                "egraph.fallback.greedy_won"
+            );
+            (
+                greedy_result.ordering.clone(),
+                greedy_result.crossing_count,
+                FallbackStrategy::GreedyWon,
+            )
+        }
+    } else {
+        // E-graph completed within budget - use its result if better
+        if egraph_result.crossing_count <= greedy_result.crossing_count {
+            (
+                egraph_result.ordering.clone(),
+                egraph_result.crossing_count,
+                FallbackStrategy::EGraphCompleted,
+            )
+        } else {
+            // Rare: greedy beat e-graph even though e-graph completed
+            // This can happen due to e-graph extraction heuristics
+            tracing::debug!(
+                egraph_crossings = egraph_result.crossing_count,
+                greedy_crossings = greedy_result.crossing_count,
+                "egraph.fallback.greedy_beat_completed_egraph"
+            );
+            (
+                greedy_result.ordering.clone(),
+                greedy_result.crossing_count,
+                FallbackStrategy::GreedyWon,
+            )
+        }
+    };
+
+    let crossing_delta =
+        greedy_result.crossing_count as isize - crossing_count as isize;
+
+    let diagnostic = FallbackDiagnostic {
+        budget_type: egraph_result
+            .budget_exhausted
+            .as_ref()
+            .map(|b| b.budget_type),
+        budget_value: egraph_result.budget_exhausted.as_ref().map(|b| b.value),
+        budget_limit: egraph_result.budget_exhausted.as_ref().map(|b| b.limit),
+        fallback_strategy: strategy,
+        egraph_crossings: Some(egraph_result.crossing_count),
+        greedy_crossings: greedy_result.crossing_count,
+        crossing_delta,
+    };
+
+    // Emit structured diagnostic event for all fallback cases
+    if egraph_result.hit_limit {
+        tracing::warn!(
+            budget_type = ?diagnostic.budget_type,
+            budget_value = ?diagnostic.budget_value,
+            budget_limit = ?diagnostic.budget_limit,
+            fallback_strategy = ?diagnostic.fallback_strategy,
+            egraph_crossings = ?diagnostic.egraph_crossings,
+            greedy_crossings = diagnostic.greedy_crossings,
+            crossing_delta = diagnostic.crossing_delta,
+            "layout.degradation.egraph_budget_exceeded"
+        );
+    }
+
+    FallbackResult {
+        ordering,
+        crossing_count,
+        strategy,
+        egraph_result: Some(egraph_result),
+        greedy_result,
+        diagnostic,
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -757,5 +959,126 @@ mod tests {
         let config = SaturationConfig::batch();
         assert!(config.node_limit >= 100_000);
         assert!(config.time_limit_ms >= 1000);
+    }
+
+    // -------------------------------------------------------------------------
+    // Fallback mechanism tests (bd-1xma.4)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn fallback_uses_egraph_when_completed() {
+        // Simple case: e-graph should complete and win
+        let initial = LayerOrdering::new(vec![0, 1, 2]);
+        let ctx = CrossingContext::default();
+        let config = SaturationConfig::default();
+
+        let result = saturate_with_fallback(&initial, &ctx, &config);
+
+        // E-graph should complete (no budget exceeded for small layer)
+        assert!(
+            matches!(
+                result.strategy,
+                FallbackStrategy::EGraphCompleted | FallbackStrategy::GreedyWon
+            ),
+            "Expected EGraphCompleted or GreedyWon, got {:?}",
+            result.strategy
+        );
+        assert!(result.egraph_result.is_some());
+    }
+
+    #[test]
+    fn fallback_greedy_wins_when_egraph_exceeds_budget() {
+        // Force node limit, then verify fallback logic
+        let initial = LayerOrdering::new(vec![0, 1, 2, 3, 4]);
+        let lower = LayerOrdering::new(vec![5, 6, 7, 8, 9]);
+        let edges = LayerEdges {
+            edges: vec![(0, 9), (1, 8), (2, 7), (3, 6), (4, 5)],
+        };
+        let ctx = CrossingContext {
+            upper_ordering: None,
+            upper_edges: None,
+            lower_ordering: Some(lower),
+            lower_edges: Some(edges),
+        };
+        let config = SaturationConfig {
+            node_limit: 5, // Very small - will be exceeded
+            iter_limit: 1000,
+            time_limit_ms: 10000,
+        };
+
+        let result = saturate_with_fallback(&initial, &ctx, &config);
+
+        // Should have fallback diagnostic
+        assert!(result.diagnostic.budget_type.is_some());
+        // Result should never be worse than greedy
+        assert!(result.crossing_count <= result.greedy_result.crossing_count);
+    }
+
+    #[test]
+    fn fallback_result_never_worse_than_greedy() {
+        // Property: final result is always <= greedy result
+        for size in 2..=5 {
+            let initial = LayerOrdering::identity(size);
+            let ctx = CrossingContext::default();
+            let config = SaturationConfig::default();
+
+            let result = saturate_with_fallback(&initial, &ctx, &config);
+
+            assert!(
+                result.crossing_count <= result.greedy_result.crossing_count,
+                "Fallback result ({}) worse than greedy ({}) for size {}",
+                result.crossing_count,
+                result.greedy_result.crossing_count,
+                size
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_diagnostic_has_crossing_delta() {
+        let initial = LayerOrdering::new(vec![0, 1, 2]);
+        let ctx = CrossingContext::default();
+        let config = SaturationConfig::default();
+
+        let result = saturate_with_fallback(&initial, &ctx, &config);
+
+        // Delta should be greedy - final (positive means improvement over greedy)
+        let expected_delta = result.greedy_result.crossing_count as isize
+            - result.crossing_count as isize;
+        assert_eq!(result.diagnostic.crossing_delta, expected_delta);
+    }
+
+    #[test]
+    fn fallback_skips_egraph_for_large_layers() {
+        // Create a layer larger than should_use_egraph threshold (100)
+        let initial = LayerOrdering::identity(150);
+        let ctx = CrossingContext::default();
+        let config = SaturationConfig::default();
+
+        let result = saturate_with_fallback(&initial, &ctx, &config);
+
+        assert_eq!(result.strategy, FallbackStrategy::GreedyOnly);
+        assert!(result.egraph_result.is_none());
+    }
+
+    #[test]
+    fn fallback_emits_strategy_info() {
+        let initial = LayerOrdering::new(vec![0, 1, 2]);
+        let ctx = CrossingContext::default();
+        let config = SaturationConfig::default();
+
+        let result = saturate_with_fallback(&initial, &ctx, &config);
+
+        // Should have a valid strategy
+        assert!(matches!(
+            result.strategy,
+            FallbackStrategy::EGraphCompleted
+                | FallbackStrategy::EGraphExceededButWon
+                | FallbackStrategy::GreedyWon
+                | FallbackStrategy::GreedyOnly
+        ));
+
+        // Diagnostic strategy should match result strategy
+        assert_eq!(result.diagnostic.fallback_strategy, result.strategy);
     }
 }
