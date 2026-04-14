@@ -1037,7 +1037,7 @@ fn strip_html_tags(raw: &str) -> String {
 fn split_dot_by<'a>(line: &'a str, separator: &str) -> Vec<&'a str> {
     let mut parts = Vec::new();
     let mut current_start = 0;
-    let mut in_quote = false;
+    let mut in_quote: Option<char> = None;
     let mut escaped = false;
     let mut html_depth = 0_usize;
 
@@ -1047,17 +1047,17 @@ fn split_dot_by<'a>(line: &'a str, separator: &str) -> Vec<&'a str> {
     while i < chars.len() {
         let (byte_idx, c) = chars[i];
 
-        if in_quote {
+        if let Some(quote_char) = in_quote {
             if escaped {
                 escaped = false;
             } else if c == '\\' {
                 escaped = true;
-            } else if c == '"' {
-                in_quote = false;
+            } else if c == quote_char {
+                in_quote = None;
             }
         } else {
-            if c == '"' {
-                in_quote = true;
+            if c == '"' || c == '\'' {
+                in_quote = Some(c);
             } else if c == '<' {
                 html_depth = html_depth.saturating_add(1);
             } else if c == '>' {
@@ -1331,4 +1331,20 @@ fn extract_attribute_with_spaces() {
         extract_dot_attribute_raw(attr2, "shape"),
         Some("box".to_string())
     );
+}
+
+#[test]
+fn single_quoted_identifiers_with_semicolons() {
+    // Single-quoted identifiers containing semicolons should not be split
+    let input = "digraph G { 'foo;bar' -> B; }";
+    let result = parse_dot(input);
+    // Should have 2 nodes, not more (semicolon inside quotes should not split)
+    assert_eq!(
+        result.ir.nodes.len(),
+        2,
+        "expected 2 nodes, got {}: {:?}",
+        result.ir.nodes.len(),
+        result.ir.nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
+    );
+    assert_eq!(result.ir.edges.len(), 1, "expected 1 edge");
 }
