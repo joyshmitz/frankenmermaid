@@ -12598,6 +12598,85 @@ Rel_Back(db, app, "Responds")"#,
         );
     }
 
+    #[test]
+    fn classdef_empty_definition_is_valid() {
+        // Empty classDef (no properties) should still be valid and create a style_def
+        let parsed = parse_mermaid("flowchart LR\n  A --> B\n  classDef empty");
+        // Parser accepts empty classDef without error
+        assert!(!parsed.ir.has_errors(), "empty classDef should not cause parse errors");
+    }
+
+    #[test]
+    fn classdef_with_quoted_font_family() {
+        let parsed = parse_mermaid(
+            r#"flowchart LR
+  A[Node]
+  classDef fancy font-family:"Comic Sans MS, cursive",fill:#fff
+  class A fancy"#,
+        );
+        let node = parsed.ir.nodes.iter().find(|n| n.id == "A").unwrap();
+        let style = node
+            .inline_style
+            .as_ref()
+            .expect("node should have inline_style with quoted font-family");
+        // Quoted value should be preserved
+        assert!(
+            style.properties.get("font-family").is_some(),
+            "font-family should be parsed"
+        );
+    }
+
+    #[test]
+    fn multiple_classes_applied_to_node() {
+        let parsed = parse_mermaid(
+            "flowchart LR\n  A[Node]\n  classDef red fill:#f00\n  classDef bold font-weight:bold\n  class A red,bold",
+        );
+        let node = parsed.ir.nodes.iter().find(|n| n.id == "A").unwrap();
+        // Node should have both classes
+        assert!(
+            node.classes.contains(&"red".to_string()),
+            "node should have 'red' class"
+        );
+        assert!(
+            node.classes.contains(&"bold".to_string()),
+            "node should have 'bold' class"
+        );
+        // Inline style should merge properties from both classDefs
+        let style = node
+            .inline_style
+            .as_ref()
+            .expect("node should have merged inline_style");
+        assert_eq!(style.properties.get("fill").unwrap(), "#f00");
+        assert_eq!(style.properties.get("font-weight").unwrap(), "bold");
+    }
+
+    #[test]
+    fn classdef_applied_to_nonexistent_node_no_error() {
+        // Applying class to node that doesn't exist shouldn't cause a crash
+        // The parser may implicitly create the node when class directive references it
+        let parsed = parse_mermaid("flowchart LR\n  A --> B\n  classDef fancy fill:#f00\n  class Z fancy");
+        // Parse should succeed without panicking
+        assert!(!parsed.ir.has_errors(), "applying class to nonexistent node should not cause error");
+        // Z may be created as an implicit node or just ignored - either is acceptable
+    }
+
+    #[test]
+    fn classdef_via_inline_declaration() {
+        // Test applying classDef to node created inline (not via class directive)
+        let parsed = parse_mermaid("flowchart LR\n  A[Node] --> B\n  classDef urgent fill:#f00\n  class A urgent");
+        let node = parsed.ir.nodes.iter().find(|n| n.id == "A").unwrap();
+        assert!(
+            node.classes.contains(&"urgent".to_string()),
+            "class directive should add class to inline-declared node"
+        );
+        // Should have inline_style from classDef
+        let style = node
+            .inline_style
+            .as_ref()
+            .expect("node should have inline_style from classDef");
+        assert_eq!(style.properties.get("fill").unwrap(), "#f00");
+    }
+
     // ── Class diagram cardinality and namespace tests ─────────────────
 
     #[test]
