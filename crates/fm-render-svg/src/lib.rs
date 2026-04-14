@@ -12,6 +12,7 @@
 
 mod a11y;
 mod attributes;
+pub mod cga_transform;
 mod defs;
 mod document;
 mod element;

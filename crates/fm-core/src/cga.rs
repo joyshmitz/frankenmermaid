@@ -564,3 +564,341 @@ mod tests {
         assert!((m.a - deser.a).abs() < 1e-10);
     }
 }
+
+// ============================================================================
+// TransformStack - CGA-based transform stack for rendering pipelines
+// ============================================================================
+
+/// A transform stack that uses CGA rotor composition internally.
+///
+/// This provides efficient O(1) push/pop operations via rotor multiplication,
+/// and easy extraction of rotation angles for text counter-rotation.
+///
+/// # Example
+/// ```
+/// use fm_core::cga::TransformStack;
+///
+/// let mut stack = TransformStack::new();
+/// stack.push_translation(10.0, 20.0);
+/// stack.push_rotation(std::f64::consts::FRAC_PI_4);
+/// stack.push_scale(2.0);
+///
+/// // Get the composed affine matrix for rendering
+/// let matrix = stack.to_affine_matrix();
+///
+/// // Extract rotation for text counter-rotation
+/// let rotation_radians = stack.rotation_angle();
+/// ```
+#[derive(Debug, Clone)]
+pub struct TransformStack {
+    /// The composed rotor representing all transforms on the stack.
+    composed: Rotor,
+    /// Stack of individual rotors for pop support.
+    stack: Vec<Rotor>,
+}
+
+impl Default for TransformStack {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TransformStack {
+    /// Create a new empty transform stack (identity transform).
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            composed: Rotor::identity(),
+            stack: Vec::new(),
+        }
+    }
+
+    /// Push a translation transform onto the stack.
+    pub fn push_translation(&mut self, dx: f64, dy: f64) {
+        let rotor = Rotor::translation(dx, dy);
+        self.push_rotor(rotor);
+    }
+
+    /// Push a rotation transform onto the stack (angle in radians).
+    pub fn push_rotation(&mut self, angle: f64) {
+        let rotor = Rotor::rotation(angle);
+        self.push_rotor(rotor);
+    }
+
+    /// Push a uniform scale transform onto the stack.
+    pub fn push_scale(&mut self, factor: f64) {
+        let rotor = Rotor::scale(factor);
+        self.push_rotor(rotor);
+    }
+
+    /// Push a raw rotor onto the stack.
+    pub fn push_rotor(&mut self, rotor: Rotor) {
+        self.composed = self.composed.compose(rotor);
+        self.stack.push(rotor);
+    }
+
+    /// Push an affine matrix onto the stack (converted to rotor).
+    pub fn push_matrix(&mut self, matrix: AffineMatrix2D) {
+        let rotor = matrix.to_rotor();
+        self.push_rotor(rotor);
+    }
+
+    /// Pop the most recent transform from the stack.
+    ///
+    /// Returns `true` if a transform was popped, `false` if the stack was empty.
+    pub fn pop(&mut self) -> bool {
+        if let Some(rotor) = self.stack.pop() {
+            // Multiply by the reverse to undo the transform
+            self.composed = self.composed.compose(rotor.reverse());
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the current composed transform as an affine matrix.
+    #[must_use]
+    pub fn to_affine_matrix(&self) -> AffineMatrix2D {
+        self.composed.to_affine_matrix()
+    }
+
+    /// Get the current composed rotor.
+    #[must_use]
+    pub fn rotor(&self) -> Rotor {
+        self.composed
+    }
+
+    /// Extract the rotation angle (in radians) from the composed transform.
+    ///
+    /// This is useful for counter-rotating text in rotated diagrams.
+    #[must_use]
+    pub fn rotation_angle(&self) -> f64 {
+        // For a rotation rotor R = cos(θ/2) + sin(θ/2)·e12,
+        // the scalar is cos(θ/2) and e12 component is sin(θ/2).
+        let s = self.composed.components[0];
+        let e12 = self.composed.components[1];
+        2.0 * e12.atan2(s)
+    }
+
+    /// Get the translation component of the composed transform.
+    #[must_use]
+    pub fn translation(&self) -> (f64, f64) {
+        let e1p = self.composed.components[2];
+        let e1m = self.composed.components[3];
+        let e2p = self.composed.components[4];
+        let e2m = self.composed.components[5];
+        (e1p + e1m, e2p + e2m)
+    }
+
+    /// Get the scale factor of the composed transform.
+    #[must_use]
+    pub fn scale_factor(&self) -> f64 {
+        let epm = self.composed.components[6];
+        (epm * 2.0).exp()
+    }
+
+    /// Apply the composed transform to a 2D point.
+    #[must_use]
+    pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
+        self.composed.to_affine_matrix().apply(x, y)
+    }
+
+    /// Check if the transform stack is empty (identity).
+    #[must_use]
+    pub fn is_identity(&self) -> bool {
+        self.stack.is_empty()
+    }
+
+    /// Get the number of transforms on the stack.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.stack.len()
+    }
+
+    /// Check if the stack is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.stack.is_empty()
+    }
+
+    /// Reset the stack to identity.
+    pub fn reset(&mut self) {
+        self.composed = Rotor::identity();
+        self.stack.clear();
+    }
+
+    /// Convert to SVG transform attribute string.
+    #[must_use]
+    pub fn to_svg_transform(&self) -> String {
+        self.to_affine_matrix().to_svg_transform()
+    }
+}
+
+impl AffineMatrix2D {
+    /// Convert an affine matrix to a CGA rotor.
+    ///
+    /// This extracts rotation, scale, and translation components from the matrix
+    /// and composes them into a rotor.
+    #[must_use]
+    pub fn to_rotor(&self) -> Rotor {
+        // Extract rotation angle from matrix
+        let angle = self.c.atan2(self.a);
+
+        // Extract scale (assuming uniform scale for now)
+        let scale = (self.a * self.a + self.c * self.c).sqrt();
+
+        // Build composed rotor: first rotate, then scale, then translate
+        let r_rot = Rotor::rotation(angle);
+        let r_scale = if (scale - 1.0).abs() > 1e-10 {
+            Rotor::scale(scale)
+        } else {
+            Rotor::identity()
+        };
+        let r_trans = Rotor::translation(self.tx, self.ty);
+
+        // Compose: translate(scale(rotate(point)))
+        // In rotor composition: R_total = R_trans * R_scale * R_rot
+        r_trans.compose(r_scale.compose(r_rot))
+    }
+}
+
+#[cfg(test)]
+mod transform_stack_tests {
+    use super::*;
+
+    #[test]
+    fn transform_stack_identity() {
+        let stack = TransformStack::new();
+        let m = stack.to_affine_matrix();
+        assert!((m.a - 1.0).abs() < 1e-10);
+        assert!((m.d - 1.0).abs() < 1e-10);
+        assert!(m.tx.abs() < 1e-10);
+        assert!(m.ty.abs() < 1e-10);
+    }
+
+    #[test]
+    fn transform_stack_translation() {
+        let mut stack = TransformStack::new();
+        stack.push_translation(5.0, 7.0);
+        let (x, y) = stack.apply(0.0, 0.0);
+        assert!((x - 5.0).abs() < 1e-10);
+        assert!((y - 7.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn transform_stack_rotation_90() {
+        let mut stack = TransformStack::new();
+        stack.push_rotation(std::f64::consts::FRAC_PI_2);
+        let (x, y) = stack.apply(1.0, 0.0);
+        // Rotating (1,0) by 90° should give (0,1)
+        assert!(x.abs() < 1e-10, "x should be ~0, got {x}");
+        assert!((y - 1.0).abs() < 1e-10, "y should be ~1, got {y}");
+    }
+
+    #[test]
+    fn transform_stack_rotation_angle_extraction() {
+        let mut stack = TransformStack::new();
+        let angle = std::f64::consts::FRAC_PI_4;
+        stack.push_rotation(angle);
+        let extracted = stack.rotation_angle();
+        assert!(
+            (extracted - angle).abs() < 1e-10,
+            "extracted {extracted}, expected {angle}"
+        );
+    }
+
+    #[test]
+    fn transform_stack_pop() {
+        let mut stack = TransformStack::new();
+        stack.push_translation(10.0, 20.0);
+        assert_eq!(stack.len(), 1);
+
+        let popped = stack.pop();
+        assert!(popped);
+        assert_eq!(stack.len(), 0);
+
+        let m = stack.to_affine_matrix();
+        assert!((m.a - 1.0).abs() < 1e-10);
+        assert!(m.tx.abs() < 1e-10);
+    }
+
+    #[test]
+    fn transform_stack_composed_translations() {
+        let mut stack = TransformStack::new();
+        // Compose two translations
+        stack.push_translation(10.0, 0.0);
+        stack.push_translation(0.0, 5.0);
+
+        let (x, y) = stack.apply(0.0, 0.0);
+        assert!((x - 10.0).abs() < 1e-10, "x should be ~10, got {x}");
+        assert!((y - 5.0).abs() < 1e-10, "y should be ~5, got {y}");
+    }
+
+    #[test]
+    fn transform_stack_rotation_around_origin() {
+        // Rotate point (1, 0) by 90° around origin -> (0, 1)
+        let mut stack = TransformStack::new();
+        stack.push_rotation(std::f64::consts::FRAC_PI_2);
+        let (x, y) = stack.apply(1.0, 0.0);
+        assert!(x.abs() < 1e-10, "x should be ~0, got {x}");
+        assert!((y - 1.0).abs() < 1e-10, "y should be ~1, got {y}");
+    }
+
+    #[test]
+    fn transform_stack_reset() {
+        let mut stack = TransformStack::new();
+        stack.push_translation(100.0, 200.0);
+        stack.push_rotation(1.0);
+        stack.reset();
+
+        assert!(stack.is_empty());
+        let m = stack.to_affine_matrix();
+        assert!((m.a - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn transform_stack_to_svg() {
+        let mut stack = TransformStack::new();
+        stack.push_translation(10.0, 20.0);
+        let svg = stack.to_svg_transform();
+        assert!(svg.starts_with("matrix("));
+        assert!(svg.contains("10"));
+        assert!(svg.contains("20"));
+    }
+
+    #[test]
+    fn affine_to_rotor_roundtrip() {
+        let original = AffineMatrix2D::translation(5.0, 10.0);
+        let rotor = original.to_rotor();
+        let recovered = rotor.to_affine_matrix();
+        assert!(
+            (recovered.tx - 5.0).abs() < 1e-10,
+            "tx: {}",
+            recovered.tx
+        );
+        assert!(
+            (recovered.ty - 10.0).abs() < 1e-10,
+            "ty: {}",
+            recovered.ty
+        );
+    }
+
+    #[test]
+    fn affine_rotation_to_rotor_roundtrip() {
+        let original = AffineMatrix2D::rotation(std::f64::consts::FRAC_PI_3);
+        let rotor = original.to_rotor();
+        let recovered = rotor.to_affine_matrix();
+        assert!(
+            (recovered.a - original.a).abs() < 1e-10,
+            "a: {} vs {}",
+            recovered.a,
+            original.a
+        );
+        assert!(
+            (recovered.c - original.c).abs() < 1e-10,
+            "c: {} vs {}",
+            recovered.c,
+            original.c
+        );
+    }
+}
