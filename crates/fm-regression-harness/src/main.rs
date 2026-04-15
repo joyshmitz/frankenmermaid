@@ -27,6 +27,12 @@ struct Args {
     /// Exit with non-zero status on any mismatch.
     #[arg(long)]
     fail_on_mismatch: bool,
+    /// Print one-line summary to stdout (for CI logs).
+    #[arg(long)]
+    summary: bool,
+    /// Warn if any case exceeds this total pipeline time in ms.
+    #[arg(long)]
+    perf_threshold_ms: Option<u128>,
 }
 
 #[derive(Debug, Serialize)]
@@ -209,6 +215,58 @@ fn main() -> Result<()> {
         .context("write report.json")?;
     let report_html = render_report_html(&report);
     fs::write(run_dir.join("report.html"), report_html).context("write report.html")?;
+
+    // Check for performance regressions
+    let mut perf_warnings = Vec::new();
+    if let Some(threshold) = args.perf_threshold_ms {
+        for case in &report.cases {
+            let total_ms = case.parse_ms + case.layout_ms + case.render_ms;
+            if total_ms > threshold {
+                perf_warnings.push(format!(
+                    "{}: {}ms (threshold: {}ms)",
+                    case.case_id, total_ms, threshold
+                ));
+            }
+        }
+    }
+
+    // Print summary if requested
+    if args.summary {
+        let total_ms: u128 = report
+            .cases
+            .iter()
+            .map(|c| c.parse_ms + c.layout_ms + c.render_ms)
+            .sum();
+        let total_nodes: usize = report.cases.iter().map(|c| c.node_count).sum();
+        let total_edges: usize = report.cases.iter().map(|c| c.edge_count).sum();
+
+        let status_icon = if report.mismatched > 0 {
+            "FAIL"
+        } else if report.missing > 0 {
+            "WARN"
+        } else {
+            "PASS"
+        };
+
+        println!(
+            "[{}] {} cases: {} matched, {} mismatch, {} missing | {} nodes, {} edges | {}ms total",
+            status_icon,
+            report.total,
+            report.matched,
+            report.mismatched,
+            report.missing,
+            total_nodes,
+            total_edges,
+            total_ms
+        );
+
+        if !perf_warnings.is_empty() {
+            println!("Performance warnings:");
+            for warn in &perf_warnings {
+                println!("  - {}", warn);
+            }
+        }
+    }
 
     if args.fail_on_mismatch && report.mismatched > 0 {
         anyhow::bail!("{} mismatches detected", report.mismatched);
