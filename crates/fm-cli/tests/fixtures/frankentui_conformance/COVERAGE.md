@@ -16,7 +16,7 @@ This document tracks FrankenTUI/mermaid-js conformance test coverage for the fra
 | Diagram Type | Parser | Layout | Render | Test Cases | Status |
 |--------------|--------|--------|--------|------------|--------|
 | Flowchart | Yes | Yes | Yes | `flowchart_basic`, `click_link_tooltip`, `click_callback_tooltip` | Partial |
-| Sequence | Yes | Yes | Yes | `sequence_basic` | Basic |
+| Sequence | Yes | Yes | Yes | `sequence_basic`, `sequence_notes`, `sequence_fragments` | Partial |
 | Class | Yes | Yes | Yes | `class_inheritance` | Basic |
 | State | Yes | Yes | Yes | `state_transitions` | Basic |
 | ER | Yes | Yes | Yes | `er_relationships` | Basic |
@@ -49,7 +49,7 @@ This document tracks FrankenTUI/mermaid-js conformance test coverage for the fra
 | Decision nodes (rhombus) | Yes | `flowchart_basic` |
 | Click directives with URLs | Yes | `click_link_tooltip` |
 | Click callbacks | Yes | `click_callback_tooltip` |
-| Subgraphs | No | Pending |
+| Subgraphs | Yes | `flowchart_subgraph` |
 | Direction overrides | No | Pending |
 | linkStyle | No | Pending |
 | classDef | No | Pending |
@@ -59,9 +59,9 @@ This document tracks FrankenTUI/mermaid-js conformance test coverage for the fra
 |---------|--------|-------|
 | Participants | Yes | `sequence_basic` |
 | Messages (sync/async) | Yes | `sequence_basic` |
-| Notes | No | Pending |
+| Notes | Yes | `sequence_notes` |
 | Activations | No | Pending |
-| Fragments (loop/alt/opt) | No | Pending |
+| Fragments (loop/alt/opt) | Yes | `sequence_fragments` |
 | Box groups | No | Pending |
 
 ### Class
