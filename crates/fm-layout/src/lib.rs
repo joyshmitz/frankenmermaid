@@ -35,10 +35,10 @@ use fm_core::{
     DiagramType, GanttDate, GanttExclude, GanttTaskType, GraphDirection, IrEndpoint, IrGanttMeta,
     IrNode, IrXyChartMeta, IrXySeriesKind, MermaidComplexity, MermaidConfig, MermaidDecisionWeight,
     MermaidDiagramIr, MermaidGuardReport, MermaidLayoutDecisionAlternative,
-    MermaidLayoutDecisionLedger, MermaidLayoutDecisionRecord, MermaidPressureReport,
-    MermaidPressureTier, MermaidSourceMap, MermaidSourceMapEntry, MermaidSourceMapKind, Span,
-    mermaid_cluster_element_id, mermaid_edge_element_id, mermaid_node_element_id,
-    mermaid_node_element_id_with_variant,
+    MermaidLayoutDecisionExplanation, MermaidLayoutDecisionLedger, MermaidLayoutDecisionRecord,
+    MermaidObservabilityIds, MermaidPressureReport, MermaidPressureTier, MermaidSourceMap,
+    MermaidSourceMapEntry, MermaidSourceMapKind, Span, mermaid_cluster_element_id,
+    mermaid_edge_element_id, mermaid_node_element_id, mermaid_node_element_id_with_variant,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use good_lp::solvers::WithTimeLimit;
@@ -11865,11 +11865,51 @@ pub fn build_layout_decision_ledger(
     traced: &TracedLayout,
     guard_report: &MermaidGuardReport,
 ) -> MermaidLayoutDecisionLedger {
+    MermaidLayoutDecisionLedger {
+        entries: vec![build_layout_decision_record(
+            ir,
+            traced,
+            guard_report.observability.clone(),
+            guard_report.pressure.clone(),
+            guard_report.budget_broker.total_budget_ms,
+            guard_report.budget_broker.exhausted,
+        )],
+    }
+}
+
+#[must_use]
+pub fn build_layout_decision_explanation(
+    ir: &MermaidDiagramIr,
+    traced: &TracedLayout,
+    pressure: MermaidPressureReport,
+    budget_total_ms: u64,
+    budget_exhausted: bool,
+) -> MermaidLayoutDecisionExplanation {
+    build_layout_decision_record(
+        ir,
+        traced,
+        MermaidObservabilityIds::default(),
+        pressure,
+        budget_total_ms,
+        budget_exhausted,
+    )
+    .explanation()
+}
+
+#[allow(clippy::too_many_lines)]
+fn build_layout_decision_record(
+    ir: &MermaidDiagramIr,
+    traced: &TracedLayout,
+    observability: MermaidObservabilityIds,
+    pressure: MermaidPressureReport,
+    budget_total_ms: u64,
+    budget_exhausted: bool,
+) -> MermaidLayoutDecisionRecord {
     let dispatch = traced.trace.dispatch;
     let guard = traced.trace.guard;
     let metrics = GraphMetrics::from_ir(ir);
     let confidence_permille =
-        layout_decision_confidence_permille(dispatch, guard, metrics, guard_report.pressure.tier);
+        layout_decision_confidence_permille(dispatch, guard, metrics, pressure.tier);
 
     let alternatives = concrete_layout_algorithms()
         .into_iter()
@@ -11917,64 +11957,62 @@ pub fn build_layout_decision_ledger(
         ));
     }
 
-    MermaidLayoutDecisionLedger {
-        entries: vec![MermaidLayoutDecisionRecord {
-            kind: String::from("layout_decision"),
-            trace_id: guard_report.observability.trace_id,
-            decision_id: guard_report.observability.decision_id,
-            policy_id: guard_report.observability.policy_id.clone(),
-            schema_version: guard_report.observability.schema_version,
-            requested_algorithm: dispatch.requested.as_str().to_string(),
-            selected_algorithm: dispatch.selected.as_str().to_string(),
-            capability_unavailable: dispatch.capability_unavailable,
-            decision_mode: dispatch.decision_mode.to_string(),
-            dispatch_reason: dispatch.reason.to_string(),
-            guard_reason: guard.reason.to_string(),
-            fallback_applied: guard.fallback_applied,
-            confidence_permille,
-            selected_expected_loss_permille: dispatch.selected_expected_loss_permille,
-            node_count: traced.layout.nodes.len(),
-            edge_count: traced.layout.edges.len(),
-            crossing_count: traced.layout.stats.crossing_count,
-            reversed_edges: traced.layout.stats.reversed_edges,
-            estimated_layout_time_ms: guard.estimated_layout_time_ms,
-            estimated_layout_iterations: guard.estimated_layout_iterations,
-            estimated_route_ops: guard.estimated_route_ops,
-            pressure_source: guard_report.pressure.source,
-            pressure_tier: guard_report.pressure.tier,
-            budget_total_ms: guard_report.budget_broker.total_budget_ms,
-            budget_exhausted: guard_report.budget_broker.exhausted,
-            state_posterior: vec![
-                MermaidDecisionWeight {
-                    key: String::from("tree_like"),
-                    value_permille: u32::from(dispatch.posterior_tree_like_permille),
-                },
-                MermaidDecisionWeight {
-                    key: String::from("dense_graph"),
-                    value_permille: u32::from(dispatch.posterior_dense_graph_permille),
-                },
-                MermaidDecisionWeight {
-                    key: String::from("layered_general"),
-                    value_permille: u32::from(dispatch.posterior_layered_permille),
-                },
-            ],
-            expected_loss: vec![
-                MermaidDecisionWeight {
-                    key: String::from("sugiyama"),
-                    value_permille: dispatch.sugiyama_expected_loss_permille,
-                },
-                MermaidDecisionWeight {
-                    key: String::from("tree"),
-                    value_permille: dispatch.tree_expected_loss_permille,
-                },
-                MermaidDecisionWeight {
-                    key: String::from("force"),
-                    value_permille: dispatch.force_expected_loss_permille,
-                },
-            ],
-            alternatives,
-            notes,
-        }],
+    MermaidLayoutDecisionRecord {
+        kind: String::from("layout_decision"),
+        trace_id: observability.trace_id,
+        decision_id: observability.decision_id,
+        policy_id: observability.policy_id,
+        schema_version: observability.schema_version,
+        requested_algorithm: dispatch.requested.as_str().to_string(),
+        selected_algorithm: dispatch.selected.as_str().to_string(),
+        capability_unavailable: dispatch.capability_unavailable,
+        decision_mode: dispatch.decision_mode.to_string(),
+        dispatch_reason: dispatch.reason.to_string(),
+        guard_reason: guard.reason.to_string(),
+        fallback_applied: guard.fallback_applied,
+        confidence_permille,
+        selected_expected_loss_permille: dispatch.selected_expected_loss_permille,
+        node_count: traced.layout.nodes.len(),
+        edge_count: traced.layout.edges.len(),
+        crossing_count: traced.layout.stats.crossing_count,
+        reversed_edges: traced.layout.stats.reversed_edges,
+        estimated_layout_time_ms: guard.estimated_layout_time_ms,
+        estimated_layout_iterations: guard.estimated_layout_iterations,
+        estimated_route_ops: guard.estimated_route_ops,
+        pressure_source: pressure.source,
+        pressure_tier: pressure.tier,
+        budget_total_ms,
+        budget_exhausted,
+        state_posterior: vec![
+            MermaidDecisionWeight {
+                key: String::from("tree_like"),
+                value_permille: u32::from(dispatch.posterior_tree_like_permille),
+            },
+            MermaidDecisionWeight {
+                key: String::from("dense_graph"),
+                value_permille: u32::from(dispatch.posterior_dense_graph_permille),
+            },
+            MermaidDecisionWeight {
+                key: String::from("layered_general"),
+                value_permille: u32::from(dispatch.posterior_layered_permille),
+            },
+        ],
+        expected_loss: vec![
+            MermaidDecisionWeight {
+                key: String::from("sugiyama"),
+                value_permille: dispatch.sugiyama_expected_loss_permille,
+            },
+            MermaidDecisionWeight {
+                key: String::from("tree"),
+                value_permille: dispatch.tree_expected_loss_permille,
+            },
+            MermaidDecisionWeight {
+                key: String::from("force"),
+                value_permille: dispatch.force_expected_loss_permille,
+            },
+        ],
+        alternatives,
+        notes,
     }
 }
 
@@ -13597,6 +13635,21 @@ mod tests {
         assert_eq!(record.state_posterior.len(), 3);
         assert_eq!(record.expected_loss.len(), 3);
         assert!(record.alternatives.iter().any(|alt| alt.selected));
+        let explanation = ledger
+            .primary_explanation()
+            .expect("ledger should expose explanation");
+        assert_eq!(
+            explanation.level_0_traffic_light.status,
+            fm_core::MermaidDecisionTrafficLight::Green
+        );
+        assert!(
+            explanation
+                .level_1_plain_english
+                .summary
+                .contains(traced.trace.dispatch.selected.as_str())
+        );
+        assert_eq!(explanation.level_2_constraint_checks.checks.len(), 4);
+        assert_eq!(explanation.level_3_full_posterior.expected_loss.len(), 3);
 
         let jsonl = ledger.to_jsonl().expect("ledger should serialize");
         assert!(jsonl.contains("\"requested_algorithm\":\"auto\""));
