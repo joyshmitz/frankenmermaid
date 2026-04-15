@@ -217,5 +217,134 @@
         "Target"
       ]
     }
+  },
+  {
+    "id": "sequence_basic",
+    "description": "Sequence diagram with participants and message exchanges.",
+    "input_path": "fixtures/frankentui_conformance/sequence_basic.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:sequence_parser"
+    ],
+    "expected": {
+      "diagram_type": "sequence",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 2,
+        "edges": 4,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "Alice",
+        "Bob",
+        "Hello Bob",
+        "Hi Alice"
+      ]
+    }
+  },
+  {
+    "id": "class_inheritance",
+    "description": "Class diagram with inheritance relationships and members.",
+    "input_path": "fixtures/frankentui_conformance/class_inheritance.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:class_parser"
+    ],
+    "expected": {
+      "diagram_type": "class",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 3,
+        "edges": 2,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "Animal",
+        "Duck",
+        "Fish"
+      ]
+    }
+  },
+  {
+    "id": "state_transitions",
+    "description": "State diagram with transitions between states.",
+    "input_path": "fixtures/frankentui_conformance/state_transitions.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:state_parser"
+    ],
+    "expected": {
+      "diagram_type": "state",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 5,
+        "edges": 6,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "Still",
+        "Moving",
+        "Crash"
+      ]
+    }
+  },
+  {
+    "id": "er_relationships",
+    "description": "ER diagram with entities and relationships.",
+    "input_path": "fixtures/frankentui_conformance/er_relationships.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:er_parser"
+    ],
+    "expected": {
+      "diagram_type": "er",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 4,
+        "edges": 3,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "CUSTOMER",
+        "ORDER",
+        "LINE-ITEM",
+        "PRODUCT"
+      ]
+    }
+  },
+  {
+    "id": "gantt_project",
+    "description": "Gantt chart with tasks and dependencies.",
+    "input_path": "fixtures/frankentui_conformance/gantt_project.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:gantt_parser"
+    ],
+    "expected": {
+      "diagram_type": "gantt",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 4,
+        "edges": 3,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "Project Schedule",
+        "Research",
+        "Design",
+        "Implementation",
+        "Testing"
+      ]
+    }
   }
 ]
