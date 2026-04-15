@@ -658,5 +658,110 @@
         "organized in 6 groups"
       ]
     }
+  },
+  {
+    "id": "c4container_basic",
+    "description": "C4 Container diagram with system boundary and containers.",
+    "input_path": "fixtures/frankentui_conformance/c4container_basic.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:c4_parser"
+    ],
+    "expected": {
+      "diagram_type": "C4Container",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 4,
+        "edges": 3,
+        "clusters": 1,
+        "subgraphs": 1
+      },
+      "svg_contains": [
+        "User",
+        "Web App",
+        "API",
+        "Database"
+      ]
+    }
+  },
+  {
+    "id": "c4component_basic",
+    "description": "C4 Component diagram with container boundary and components.",
+    "input_path": "fixtures/frankentui_conformance/c4component_basic.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:c4_parser"
+    ],
+    "expected": {
+      "diagram_type": "C4Component",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 3,
+        "edges": 2,
+        "clusters": 1,
+        "subgraphs": 1
+      },
+      "svg_contains": [
+        "Controller",
+        "Service",
+        "Repository"
+      ]
+    }
+  },
+  {
+    "id": "c4dynamic_basic",
+    "description": "C4 Dynamic diagram with numbered interactions.",
+    "input_path": "fixtures/frankentui_conformance/c4dynamic_basic.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:c4_parser"
+    ],
+    "expected": {
+      "diagram_type": "C4Dynamic",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 3,
+        "edges": 3,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "User",
+        "Web App",
+        "API",
+        "Opens",
+        "Fetches"
+      ]
+    }
+  },
+  {
+    "id": "c4deployment_basic",
+    "description": "C4 Deployment diagram with deployment nodes and infrastructure.",
+    "input_path": "fixtures/frankentui_conformance/c4deployment_basic.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:c4_parser"
+    ],
+    "expected": {
+      "diagram_type": "C4Deployment",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 2,
+        "edges": 1,
+        "clusters": 3,
+        "subgraphs": 3
+      },
+      "svg_contains": [
+        "AWS",
+        "EC2",
+        "RDS",
+        "API Server",
+        "Database"
+      ]
+    }
   }
 ]
