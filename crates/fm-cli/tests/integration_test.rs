@@ -1096,6 +1096,7 @@ fn validate_diagnostics_out_writes_artifact_file() {
     assert!(artifact_json.get("valid").is_some());
     assert!(artifact_json.get("diagnostics").is_some());
     assert!(artifact_json.get("layout_decision_ledger").is_some());
+    assert!(artifact_json.get("layout_decision_explanation").is_some());
     assert!(artifact_json.get("layout_decision_ledger_jsonl").is_some());
 }
 
@@ -1167,6 +1168,15 @@ fn render_json_writes_artifact_and_stdout_metadata() {
     assert_eq!(
         json["layout_decision_ledger"]["entries"][0]["kind"],
         "layout_decision"
+    );
+    assert_eq!(
+        json["layout_decision_explanation"]["level0TrafficLight"]["status"],
+        "green"
+    );
+    assert!(
+        json["layout_decision_explanation"]["level1PlainEnglish"]["summary"]
+            .as_str()
+            .is_some_and(|value| value.contains("sugiyama"))
     );
     assert!(json["layout_decision_ledger_jsonl"].is_string());
     assert!(json["budget_total_ms"].is_u64());
@@ -1706,6 +1716,10 @@ fn validate_json_reports_source_span_counts() {
     assert_eq!(
         json["layout_decision_ledger"]["entries"][0]["kind"],
         "layout_decision"
+    );
+    assert_eq!(
+        json["layout_decision_explanation"]["level0TrafficLight"]["status"],
+        "green"
     );
     assert!(json["layout_decision_ledger_jsonl"].is_string());
     assert!(json["budget_total_ms"].is_u64());

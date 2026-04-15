@@ -9,14 +9,17 @@ use fm_core::MermaidGuardReport;
 use fm_core::capability_matrix;
 #[cfg(any(not(target_arch = "wasm32"), test))]
 use fm_core::mermaid_layout_guard_observability;
-use fm_core::{MermaidBudgetLedger, MermaidLinkMode, MermaidWasmPressureSignals};
+use fm_core::{
+    MermaidBudgetLedger, MermaidLayoutDecisionExplanation, MermaidLinkMode,
+    MermaidWasmPressureSignals,
+};
 #[cfg(any(not(target_arch = "wasm32"), test))]
 use fm_core::{MermaidSourceMap, MermaidSourceMapKind, Span};
 #[cfg(any(not(target_arch = "wasm32"), test))]
 use fm_layout::build_layout_guard_report_with_pressure;
 use fm_layout::{
-    LayoutConfig, LayoutGuardrails, TracedLayout, layout_diagram_traced,
-    layout_diagram_traced_with_config_and_guardrails,
+    LayoutConfig, LayoutGuardrails, TracedLayout, build_layout_decision_explanation,
+    layout_diagram_traced, layout_diagram_traced_with_config_and_guardrails,
 };
 use fm_parser::{apply_parse_lens_edit, build_parse_lens, detect_type_with_confidence, parse};
 use fm_render_canvas::CanvasRenderConfig;
@@ -48,6 +51,7 @@ pub struct WasmRenderOutput {
     pub policy_id: String,
     pub schema_version: String,
     pub guard: MermaidGuardReport,
+    pub layout_decision_explanation: MermaidLayoutDecisionExplanation,
     pub layout: LayoutRuntimeSummary,
     pub source_spans: Vec<SourceSpanRecord>,
     /// FNX analysis witness metadata for telemetry (optional, additive field).
@@ -211,6 +215,7 @@ struct PressureConfigOverrides {
 struct DiagramRenderOutput {
     renderer: RendererRuntimeSummary,
     guard: WasmGuardSummary,
+    layout_decision_explanation: MermaidLayoutDecisionExplanation,
     layout: LayoutRuntimeSummary,
     canvas: CanvasRenderSummary,
 }
@@ -222,11 +227,13 @@ impl DiagramRenderOutput {
         layout_config: &LayoutConfig,
         renderer: RendererRuntimeSummary,
         guard: WasmGuardSummary,
+        layout_decision_explanation: MermaidLayoutDecisionExplanation,
         canvas: &CanvasRenderResult,
     ) -> Self {
         Self {
             renderer,
             guard,
+            layout_decision_explanation,
             layout: LayoutRuntimeSummary::new(traced_layout, layout_config),
             canvas: CanvasRenderSummary::from(canvas),
         }
@@ -758,6 +765,13 @@ pub fn render(input: &str) -> WasmRenderOutput {
             .unwrap_or(u64::MAX),
     );
     guard.budget_broker = budget_broker;
+    let layout_decision_explanation = build_layout_decision_explanation(
+        &parsed.ir,
+        &traced_layout,
+        guard.pressure.clone(),
+        guard.budget_broker.total_budget_ms,
+        guard.budget_broker.exhausted,
+    );
 
     WasmRenderOutput {
         svg,
@@ -771,6 +785,7 @@ pub fn render(input: &str) -> WasmRenderOutput {
         policy_id: guard.observability.policy_id.to_string(),
         schema_version: guard.observability.schema_version.to_string(),
         guard,
+        layout_decision_explanation,
         layout: LayoutRuntimeSummary::new(&traced_layout, &layout_config),
         source_spans,
         fnx_witness: build_wasm_fnx_witness(),
@@ -1274,6 +1289,13 @@ impl Diagram {
             WEBGPU_RENDERER_IMPLEMENTED,
         );
         let guard = WasmGuardSummary::from_layout(&traced_layout, &pressure_report);
+        let layout_decision_explanation = build_layout_decision_explanation(
+            &parsed.ir,
+            &traced_layout,
+            pressure_report.clone(),
+            budget_broker.total_budget_ms,
+            budget_broker.exhausted,
+        );
         let render_start = Instant::now();
         let canvas_result = match renderer.actual {
             WebRendererKind::Canvas2d => {
@@ -1310,6 +1332,7 @@ impl Diagram {
             &layout_config,
             renderer.summary(),
             guard,
+            layout_decision_explanation,
             &canvas_result,
         );
         to_js_value(&output)
@@ -1463,6 +1486,20 @@ mod tests {
         );
         assert_eq!(output.guard.guard_reason.as_deref(), Some("within_budget"));
         assert_eq!(output.guard.pressure.tier, MermaidPressureTier::Unknown);
+        assert_eq!(
+            output
+                .layout_decision_explanation
+                .level_0_traffic_light
+                .status,
+            fm_core::MermaidDecisionTrafficLight::Green
+        );
+        assert!(
+            output
+                .layout_decision_explanation
+                .level_1_plain_english
+                .summary
+                .contains("sugiyama")
+        );
         assert_eq!(output.layout.cycle_strategy, "greedy");
         assert_eq!(output.layout.node_count, 2);
         assert_eq!(output.layout.edge_count, 1);

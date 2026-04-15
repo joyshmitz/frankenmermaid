@@ -36,9 +36,9 @@ use crossterm::terminal::{
 use crossterm::{execute, queue};
 use fm_core::{
     DiagramType, MermaidBudgetLedger, MermaidDiagramIr, MermaidGlyphMode,
-    MermaidLayoutDecisionLedger, MermaidLinkMode, MermaidNativePressureSignals, MermaidParseMode,
-    MermaidTier, StructuredDiagnostic, capability_matrix, capability_matrix_json_pretty,
-    mermaid_layout_guard_observability,
+    MermaidLayoutDecisionExplanation, MermaidLayoutDecisionLedger, MermaidLinkMode,
+    MermaidNativePressureSignals, MermaidParseMode, MermaidTier, StructuredDiagnostic,
+    capability_matrix, capability_matrix_json_pretty, mermaid_layout_guard_observability,
 };
 #[cfg(all(feature = "fnx-integration", not(target_arch = "wasm32")))]
 use fm_layout::fnx_diagnostics::{FnxAnalysisResults, FnxDiagnosticSeverity, analyze_structure};
@@ -658,6 +658,7 @@ struct RenderResult {
     policy_id: String,
     schema_version: String,
     layout_decision_ledger: MermaidLayoutDecisionLedger,
+    layout_decision_explanation: MermaidLayoutDecisionExplanation,
     layout_decision_ledger_jsonl: String,
     budget_total_ms: u64,
     parse_budget_ms: u64,
@@ -839,6 +840,7 @@ struct ValidateResult {
     policy_id: String,
     schema_version: String,
     layout_decision_ledger: MermaidLayoutDecisionLedger,
+    layout_decision_explanation: MermaidLayoutDecisionExplanation,
     layout_decision_ledger_jsonl: String,
     budget_total_ms: u64,
     parse_budget_ms: u64,
@@ -2038,6 +2040,9 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
         guard_report.budget_broker = budget_broker.clone();
         let layout_decision_ledger =
             build_layout_decision_ledger(&parsed.ir, &traced_layout, &guard_report);
+        let layout_decision_explanation = layout_decision_ledger
+            .primary_explanation()
+            .expect("layout decision ledger should contain a primary entry");
         let layout_decision_ledger_jsonl = layout_decision_ledger.to_jsonl()?;
         let fnx_witness = build_fnx_witness(
             &traced_layout,
@@ -2087,6 +2092,7 @@ fn render_source(source: &str, options: &RenderCommandOptions<'_>) -> Result<Ren
             policy_id: guard_report.observability.policy_id.to_string(),
             schema_version: guard_report.observability.schema_version.to_string(),
             layout_decision_ledger,
+            layout_decision_explanation,
             layout_decision_ledger_jsonl,
             budget_total_ms: budget_broker.total_budget_ms,
             parse_budget_ms: budget_broker.parse.allocated_ms,
@@ -3087,6 +3093,9 @@ fn cmd_validate(input: &str, options: ValidateCommandOptions<'_>) -> Result<()> 
     guard_report.budget_broker = budget_broker.clone();
     let layout_decision_ledger =
         build_layout_decision_ledger(&parsed.ir, &traced_layout, &guard_report);
+    let layout_decision_explanation = layout_decision_ledger
+        .primary_explanation()
+        .expect("layout decision ledger should contain a primary entry");
     let layout_decision_ledger_jsonl = layout_decision_ledger.to_jsonl()?;
 
     let mut diagnostics = collect_parse_diagnostics(&parsed);
@@ -3145,6 +3154,7 @@ fn cmd_validate(input: &str, options: ValidateCommandOptions<'_>) -> Result<()> 
         policy_id: guard_report.observability.policy_id.to_string(),
         schema_version: guard_report.observability.schema_version.to_string(),
         layout_decision_ledger,
+        layout_decision_explanation,
         layout_decision_ledger_jsonl,
         budget_total_ms: budget_broker.total_budget_ms,
         parse_budget_ms: budget_broker.parse.allocated_ms,

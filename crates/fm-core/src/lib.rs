@@ -3272,6 +3272,72 @@ pub struct MermaidDecisionWeight {
     pub value_permille: u32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MermaidDecisionTrafficLight {
+    Green,
+    Amber,
+    Red,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MermaidDecisionConstraintStatus {
+    Satisfied,
+    Relaxed,
+    Violated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidDecisionTrafficLightLevel {
+    pub status: MermaidDecisionTrafficLight,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidDecisionPlainEnglishLevel {
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidDecisionConstraintCheck {
+    pub key: String,
+    pub status: MermaidDecisionConstraintStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidDecisionConstraintLevel {
+    pub summary: String,
+    pub checks: Vec<MermaidDecisionConstraintCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidDecisionPosteriorLevel {
+    pub summary: String,
+    pub decision_mode: String,
+    pub confidence_permille: u16,
+    pub selected_expected_loss_permille: u32,
+    pub state_posterior: Vec<MermaidDecisionWeight>,
+    pub expected_loss: Vec<MermaidDecisionWeight>,
+    pub alternatives: Vec<MermaidLayoutDecisionAlternative>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MermaidLayoutDecisionExplanation {
+    pub level_0_traffic_light: MermaidDecisionTrafficLightLevel,
+    pub level_1_plain_english: MermaidDecisionPlainEnglishLevel,
+    pub level_2_constraint_checks: MermaidDecisionConstraintLevel,
+    pub level_3_full_posterior: MermaidDecisionPosteriorLevel,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MermaidLayoutDecisionRecord {
     pub kind: String,
@@ -3317,6 +3383,13 @@ impl MermaidLayoutDecisionLedger {
         self.entries.is_empty()
     }
 
+    #[must_use]
+    pub fn primary_explanation(&self) -> Option<MermaidLayoutDecisionExplanation> {
+        self.entries
+            .first()
+            .map(MermaidLayoutDecisionRecord::explanation)
+    }
+
     ///
     /// # Errors
     ///
@@ -3328,6 +3401,208 @@ impl MermaidLayoutDecisionLedger {
         }
         Ok(lines.join("\n"))
     }
+}
+
+impl MermaidLayoutDecisionRecord {
+    #[must_use]
+    pub fn explanation(&self) -> MermaidLayoutDecisionExplanation {
+        MermaidLayoutDecisionExplanation {
+            level_0_traffic_light: MermaidDecisionTrafficLightLevel {
+                status: self.traffic_light_status(),
+                summary: self.traffic_light_summary(),
+            },
+            level_1_plain_english: MermaidDecisionPlainEnglishLevel {
+                summary: self.plain_english_summary(),
+            },
+            level_2_constraint_checks: MermaidDecisionConstraintLevel {
+                summary: self.constraint_summary(),
+                checks: self.constraint_checks(),
+            },
+            level_3_full_posterior: MermaidDecisionPosteriorLevel {
+                summary: self.posterior_summary(),
+                decision_mode: self.decision_mode.clone(),
+                confidence_permille: self.confidence_permille,
+                selected_expected_loss_permille: self.selected_expected_loss_permille,
+                state_posterior: self.state_posterior.clone(),
+                expected_loss: self.expected_loss.clone(),
+                alternatives: self.alternatives.clone(),
+                notes: self.notes.clone(),
+            },
+        }
+    }
+
+    fn traffic_light_status(&self) -> MermaidDecisionTrafficLight {
+        if self.fallback_applied || self.capability_unavailable || self.budget_exhausted {
+            MermaidDecisionTrafficLight::Red
+        } else if self.confidence_permille < 700
+            || matches!(
+                self.pressure_tier,
+                MermaidPressureTier::Elevated
+                    | MermaidPressureTier::High
+                    | MermaidPressureTier::Critical
+            )
+        {
+            MermaidDecisionTrafficLight::Amber
+        } else {
+            MermaidDecisionTrafficLight::Green
+        }
+    }
+
+    fn traffic_light_summary(&self) -> String {
+        match self.traffic_light_status() {
+            MermaidDecisionTrafficLight::Green => format!(
+                "'{}' is a stable choice: no fallback was needed and guardrails stayed within budget.",
+                self.selected_algorithm
+            ),
+            MermaidDecisionTrafficLight::Amber => {
+                if self.confidence_permille < 700 {
+                    format!(
+                        "'{}' is plausible but not decisive: confidence is {} permille and operators should review the alternatives.",
+                        self.selected_algorithm, self.confidence_permille
+                    )
+                } else {
+                    format!(
+                        "'{}' was selected under {} runtime pressure, so the decision should be treated as cautious rather than final.",
+                        self.selected_algorithm,
+                        self.pressure_tier.as_str()
+                    )
+                }
+            }
+            MermaidDecisionTrafficLight::Red => {
+                if self.fallback_applied {
+                    format!(
+                        "Guardrails forced a fallback to '{}' because {}.",
+                        self.selected_algorithm,
+                        humanize_decision_text(&self.guard_reason)
+                    )
+                } else if self.capability_unavailable {
+                    format!(
+                        "The requested layout could not run on this diagram, so '{}' was substituted.",
+                        self.selected_algorithm
+                    )
+                } else {
+                    format!(
+                        "The budget envelope was exhausted, so '{}' should be treated as an emergency-safe decision.",
+                        self.selected_algorithm
+                    )
+                }
+            }
+        }
+    }
+
+    fn plain_english_summary(&self) -> String {
+        let dispatch_reason = humanize_decision_text(&self.dispatch_reason);
+        let guard_reason = humanize_decision_text(&self.guard_reason);
+        if self.requested_algorithm == "auto" {
+            format!(
+                "Auto layout chose '{}' because {}. The runtime guard finished with {}.",
+                self.selected_algorithm, dispatch_reason, guard_reason
+            )
+        } else if self.requested_algorithm == self.selected_algorithm {
+            format!(
+                "The requested '{}' layout was available for this diagram, so frankenmermaid kept it. The runtime guard finished with {}.",
+                self.selected_algorithm, guard_reason
+            )
+        } else {
+            format!(
+                "frankenmermaid switched from '{}' to '{}' because {}. The runtime guard finished with {}.",
+                self.requested_algorithm, self.selected_algorithm, dispatch_reason, guard_reason
+            )
+        }
+    }
+
+    fn constraint_summary(&self) -> String {
+        if self.fallback_applied || self.budget_exhausted {
+            String::from(
+                "One or more runtime constraints had to be relaxed to keep the render safe.",
+            )
+        } else {
+            String::from(
+                "The requested decision constraints were satisfied without a runtime fallback.",
+            )
+        }
+    }
+
+    fn constraint_checks(&self) -> Vec<MermaidDecisionConstraintCheck> {
+        let requested_algorithm_status = if self.requested_algorithm == self.selected_algorithm {
+            MermaidDecisionConstraintStatus::Satisfied
+        } else if self.capability_unavailable {
+            MermaidDecisionConstraintStatus::Violated
+        } else {
+            MermaidDecisionConstraintStatus::Relaxed
+        };
+        let budget_status = if self.budget_exhausted {
+            MermaidDecisionConstraintStatus::Violated
+        } else if self.fallback_applied {
+            MermaidDecisionConstraintStatus::Relaxed
+        } else {
+            MermaidDecisionConstraintStatus::Satisfied
+        };
+        let pressure_status = if matches!(
+            self.pressure_tier,
+            MermaidPressureTier::High | MermaidPressureTier::Critical
+        ) {
+            MermaidDecisionConstraintStatus::Relaxed
+        } else {
+            MermaidDecisionConstraintStatus::Satisfied
+        };
+        let confidence_status = if self.confidence_permille >= 700 {
+            MermaidDecisionConstraintStatus::Satisfied
+        } else {
+            MermaidDecisionConstraintStatus::Relaxed
+        };
+
+        vec![
+            MermaidDecisionConstraintCheck {
+                key: String::from("requested_algorithm"),
+                status: requested_algorithm_status,
+                detail: format!(
+                    "requested '{}', selected '{}'",
+                    self.requested_algorithm, self.selected_algorithm
+                ),
+            },
+            MermaidDecisionConstraintCheck {
+                key: String::from("runtime_budget"),
+                status: budget_status,
+                detail: format!(
+                    "guard reason '{}' with budget exhausted={}",
+                    humanize_decision_text(&self.guard_reason),
+                    self.budget_exhausted
+                ),
+            },
+            MermaidDecisionConstraintCheck {
+                key: String::from("pressure_tier"),
+                status: pressure_status,
+                detail: format!(
+                    "pressure source '{}' reported tier '{}'",
+                    self.pressure_source.as_str(),
+                    self.pressure_tier.as_str()
+                ),
+            },
+            MermaidDecisionConstraintCheck {
+                key: String::from("confidence"),
+                status: confidence_status,
+                detail: format!(
+                    "selector confidence={} permille; selected expected loss={} permille",
+                    self.confidence_permille, self.selected_expected_loss_permille
+                ),
+            },
+        ]
+    }
+
+    fn posterior_summary(&self) -> String {
+        format!(
+            "'{}' won in {} with confidence {} permille and expected loss {} permille.",
+            self.selected_algorithm,
+            humanize_decision_text(&self.decision_mode),
+            self.confidence_permille,
+            self.selected_expected_loss_permille
+        )
+    }
+}
+
+fn humanize_decision_text(value: &str) -> String {
+    value.replace('_', " ")
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
