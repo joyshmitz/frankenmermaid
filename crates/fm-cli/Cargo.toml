@@ -1,11 +1,20 @@
 [package]
-name = "fm-cli"
+name = "frankenmermaid-cli"
+description = "CLI tool for parsing, validating, and rendering Mermaid diagrams"
+keywords = ["cli", "mermaid", "diagram", "svg", "render"]
+categories = ["command-line-utilities", "visualization"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "FrankenMermaid CLI - render and validate Mermaid diagrams"
+repository.workspace = true
+homepage.workspace = true
 
+[[bin]]
+name = "frankenmermaid"
+path = "src/main.rs"
+
+# Keep fm-cli as alias for backwards compatibility during transition
 [[bin]]
 name = "fm-cli"
 path = "src/main.rs"

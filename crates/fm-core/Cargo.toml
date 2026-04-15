@@ -1,9 +1,14 @@
 [package]
 name = "fm-core"
+description = "Core IR types, configuration, and diagnostics for FrankenMermaid diagram engine"
+keywords = ["mermaid", "diagram", "ir", "ast", "graphics"]
+categories = ["data-structures", "visualization"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 franken-kernel.workspace = true

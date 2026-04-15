@@ -578,34 +578,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 
 [[package]]
-name = "fm-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "criterion",
- "crossterm",
- "fm-core",
- "fm-layout",
- "fm-parser",
- "fm-render-svg",
- "fm-render-term",
- "notify",
- "resvg",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "time",
- "tiny_http",
- "toml",
- "tracing",
- "tracing-subscriber",
- "usvg",
-]
-
-[[package]]
 name = "fm-core"
 version = "0.1.0"
 dependencies = [
@@ -765,6 +737,34 @@ version = "0.2.9"
 source = "git+https://github.com/Dicklesworthstone/asupersync.git?rev=bda8035a6e07ce7343f0241cc878bd84174c16f4#bda8035a6e07ce7343f0241cc878bd84174c16f4"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "frankenmermaid-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "criterion",
+ "crossterm",
+ "fm-core",
+ "fm-layout",
+ "fm-parser",
+ "fm-render-svg",
+ "fm-render-term",
+ "notify",
+ "resvg",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "time",
+ "tiny_http",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "usvg",
 ]
 
 [[package]]

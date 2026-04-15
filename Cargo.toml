@@ -18,6 +18,8 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.95"
+repository = "https://github.com/Dicklesworthstone/frankenmermaid"
+homepage = "https://github.com/Dicklesworthstone/frankenmermaid"
 
 [workspace.dependencies]
 fm-core = { path = "crates/fm-core" }

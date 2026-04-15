@@ -1,9 +1,14 @@
 [package]
 name = "fm-render-canvas"
+description = "HTML5 Canvas renderer for FrankenMermaid diagram IR"
+keywords = ["canvas", "render", "diagram", "mermaid", "wasm"]
+categories = ["wasm", "visualization"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 fm-core.workspace = true
