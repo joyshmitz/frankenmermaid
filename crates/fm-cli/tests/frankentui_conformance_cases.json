@@ -346,5 +346,139 @@
         "Testing"
       ]
     }
+  },
+  {
+    "id": "pie_chart",
+    "description": "Pie chart with labeled slices and values.",
+    "input_path": "fixtures/frankentui_conformance/pie_chart.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:pie_parser"
+    ],
+    "expected": {
+      "diagram_type": "pie",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 3,
+        "edges": 0,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "Pets adopted",
+        "Dogs",
+        "Cats",
+        "Rats"
+      ]
+    }
+  },
+  {
+    "id": "mindmap_basic",
+    "description": "Mindmap with root topic and branches.",
+    "input_path": "fixtures/frankentui_conformance/mindmap_basic.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:mindmap_parser"
+    ],
+    "expected": {
+      "diagram_type": "mindmap",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 6,
+        "edges": 5,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "Main Topic",
+        "Branch1",
+        "Branch2",
+        "Leaf1",
+        "Leaf2",
+        "Leaf3"
+      ]
+    }
+  },
+  {
+    "id": "journey_user",
+    "description": "User journey diagram with sections and tasks.",
+    "input_path": "fixtures/frankentui_conformance/journey_user.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:journey_parser"
+    ],
+    "expected": {
+      "diagram_type": "journey",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 3,
+        "edges": 2,
+        "clusters": 2,
+        "subgraphs": 2
+      },
+      "svg_contains": [
+        "My working day",
+        "Go to work",
+        "At work",
+        "Make tea",
+        "Sit down"
+      ]
+    }
+  },
+  {
+    "id": "timeline_events",
+    "description": "Timeline diagram with dated events.",
+    "input_path": "fixtures/frankentui_conformance/timeline_events.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:timeline_parser"
+    ],
+    "expected": {
+      "diagram_type": "timeline",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 6,
+        "edges": 5,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "History of major events",
+        "2020",
+        "2021",
+        "2022",
+        "COVID-19",
+        "Vaccines"
+      ]
+    }
+  },
+  {
+    "id": "gitgraph_basic",
+    "description": "GitGraph diagram with commits, branches and merges.",
+    "input_path": "fixtures/frankentui_conformance/gitgraph_basic.mmd",
+    "source_refs": [
+      "/dp/frankentui/crates/ftui-extras/src/mermaid.rs:gitgraph_parser"
+    ],
+    "expected": {
+      "diagram_type": "gitGraph",
+      "warnings": {
+        "exact_count": 0
+      },
+      "counts": {
+        "nodes": 6,
+        "edges": 6,
+        "clusters": 0,
+        "subgraphs": 0
+      },
+      "svg_contains": [
+        "commit_1",
+        "commit_2",
+        "merge develop"
+      ]
+    }
   }
 ]
