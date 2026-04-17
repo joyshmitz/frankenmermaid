@@ -110,3 +110,6 @@ cursor.mcp.json
 gemini.mcp.json
 opencode.json
 windsurf.mcp.json
+
+# Local read-only legacy reference clone (standalone git checkout, not a submodule)
+legacy_mermaid_code/
